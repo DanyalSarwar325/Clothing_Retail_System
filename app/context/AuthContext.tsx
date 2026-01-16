@@ -17,7 +17,7 @@ type UserRole =
 
 // Role-based access configuration (duplicated for client-side use)
 const ROLE_ROUTES: Record<UserRole, string[]> = {
-  admin: ["/", "/cutting", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates", "/payments"],
+  admin: ["/", "/cutting", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates", "/payments", "/job-costing"],
   cutting: ["/cutting", "/print-barcodes"],
   sewing: ["/sewing"],
   quality: ["/quality"],

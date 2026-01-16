@@ -11,7 +11,7 @@ const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout", "/api/aut
 
 // Role-based access configuration
 const ROLE_ROUTES: Record<string, string[]> = {
-  admin: ["/", "/cutting", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates", "/payments", "/api"],
+  admin: ["/", "/cutting", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates", "/payments", "/job-costing", "/api"],
   cutting: ["/cutting", "/print-barcodes", "/api"],
   sewing: ["/sewing", "/api"],
   quality: ["/quality", "/api"],

@@ -155,27 +155,27 @@ export default function PaymentsPage() {
     <div className="flex min-h-screen bg-gray-100">
       <Sidebar active={active} setActive={() => {}} />
 
-      <div className="ml-64 w-full">
-        <header className="bg-white border-b px-8 py-4 flex items-center justify-between">
+      <div className="w-full lg:ml-64">
+        <header className="bg-white border-b px-4 sm:px-8 py-4 pt-16 lg:pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white">
               <Wallet size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Payments</h1>
-              <p className="text-sm text-gray-500">Record payouts and track per-department balances</p>
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900">Payments</h1>
+              <p className="text-xs sm:text-sm text-gray-500">Record payouts and track per-department balances</p>
             </div>
           </div>
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition self-start sm:self-auto"
           >
             <LogOut size={18} />
             Logout
           </button>
         </header>
 
-        <div className="p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -206,7 +206,7 @@ export default function PaymentsPage() {
               </div>
             )}
 
-            <form className="grid grid-cols-1 md:grid-cols-3 gap-4" onSubmit={handleSubmit}>
+            <form className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" onSubmit={handleSubmit}>
               <div className="flex flex-col">
                 <label className="text-sm text-gray-600 mb-1">Department</label>
                 <select
@@ -237,7 +237,7 @@ export default function PaymentsPage() {
                 />
               </div>
 
-              <div className="flex flex-col md:col-span-1">
+              <div className="flex flex-col sm:col-span-2 md:col-span-1">
                 <label className="text-sm text-gray-600 mb-1">Note (optional)</label>
                 <input
                   type="text"
@@ -248,11 +248,11 @@ export default function PaymentsPage() {
                 />
               </div>
 
-              <div className="md:col-span-3">
+              <div className="sm:col-span-2 md:col-span-3">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="w-full md:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
+                  className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
                 >
                   {saving ? "Saving..." : "Record Payment"}
                 </button>

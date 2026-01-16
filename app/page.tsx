@@ -176,16 +176,16 @@ export default function AdminDashboard() {
     <div className="flex min-h-screen bg-gray-100">
       <Sidebar active="" setActive={() => {}} />
 
-      <div className="ml-64 w-full">
+      <div className="w-full lg:ml-64">
         {/* Header */}
-        <header className="bg-white border-b px-8 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600">Welcome back, {user.name}</p>
+        <header className="bg-white border-b px-4 sm:px-8 py-6 pt-16 lg:pt-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+          <p className="text-gray-600 text-sm sm:text-base">Welcome back, {user.name}</p>
         </header>
 
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
             <StatCard
               icon={<Layers className="text-blue-600" size={24} />}
               title="Total Designs"
@@ -217,19 +217,19 @@ export default function AdminDashboard() {
           </div>
 
           {/* Department Overview */}
-          <div className="bg-white rounded-xl shadow-sm p-6 mb-8">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 mb-6 sm:mb-8">
             <h2 className="text-lg font-semibold mb-4">Products by Department</h2>
-            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-4">
+            <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2 sm:gap-4">
               {DEPARTMENTS.map((dept) => (
                 <div key={dept.key} className="text-center">
                   <div
-                    className={`w-12 h-12 ${dept.color} rounded-lg flex items-center justify-center mx-auto mb-2`}
+                    className={`w-10 h-10 sm:w-12 sm:h-12 ${dept.color} rounded-lg flex items-center justify-center mx-auto mb-2`}
                   >
-                    <span className="text-white font-bold">
+                    <span className="text-white font-bold text-sm sm:text-base">
                       {stats?.byDepartment[dept.key as keyof DepartmentCounts] || 0}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600">{dept.label}</p>
+                  <p className="text-xs text-gray-600 truncate">{dept.label}</p>
                 </div>
               ))}
             </div>
@@ -237,8 +237,8 @@ export default function AdminDashboard() {
 
           {/* Designs List */}
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b">
-              <div className="flex items-center justify-between">
+            <div className="p-4 sm:p-6 border-b">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="text-lg font-semibold">All Designs</h2>
                 <div className="relative">
                   <Search
@@ -250,7 +250,7 @@ export default function AdminDashboard() {
                     placeholder="Search designs..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full sm:w-auto pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   />
                 </div>
               </div>
@@ -266,28 +266,27 @@ export default function AdminDashboard() {
                   <div key={design.name}>
                     {/* Design Row */}
                     <div
-                      className="p-4 hover:bg-gray-50 cursor-pointer"
+                      className="p-3 sm:p-4 hover:bg-gray-50 cursor-pointer"
                       onClick={() => fetchDesignDetails(design.name)}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                            <span className="text-white font-bold text-lg">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <span className="text-white font-bold text-base sm:text-lg">
                               {design.name.charAt(0).toUpperCase()}
                             </span>
                           </div>
-                          <div>
-                            <h3 className="font-semibold text-gray-900">{design.name}</h3>
-                            <p className="text-sm text-gray-500">
-                              {design.totalItems} items • Created{" "}
-                              {new Date(design.createdAt).toLocaleDateString()}
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-gray-900 truncate">{design.name}</h3>
+                            <p className="text-xs sm:text-sm text-gray-500">
+                              {design.totalItems} items
                             </p>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-6">
-                          {/* Size breakdown */}
-                          <div className="flex gap-3">
+                        <div className="flex items-center gap-2 sm:gap-6 flex-shrink-0">
+                          {/* Size breakdown - hidden on small screens */}
+                          <div className="hidden md:flex gap-3">
                             <span className="px-2 py-1 bg-gray-100 rounded text-xs">
                               S: {design.sizes.small}
                             </span>
@@ -299,8 +298,8 @@ export default function AdminDashboard() {
                             </span>
                           </div>
 
-                          {/* Department dots */}
-                          <div className="flex gap-1">
+                          {/* Department dots - limit on mobile */}
+                          <div className="hidden sm:flex gap-1">
                             {DEPARTMENTS.map((dept) => {
                               const count =
                                 design.byDepartment[dept.key as keyof DepartmentCounts];

@@ -118,7 +118,7 @@ export default function RatesPage() {
     return (
       <div className="flex min-h-screen bg-gray-100">
         <Sidebar active="rates" setActive={() => {}} />
-        <div className="ml-64 w-full p-8">
+        <div className="w-full lg:ml-64 p-8 pt-20 lg:pt-8">
           <div className="text-center">Loading...</div>
         </div>
       </div>
@@ -129,20 +129,20 @@ export default function RatesPage() {
     <div className="flex min-h-screen bg-gray-100">
       <Sidebar active="rates" setActive={() => {}} />
 
-      <div className="ml-64 w-full">
+      <div className="w-full lg:ml-64">
         {/* Header */}
-        <header className="bg-white border-b px-8 py-4">
-          <div className="flex items-center justify-between">
+        <header className="bg-white border-b px-4 sm:px-8 py-4 pt-16 lg:pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Department Rates</h1>
-              <p className="text-sm text-gray-500">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Department Rates</h1>
+              <p className="text-xs sm:text-sm text-gray-500">
                 Set payment rates per scanned item for each department
               </p>
             </div>
             <button
               onClick={saveAllRates}
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition self-start sm:self-auto"
             >
               <Save size={18} />
               Save All
@@ -150,28 +150,28 @@ export default function RatesPage() {
           </div>
         </header>
 
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           {/* Messages */}
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="text-red-600" size={20} />
-              <p className="text-red-700">{error}</p>
+              <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+              <p className="text-red-700 text-sm sm:text-base">{error}</p>
             </div>
           )}
 
           {success && (
             <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-              <CheckCircle className="text-green-600" size={20} />
-              <p className="text-green-700">{success}</p>
+              <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
+              <p className="text-green-700 text-sm sm:text-base">{success}</p>
             </div>
           )}
 
           {/* Rates Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {DEPARTMENTS.map((department) => (
               <div
                 key={department}
-                className="bg-white rounded-lg border shadow-sm p-6"
+                className="bg-white rounded-lg border shadow-sm p-4 sm:p-6"
               >
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">

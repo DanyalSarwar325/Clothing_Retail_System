@@ -1,4 +1,5 @@
 "use client"
+import { useState } from "react";
 import {
   LayoutDashboard,
   Plus,
@@ -10,7 +11,10 @@ import {
   Printer,
   Package,
   DollarSign,
-  Wallet
+  Wallet,
+  Calculator,
+  Menu,
+  X
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -19,11 +23,36 @@ import { usePathname } from "next/navigation";
 export default function Sidebar({ active, setActive }: any) {
   const { user, logout, canAccess } = useAuth();
   const pathname = usePathname();
+  const [isOpen, setIsOpen] = useState(false);
 
   if (!user) return null;
 
+  const toggleSidebar = () => setIsOpen(!isOpen);
+  const closeSidebar = () => setIsOpen(false);
+
   return (
-    <aside className="fixed w-64 h-screen bg-white border-r flex flex-col">
+    <>
+      {/* Mobile Menu Button */}
+      <button
+        onClick={toggleSidebar}
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md border"
+      >
+        {isOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Overlay for mobile */}
+      {isOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={closeSidebar}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed h-screen bg-white border-r flex flex-col z-40 transition-transform duration-300 w-64
+          ${isOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+      >
       <div className="p-6 flex items-center gap-3 font-bold text-lg">
         <div className="bg-blue-600 text-white p-2 rounded">📦</div>
         Inventory
@@ -42,9 +71,9 @@ export default function Sidebar({ active, setActive }: any) {
         </div>
       </div>
 
-      <nav className="px-4 space-y-2 flex-1">
+      <nav className="px-4 space-y-2 flex-1 overflow-y-auto">
         {canAccess("/") && user.role === "admin" && (
-          <Link href="/">
+          <Link href="/" onClick={closeSidebar}>
             <SidebarItem
               icon={<LayoutDashboard size={18} />}
               label="Dashboard"
@@ -53,8 +82,8 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/cutting") && (
-          <Link href="/cutting">
+        {canAccess("/cutting") && user.role !== "admin" && (
+          <Link href="/cutting" onClick={closeSidebar}>
             <SidebarItem
               icon={<Scissors size={18} />}
               label="Cutting"
@@ -63,8 +92,8 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/create-product") && (
-          <Link href="/create-product">
+        {canAccess("/create-product") && user.role !== "admin" && (
+          <Link href="/create-product" onClick={closeSidebar}>
             <SidebarItem
               icon={<Plus size={18} />}
               label="Create Product"
@@ -74,7 +103,7 @@ export default function Sidebar({ active, setActive }: any) {
         )}
 
         {canAccess("/print-barcodes") && (
-          <Link href="/print-barcodes">
+          <Link href="/print-barcodes" onClick={closeSidebar}>
             <SidebarItem
               icon={<Printer size={18} />}
               label="Print Barcodes"
@@ -83,8 +112,8 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/product") && (
-          <Link href="/product">
+        {canAccess("/product") && user.role !== "admin" && (
+          <Link href="/product" onClick={closeSidebar}>
             <SidebarItem
               icon={<Package size={18} />}
               label="Products"
@@ -94,7 +123,7 @@ export default function Sidebar({ active, setActive }: any) {
         )}
 
         {canAccess("/store") && (
-          <Link href="/store">
+          <Link href="/store" onClick={closeSidebar}>
             <SidebarItem
               icon={<Box size={18} />}
               label="Store Scan"
@@ -104,7 +133,7 @@ export default function Sidebar({ active, setActive }: any) {
         )}
 
         {canAccess("/rates") && (
-          <Link href="/rates">
+          <Link href="/rates" onClick={closeSidebar}>
             <SidebarItem
               icon={<DollarSign size={18} />}
               label="Manage Rates"
@@ -114,11 +143,21 @@ export default function Sidebar({ active, setActive }: any) {
         )}
 
         {canAccess("/payments") && user.role === "admin" && (
-          <Link href="/payments">
+          <Link href="/payments" onClick={closeSidebar}>
             <SidebarItem
               icon={<Wallet size={18} />}
               label="Payments"
               active={pathname.startsWith("/payments")}
+            />
+          </Link>
+        )}
+
+        {canAccess("/job-costing") && user.role === "admin" && (
+          <Link href="/job-costing" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<Calculator size={18} />}
+              label="Job Costing"
+              active={pathname.startsWith("/job-costing")}
             />
           </Link>
         )}
@@ -138,7 +177,8 @@ export default function Sidebar({ active, setActive }: any) {
       <p className="pb-4 w-full text-center text-xs text-gray-400">
         © 2026 Clothing Inventory
       </p>
-    </aside>
+      </aside>
+    </>
   );
 }
 
