@@ -25,7 +25,7 @@ export default function CreateProduct() {
 
   return (
     <div>
-      <h2>Create Product</h2>
+      <h2 className="text-3xl">Create Product</h2>
 
       <input
         placeholder="Product Name"
