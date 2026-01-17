@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 
@@ -23,9 +23,14 @@ export default function PrintBarcodesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const hasGeneratedRef = useRef(false);
 
   useEffect(() => {
     const generateAndSaveBarcodes = async () => {
+      // Prevent duplicate generation using ref
+      if (hasGeneratedRef.current) return;
+      hasGeneratedRef.current = true;
+      
       const design = searchParams.get("design") || "";
       const s = parseInt(searchParams.get("s") || "0");
       const m = parseInt(searchParams.get("m") || "0");
@@ -76,7 +81,7 @@ export default function PrintBarcodesPage() {
             item: code.item,
             unitNumber: code.unitNumber,
             barcodeData: code.barcodeData,
-            status: "available",
+            status: "generated", // Generated status - will become 'scanned' when sewing scans it
             currentDepartment: "Cutting", // Initial department
             departmentHistory: [{
               department: "Cutting",

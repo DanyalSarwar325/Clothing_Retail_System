@@ -23,15 +23,32 @@ export async function GET(request: NextRequest) {
     const rate = await Rate.findOne({ department });
     const ratePerUnit = rate?.ratePerUnit || 0;
 
-    // Count scans by this user in this department
-    const scanCount = await Barcode.countDocuments({
-      "departmentHistory": {
-        $elemMatch: {
-          department: department,
-          scannedBy: userName,
+    // For Cutting department: count only 'scanned' barcodes (confirmed by sewing)
+    // For other departments: count all scans by the user in their department
+    let scanCount = 0;
+
+    if (department === "Cutting") {
+      // Only count barcodes with 'scanned' status that have been scanned by this user
+      scanCount = await Barcode.countDocuments({
+        status: "scanned",
+        "departmentHistory": {
+          $elemMatch: {
+            department: "Cutting",
+            scannedBy: userName,
+          },
         },
-      },
-    });
+      });
+    } else {
+      // For other departments, count scans by user in that department
+      scanCount = await Barcode.countDocuments({
+        "departmentHistory": {
+          $elemMatch: {
+            department: department,
+            scannedBy: userName,
+          },
+        },
+      });
+    }
 
     const pendingPayment = scanCount * ratePerUnit;
 

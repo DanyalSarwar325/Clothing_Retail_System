@@ -24,13 +24,21 @@ export async function GET(request: NextRequest) {
     const ratePerUnit = rate?.ratePerUnit || 0;
 
     // Aggregate scans per design for this user & department
+    // For Cutting department: only count 'scanned' barcodes (confirmed by sewing)
+    // For other departments: count all scans
+    const matchStage: any = {
+      "departmentHistory.department": department,
+      "departmentHistory.scannedBy": userName,
+    };
+
+    if (department === "Cutting") {
+      matchStage.status = "scanned";
+    }
+
     const results = await Barcode.aggregate([
       { $unwind: "$departmentHistory" },
       {
-        $match: {
-          "departmentHistory.department": department,
-          "departmentHistory.scannedBy": userName,
-        },
+        $match: matchStage,
       },
       {
         $group: {

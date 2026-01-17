@@ -61,6 +61,12 @@ export async function POST(request: NextRequest) {
         scannedAt: new Date(),
         scannedBy: scannedBy || undefined,
       });
+
+      // For Sewing department: if barcode was in 'generated' status, mark it as 'scanned'
+      // This means the barcode is now confirmed and counted for payment
+      if (department === "Sewing" && barcode.status === "generated") {
+        barcode.status = "scanned";
+      }
     }
 
     await barcode.save();

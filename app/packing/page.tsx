@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Box } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Box, Package, Trash2, QrCode } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
+import QRCode from "qrcode";
 
 interface DepartmentScan {
   department: string;
@@ -25,6 +26,27 @@ interface BarcodeDetails {
   departmentHistory: DepartmentScan[];
   createdAt: string;
   scannedAt?: string;
+  barcodeData: string;
+}
+
+interface ScannedItem {
+  item: string;
+  design: string;
+  size: string;
+  unitNumber: number;
+  barcodeData: string;
+  scannedAt: Date;
+}
+
+interface PacketResult {
+  packetId: string;
+  design: string;
+  size: string;
+  unitNumber: number;
+  items: string[];
+  packetBarcodeData: string;
+  packedBy: string;
+  packedAt: string;
 }
 
 export default function PackingPage() {
@@ -36,6 +58,14 @@ export default function PackingPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  
+  // Packet creation states
+  const [mode, setMode] = useState<"scan" | "packet">("packet");
+  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
+  const [creatingPacket, setCreatingPacket] = useState(false);
+  const [packetResult, setPacketResult] = useState<PacketResult | null>(null);
+  const [packetQR, setPacketQR] = useState<string>("");
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   useEffect(() => {
     if (!scanning) return;
@@ -48,12 +78,17 @@ export default function PackingPage() {
       },
       false
     );
+    scannerRef.current = scanner;
 
     scanner.render(
       async (decodedText) => {
         scanner.clear();
         setScanning(false);
-        await processScan(decodedText);
+        if (mode === "packet") {
+          await processPacketScan(decodedText);
+        } else {
+          await processScan(decodedText);
+        }
       },
       () => {
         // ignore scan errors
@@ -63,7 +98,130 @@ export default function PackingPage() {
     return () => {
       scanner.clear().catch(() => {});
     };
-  }, [scanning]);
+  }, [scanning, mode]);
+
+  // Process scan for packet creation
+  const processPacketScan = async (barcodeData: string) => {
+    setLoading(true);
+    setError("");
+
+    try {
+      // Parse barcode data
+      let parsed;
+      try {
+        parsed = JSON.parse(barcodeData);
+      } catch {
+        setError("Invalid barcode format");
+        setLoading(false);
+        return;
+      }
+
+      const { design, size, item, unit } = parsed;
+
+      // Check if already scanned
+      const alreadyScanned = scannedItems.find((i) => i.barcodeData === barcodeData);
+      if (alreadyScanned) {
+        setError(`${item} already scanned`);
+        toast.error(`${item} already scanned`);
+        setLoading(false);
+        return;
+      }
+
+      // Check if we already have this item type
+      const sameItemType = scannedItems.find((i) => i.item === item);
+      if (sameItemType) {
+        setError(`${item} already added. Remove it first to replace.`);
+        toast.error(`${item} already added`);
+        setLoading(false);
+        return;
+      }
+
+      // Check if matching same unit (if items exist)
+      if (scannedItems.length > 0) {
+        const firstItem = scannedItems[0];
+        if (firstItem.design !== design || firstItem.size !== size || firstItem.unitNumber !== unit) {
+          setError(`Item doesn't match! Expected: ${firstItem.design} - ${firstItem.size} - Unit #${firstItem.unitNumber}`);
+          toast.error("Item doesn't match the unit");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Add to scanned items
+      const newItem: ScannedItem = {
+        item,
+        design,
+        size,
+        unitNumber: unit,
+        barcodeData,
+        scannedAt: new Date(),
+      };
+
+      setScannedItems((prev) => [...prev, newItem]);
+      toast.success(`${item} scanned successfully`);
+      setSuccess(`${item} added - ${3 - scannedItems.length - 1} more to go`);
+
+    } catch (err: any) {
+      setError(err.message || "Failed to process barcode");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create packet from 3 scanned items
+  const createPacket = async () => {
+    if (scannedItems.length !== 3) {
+      setError("Please scan all 3 items (Shalwar, Qameez, Dupatta)");
+      return;
+    }
+
+    setCreatingPacket(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/packets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barcodeDataList: scannedItems.map((i) => i.barcodeData),
+          packedBy: user?.name || user?.username,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setPacketResult(result.packet);
+        // Generate QR code for the packet
+        const qr = await QRCode.toDataURL(result.packet.packetBarcodeData);
+        setPacketQR(qr);
+        toast.success("Packet created successfully!");
+        setScanCount((prev) => prev + 1);
+        setSuccess("");
+      } else {
+        setError(result.message || "Failed to create packet");
+        toast.error(result.message);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to create packet");
+    } finally {
+      setCreatingPacket(false);
+    }
+  };
+
+  // Remove scanned item
+  const removeScannedItem = (barcodeData: string) => {
+    setScannedItems((prev) => prev.filter((i) => i.barcodeData !== barcodeData));
+  };
+
+  // Reset packet creation
+  const resetPacketCreation = () => {
+    setScannedItems([]);
+    setPacketResult(null);
+    setPacketQR("");
+    setError("");
+    setSuccess("");
+  };
 
   const processScan = async (barcodeData: string) => {
     setLoading(true);

@@ -28,7 +28,7 @@ export interface IBarcode extends Document {
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
-  status: "available" | "sold" | "returned";
+  status: "generated" | "scanned" | "available" | "sold" | "returned";
   currentDepartment: Department; // Current department where item is
   departmentHistory: IDepartmentScan[]; // History of department scans
   productId?: mongoose.Types.ObjectId; // Optional link to product
@@ -53,7 +53,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   item: { type: String, enum: ["Shalwar", "Qameez", "Dupatta"], required: true },
   unitNumber: { type: Number, required: true },
   barcodeData: { type: String, required: true },
-  status: { type: String, enum: ["available", "sold", "returned"], default: "available" },
+  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned"], default: "generated" },
   currentDepartment: { 
     type: String, 
     enum: DEPARTMENTS, 
@@ -71,6 +71,12 @@ BarcodeSchema.index({ design: 1, size: 1, item: 1, unitNumber: 1 });
 BarcodeSchema.index({ barcodeData: 1 });
 BarcodeSchema.index({ currentDepartment: 1 });
 
-const Barcode = mongoose.models.Barcode || mongoose.model<IBarcode>("Barcode", BarcodeSchema);
+// const Barcode = mongoose.models.Barcode || mongoose.model<IBarcode>("Barcode", BarcodeSchema);
+// Delete model if it exists to force fresh schema loading
+if (mongoose.models.Barcode) {
+  delete mongoose.models.Barcode;
+}
+
+const Barcode = mongoose.model<IBarcode>("Barcode", BarcodeSchema);
 
 export default Barcode;

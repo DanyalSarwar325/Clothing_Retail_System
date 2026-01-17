@@ -20,9 +20,16 @@ async function calculateForDepartment(department: string) {
   const rateDoc = await Rate.findOne({ department });
   const ratePerUnit = rateDoc?.ratePerUnit || 0;
 
+  // For Cutting department: only count 'scanned' barcodes
+  // For other departments: count all scans
+  const matchStage: any = { "departmentHistory.department": department };
+  if (department === "Cutting") {
+    matchStage.status = "scanned";
+  }
+
   const scansAgg = await Barcode.aggregate([
     { $unwind: "$departmentHistory" },
-    { $match: { "departmentHistory.department": department } },
+    { $match: matchStage },
     { $group: { _id: null, total: { $sum: 1 } } },
   ]);
   const totalScans = scansAgg?.[0]?.total || 0;
