@@ -28,7 +28,7 @@ export interface IBarcode extends Document {
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
-  status: "generated" | "scanned" | "available" | "sold" | "returned";
+  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed";
   currentDepartment: Department; // Current department where item is
   departmentHistory: IDepartmentScan[]; // History of department scans
   productId?: mongoose.Types.ObjectId; // Optional link to product
@@ -53,7 +53,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   item: { type: String, enum: ["Shalwar", "Qameez", "Dupatta"], required: true },
   unitNumber: { type: Number, required: true },
   barcodeData: { type: String, required: true },
-  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned"], default: "generated" },
+  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed"], default: "generated" },
   currentDepartment: { 
     type: String, 
     enum: DEPARTMENTS, 
