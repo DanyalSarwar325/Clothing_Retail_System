@@ -19,38 +19,72 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get rate for department
-    const rate = await Rate.findOne({ department });
-    const ratePerUnit = rate?.ratePerUnit || 0;
+    // Get fallback global rate for department
+    const globalRate = await Rate.findOne({ department });
+    const fallbackRate = globalRate?.ratePerUnit || 0;
 
     // For Cutting department: count only 'scanned' barcodes (confirmed by sewing)
     // For other departments: count all scans by the user in their department
-    let scanCount = 0;
+    let matchCondition: any = {
+      "departmentHistory": {
+        $elemMatch: {
+          department: department,
+          scannedBy: userName,
+        },
+      },
+    };
 
     if (department === "Cutting") {
-      // Only count barcodes with 'scanned' status that have been scanned by this user
-      scanCount = await Barcode.countDocuments({
-        status: "scanned",
-        "departmentHistory": {
-          $elemMatch: {
-            department: "Cutting",
-            scannedBy: userName,
-          },
-        },
-      });
-    } else {
-      // For other departments, count scans by user in that department
-      scanCount = await Barcode.countDocuments({
-        "departmentHistory": {
-          $elemMatch: {
-            department: department,
-            scannedBy: userName,
-          },
-        },
-      });
+      matchCondition.status = "scanned";
     }
 
-    const pendingPayment = scanCount * ratePerUnit;
+    // Aggregate to calculate payment using design-specific rates
+    const results = await Barcode.aggregate([
+      { $match: matchCondition },
+      { $unwind: "$departmentHistory" },
+      {
+        $match: {
+          "departmentHistory.department": department,
+          "departmentHistory.scannedBy": userName,
+        },
+      },
+      {
+        $project: {
+          design: 1,
+          departmentRates: 1,
+          // Find the rate for this specific department
+          designRate: {
+            $let: {
+              vars: {
+                matchedRate: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: { $ifNull: ["$departmentRates", []] },
+                        as: "rate",
+                        cond: { $eq: ["$$rate.department", department] },
+                      },
+                    },
+                    0,
+                  ],
+                },
+              },
+              in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalPayment: { $sum: "$designRate" },
+          scanCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const scanCount = results[0]?.scanCount || 0;
+    const pendingPayment = results[0]?.totalPayment || 0;
 
     return NextResponse.json({
       success: true,
@@ -58,8 +92,9 @@ export async function GET(request: NextRequest) {
         userName,
         department,
         scanCount,
-        ratePerUnit,
+        ratePerUnit: fallbackRate, // For display purposes
         pendingPayment,
+        note: "Payment calculated using design-specific rates when available",
       },
     });
   } catch (error: any) {

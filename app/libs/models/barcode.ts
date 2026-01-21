@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 // Department enum values
 export const DEPARTMENTS = [
+  "Admin",
   "Cutting",
   "Sewing",
   "Quality",
@@ -15,6 +16,23 @@ export const DEPARTMENTS = [
 
 export type Department = (typeof DEPARTMENTS)[number];
 
+// Suit type enum
+export const SUIT_TYPES = ["1pc", "2pc", "3pc"] as const;
+export type SuitType = (typeof SUIT_TYPES)[number];
+
+// Items based on suit type
+export const SUIT_ITEMS: Record<SuitType, string[]> = {
+  "1pc": ["Qameez"],
+  "2pc": ["Qameez", "Shalwar"],
+  "3pc": ["Qameez", "Shalwar", "Dupatta"],
+};
+
+// Department rates for a specific design
+export interface IDesignDepartmentRate {
+  department: Department;
+  ratePerPiece: number;
+}
+
 // Department scan history entry
 export interface IDepartmentScan {
   department: Department;
@@ -22,20 +40,63 @@ export interface IDepartmentScan {
   scannedBy?: string; // Optional: user who scanned
 }
 
+// Defective/Waste tracking
+export const DEFECT_REASONS = [
+  "Wrong cutting",
+  "Fabric damaged",
+  "Stitching error",
+  "Machine damage",
+  "Color defect",
+  "Size error",
+  "Quality issue",
+  "Other"
+] as const;
+
+export type DefectReason = (typeof DEFECT_REASONS)[number];
+
+export interface IDefectiveInfo {
+  markedAt: Date;
+  markedBy: string;
+  department: Department;
+  reason: DefectReason;
+  notes?: string; // Additional notes for "Other" reason
+}
+
+// Payment tracking per department
+export interface IDepartmentPayment {
+  department: Department;
+  paidAt: Date;
+  paidBy?: string;
+  amount: number;
+}
+
 export interface IBarcode extends Document {
   design: string;
   size: "S" | "M" | "L";
+  suitType: SuitType; // 1pc, 2pc, or 3pc suit
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
-  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed";
+  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "wasted";
   currentDepartment: Department; // Current department where item is
   departmentHistory: IDepartmentScan[]; // History of department scans
+  departmentRates: IDesignDepartmentRate[]; // Rates per department for this design
+  defectiveInfo?: IDefectiveInfo; // Info when marked as defective/wasted
+  paidDepartments?: IDepartmentPayment[]; // Tracks which departments have paid for this piece
   productId?: mongoose.Types.ObjectId; // Optional link to product
   createdAt: Date;
   scannedAt?: Date;
   soldAt?: Date;
 }
+
+const DesignDepartmentRateSchema = new Schema<IDesignDepartmentRate>({
+  department: { 
+    type: String, 
+    enum: DEPARTMENTS, 
+    required: true 
+  },
+  ratePerPiece: { type: Number, required: true, min: 0 },
+});
 
 const DepartmentScanSchema = new Schema<IDepartmentScan>({
   department: { 
@@ -47,19 +108,50 @@ const DepartmentScanSchema = new Schema<IDepartmentScan>({
   scannedBy: { type: String },
 });
 
+const DefectiveInfoSchema = new Schema<IDefectiveInfo>({
+  markedAt: { type: Date, default: Date.now },
+  markedBy: { type: String, required: true },
+  department: { 
+    type: String, 
+    enum: DEPARTMENTS, 
+    required: true 
+  },
+  reason: { 
+    type: String, 
+    enum: DEFECT_REASONS, 
+    required: true 
+  },
+  notes: { type: String },
+});
+
+const DepartmentPaymentSchema = new Schema<IDepartmentPayment>({
+  department: { 
+    type: String, 
+    enum: DEPARTMENTS, 
+    required: true 
+  },
+  paidAt: { type: Date, default: Date.now },
+  paidBy: { type: String },
+  amount: { type: Number, required: true },
+});
+
 const BarcodeSchema = new Schema<IBarcode>({
   design: { type: String, required: true },
   size: { type: String, enum: ["S", "M", "L"], required: true },
+  suitType: { type: String, enum: ["1pc", "2pc", "3pc"], required: true, default: "3pc" },
   item: { type: String, enum: ["Shalwar", "Qameez", "Dupatta"], required: true },
   unitNumber: { type: Number, required: true },
   barcodeData: { type: String, required: true },
-  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed"], default: "generated" },
+  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed", "defective", "wasted"], default: "generated" },
   currentDepartment: { 
     type: String, 
     enum: DEPARTMENTS, 
     default: "Cutting" 
   },
   departmentHistory: [DepartmentScanSchema],
+  departmentRates: [DesignDepartmentRateSchema],
+  defectiveInfo: DefectiveInfoSchema,
+  paidDepartments: [DepartmentPaymentSchema],
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
   createdAt: { type: Date, default: Date.now },
   scannedAt: { type: Date },
@@ -67,9 +159,10 @@ const BarcodeSchema = new Schema<IBarcode>({
 });
 
 // Create compound index for quick lookups
-BarcodeSchema.index({ design: 1, size: 1, item: 1, unitNumber: 1 });
+BarcodeSchema.index({ design: 1, size: 1, suitType: 1, item: 1, unitNumber: 1 });
 BarcodeSchema.index({ barcodeData: 1 });
 BarcodeSchema.index({ currentDepartment: 1 });
+BarcodeSchema.index({ design: 1 }); // For fetching rates by design
 
 // const Barcode = mongoose.models.Barcode || mongoose.model<IBarcode>("Barcode", BarcodeSchema);
 // Delete model if it exists to force fresh schema loading

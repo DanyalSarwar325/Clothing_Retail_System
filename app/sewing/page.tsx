@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
+import DefectiveModal from "@/app/components/DefectiveModal";
 
 interface DepartmentScan {
   department: string;
@@ -37,6 +38,8 @@ export default function SewingPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  const [showDefectiveModal, setShowDefectiveModal] = useState(false);
+  const [isDefectiveScanMode, setIsDefectiveScanMode] = useState(false);
 
   useEffect(() => {
     if (!scanning) return;
@@ -73,27 +76,44 @@ export default function SewingPage() {
     setBarcodeDetails(null);
 
     try {
-      const response = await fetch("/api/barcodes/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          barcodeData,
-          department: "Sewing",
-          scannedBy: user?.name || user?.username,
-        }),
-      });
+      if (isDefectiveScanMode) {
+        const response = await fetch(`/api/barcodes/scan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ barcodeData }),
+        });
 
-      const result = await response.json();
+        const result = await response.json();
 
-      if (result.success) {
-        setBarcodeDetails(result.barcode);
-        setSuccess(`Product updated to Sewing department by ${user?.name}`);
-        setScanCount((prev) => prev + 1);
-      } else {
-        if (result.alreadyScanned) {
-          toast.error(result.message);
+        if (result.success) {
+          setBarcodeDetails(result.barcode);
+          setShowDefectiveModal(true);
+        } else {
+          setError(result.message || "Barcode not found");
         }
-        setError(result.message || "Barcode not found");
+      } else {
+        const response = await fetch("/api/barcodes/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData,
+            department: "Sewing",
+            scannedBy: user?.name || user?.username,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          setBarcodeDetails(result.barcode);
+          setSuccess(`Product updated to Sewing department by ${user?.name}`);
+          setScanCount((prev) => prev + 1);
+        } else {
+          if (result.alreadyScanned) {
+            toast.error(result.message);
+          }
+          setError(result.message || "Barcode not found");
+        }
       }
     } catch (err: any) {
       setError(err.message || "Failed to process barcode");
@@ -106,6 +126,15 @@ export default function SewingPage() {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
+    setIsDefectiveScanMode(false);
+    setScanning(true);
+  };
+
+  const startDefectiveScan = () => {
+    setError("");
+    setSuccess("");
+    setBarcodeDetails(null);
+    setIsDefectiveScanMode(true);
     setScanning(true);
   };
 
@@ -115,6 +144,8 @@ export default function SewingPage() {
     setSuccess("");
     setScanning(false);
     setShowHistory(false);
+    setIsDefectiveScanMode(false);
+    setShowDefectiveModal(false);
   };
 
   const formatDate = (dateString: string) => {
@@ -201,23 +232,39 @@ export default function SewingPage() {
             <p className="text-gray-600 mb-6">
               Click the button below to start scanning product barcodes
             </p>
-            <button
-              onClick={startScanning}
-              className="w-full bg-orange-600 text-white py-4 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
-            >
-              <Scan size={20} />
-              Start Scanning
-            </button>
+            <div className="space-y-3">
+              <button
+                onClick={startScanning}
+                className="w-full bg-orange-600 text-white py-4 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Scan size={20} />
+                Start Scanning
+              </button>
+              <button
+                onClick={startDefectiveScan}
+                className="w-full bg-yellow-500 text-white py-4 rounded-lg font-semibold hover:bg-yellow-600 transition flex items-center justify-center gap-2"
+              >
+                <AlertTriangle size={20} />
+                Scan Defective Item
+              </button>
+            </div>
           </div>
         )}
 
         {/* Active Scanner */}
         {scanning && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-center mb-4">📷 Scanning...</h2>
+            <div className="text-center mb-4">
+              <h2 className="text-lg font-semibold">
+                {isDefectiveScanMode ? "📷 Scanning Defective Item..." : "📷 Scanning..."}
+              </h2>
+              {isDefectiveScanMode && (
+                <p className="text-sm text-yellow-600">Scan the damaged/defective product</p>
+              )}
+            </div>
             <div id="reader" className="rounded-lg overflow-hidden"></div>
             <button
-              onClick={() => setScanning(false)}
+              onClick={resetScanner}
               className="mt-4 w-full py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
             >
               Cancel
@@ -328,6 +375,27 @@ export default function SewingPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Defective Modal */}
+        {barcodeDetails && (
+          <DefectiveModal
+            isOpen={showDefectiveModal}
+            onClose={() => {
+              setShowDefectiveModal(false);
+              resetScanner();
+            }}
+            barcodeId={barcodeDetails.id}
+            barcodeInfo={{
+              design: barcodeDetails.design,
+              item: barcodeDetails.item,
+              size: barcodeDetails.size,
+              unitNumber: barcodeDetails.unitNumber,
+            }}
+            department="Sewing"
+            markedBy={user?.name || user?.username || "Unknown"}
+            onSuccess={resetScanner}
+          />
         )}
       </div>
     </div>

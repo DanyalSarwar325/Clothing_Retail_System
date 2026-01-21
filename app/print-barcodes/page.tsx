@@ -4,16 +4,28 @@ import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 
-const ITEMS = ["Shalwar", "Qameez", "Dupatta"] as const;
+// Items based on suit type
+const SUIT_ITEMS: Record<string, string[]> = {
+  "1pc": ["Qameez"],
+  "2pc": ["Qameez", "Shalwar"],
+  "3pc": ["Qameez", "Shalwar", "Dupatta"],
+};
+
+interface DepartmentRate {
+  department: string;
+  ratePerPiece: number;
+}
 
 interface BarcodeData {
   qr: string;
   design: string;
   size: string;
   sizeCode: "S" | "M" | "L";
+  suitType: "1pc" | "2pc" | "3pc";
   item: string;
   unitNumber: number;
   barcodeData: string;
+  departmentRates: DepartmentRate[];
 }
 
 export default function PrintBarcodesPage() {
@@ -32,39 +44,74 @@ export default function PrintBarcodesPage() {
       hasGeneratedRef.current = true;
       
       const design = searchParams.get("design") || "";
-      const s = parseInt(searchParams.get("s") || "0");
-      const m = parseInt(searchParams.get("m") || "0");
-      const l = parseInt(searchParams.get("l") || "0");
+      
+      // Get rates
+      const ratesParam = searchParams.get("rates");
+      const departmentRates: DepartmentRate[] = ratesParam 
+        ? JSON.parse(ratesParam) 
+        : [];
+
+      // Get quantities for each size and suit type
+      const quantities = {
+        S: {
+          "1pc": parseInt(searchParams.get("s1pc") || "0"),
+          "2pc": parseInt(searchParams.get("s2pc") || "0"),
+          "3pc": parseInt(searchParams.get("s3pc") || "0"),
+        },
+        M: {
+          "1pc": parseInt(searchParams.get("m1pc") || "0"),
+          "2pc": parseInt(searchParams.get("m2pc") || "0"),
+          "3pc": parseInt(searchParams.get("m3pc") || "0"),
+        },
+        L: {
+          "1pc": parseInt(searchParams.get("l1pc") || "0"),
+          "2pc": parseInt(searchParams.get("l2pc") || "0"),
+          "3pc": parseInt(searchParams.get("l3pc") || "0"),
+        },
+      };
+
+      // Fallback for old format (backward compatibility)
+      const oldS = parseInt(searchParams.get("s") || "0");
+      const oldM = parseInt(searchParams.get("m") || "0");
+      const oldL = parseInt(searchParams.get("l") || "0");
+      
+      if (oldS > 0 || oldM > 0 || oldL > 0) {
+        quantities.S["3pc"] = oldS;
+        quantities.M["3pc"] = oldM;
+        quantities.L["3pc"] = oldL;
+      }
 
       const codes: BarcodeData[] = [];
+      const sizes = ["S", "M", "L"] as const;
+      const suitTypes = ["1pc", "2pc", "3pc"] as const;
+      const sizeLabels = { S: "Small", M: "Medium", L: "Large" };
 
-      // Generate barcodes for Small size
-      for (let unit = 1; unit <= s; unit++) {
-        for (const item of ITEMS) {
-          const payload = { design, size: "S", item, unit };
-          const barcodeDataStr = JSON.stringify(payload);
-          const qr = await QRCode.toDataURL(barcodeDataStr);
-          codes.push({ qr, design, size: "Small", sizeCode: "S", item, unitNumber: unit, barcodeData: barcodeDataStr });
-        }
-      }
+      // Generate barcodes for each size and suit type
+      for (const size of sizes) {
+        for (const suitType of suitTypes) {
+          const qty = quantities[size][suitType];
+          if (qty === 0) continue;
 
-      // Generate barcodes for Medium size
-      for (let unit = 1; unit <= m; unit++) {
-        for (const item of ITEMS) {
-          const payload = { design, size: "M", item, unit };
-          const barcodeDataStr = JSON.stringify(payload);
-          const qr = await QRCode.toDataURL(barcodeDataStr);
-          codes.push({ qr, design, size: "Medium", sizeCode: "M", item, unitNumber: unit, barcodeData: barcodeDataStr });
-        }
-      }
-
-      // Generate barcodes for Large size
-      for (let unit = 1; unit <= l; unit++) {
-        for (const item of ITEMS) {
-          const payload = { design, size: "L", item, unit };
-          const barcodeDataStr = JSON.stringify(payload);
-          const qr = await QRCode.toDataURL(barcodeDataStr);
-          codes.push({ qr, design, size: "Large", sizeCode: "L", item, unitNumber: unit, barcodeData: barcodeDataStr });
+          const items = SUIT_ITEMS[suitType];
+          
+          for (let unit = 1; unit <= qty; unit++) {
+            for (const item of items) {
+              const payload = { design, size, suitType, item, unit };
+              const barcodeDataStr = JSON.stringify(payload);
+              const qr = await QRCode.toDataURL(barcodeDataStr);
+              codes.push({
+                qr,
+                design,
+                size: sizeLabels[size],
+                sizeCode: size,
+                suitType,
+                item,
+                unitNumber: unit,
+                barcodeData: barcodeDataStr,
+                departmentRates,
+              });
+            }
+          }
         }
       }
 
@@ -78,15 +125,18 @@ export default function PrintBarcodesPage() {
           const barcodesToSave = codes.map((code) => ({
             design: code.design,
             size: code.sizeCode,
+            suitType: code.suitType,
             item: code.item,
             unitNumber: code.unitNumber,
             barcodeData: code.barcodeData,
-            status: "generated", // Generated status - will become 'scanned' when sewing scans it
-            currentDepartment: "Cutting", // Initial department
+            status: "generated",
+            currentDepartment: "Admin",
             departmentHistory: [{
-              department: "Cutting",
+              department: "Admin",
               scannedAt: new Date().toISOString(),
+              scannedBy: "Admin",
             }],
+            departmentRates: code.departmentRates,
           }));
 
           const response = await fetch("/api/barcodes", {
@@ -121,10 +171,30 @@ export default function PrintBarcodesPage() {
     );
   }
 
-  // Group barcodes by size
-  const smallBarcodes = barcodes.filter((b) => b.size === "Small");
-  const mediumBarcodes = barcodes.filter((b) => b.size === "Medium");
-  const largeBarcodes = barcodes.filter((b) => b.size === "Large");
+  // Group barcodes by size and suit type
+  const groupedBarcodes = {
+    Small: {
+      "1pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "1pc"),
+      "2pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "2pc"),
+      "3pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "3pc"),
+    },
+    Medium: {
+      "1pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "1pc"),
+      "2pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "2pc"),
+      "3pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "3pc"),
+    },
+    Large: {
+      "1pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "1pc"),
+      "2pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "2pc"),
+      "3pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "3pc"),
+    },
+  };
+
+  const sizeColors = {
+    Small: "text-blue-600",
+    Medium: "text-green-600",
+    Large: "text-purple-600",
+  };
 
   return (
     <div className="p-8 bg-white min-h-screen">
@@ -145,13 +215,13 @@ export default function PrintBarcodesPage() {
         </div>
       )}
 
-      {/* Print Header - Hidden on screen, visible on print */}
+      {/* Print Header */}
       <div className="print:block mb-8">
         <h1 className="text-2xl font-bold text-center mb-2">
           Barcodes for Design: {searchParams.get("design")}
         </h1>
         <p className="text-center text-gray-600">
-          Total: {barcodes.length} barcodes (Small: {smallBarcodes.length / 3}, Medium: {mediumBarcodes.length / 3}, Large: {largeBarcodes.length / 3} units)
+          Total: {barcodes.length} barcodes
         </p>
       </div>
 
@@ -171,47 +241,42 @@ export default function PrintBarcodesPage() {
         </button>
       </div>
 
-      {/* Small Size Barcodes */}
-      {smallBarcodes.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4 text-blue-600 border-b pb-2">
-            Small Size ({smallBarcodes.length / 3} units × 3 items = {smallBarcodes.length} barcodes)
-          </h2>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-            {smallBarcodes.map((barcode, i) => (
-              <BarcodeCard key={`s-${i}`} barcode={barcode} />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Barcodes grouped by Size and Suit Type */}
+      {(["Small", "Medium", "Large"] as const).map((size) => {
+        const sizeGroup = groupedBarcodes[size];
+        const totalForSize = sizeGroup["1pc"].length + sizeGroup["2pc"].length + sizeGroup["3pc"].length;
+        
+        if (totalForSize === 0) return null;
 
-      {/* Medium Size Barcodes */}
-      {mediumBarcodes.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4 text-green-600 border-b pb-2">
-            Medium Size ({mediumBarcodes.length / 3} units × 3 items = {mediumBarcodes.length} barcodes)
-          </h2>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-            {mediumBarcodes.map((barcode, i) => (
-              <BarcodeCard key={`m-${i}`} barcode={barcode} />
-            ))}
-          </div>
-        </div>
-      )}
+        return (
+          <div key={size} className="mb-8">
+            <h2 className={`text-xl font-bold mb-4 ${sizeColors[size]} border-b pb-2`}>
+              {size} Size - {totalForSize} barcodes
+            </h2>
 
-      {/* Large Size Barcodes */}
-      {largeBarcodes.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4 text-purple-600 border-b pb-2">
-            Large Size ({largeBarcodes.length / 3} units × 3 items = {largeBarcodes.length} barcodes)
-          </h2>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-            {largeBarcodes.map((barcode, i) => (
-              <BarcodeCard key={`l-${i}`} barcode={barcode} />
-            ))}
+            {(["1pc", "2pc", "3pc"] as const).map((suitType) => {
+              const suitsOfType = sizeGroup[suitType];
+              if (suitsOfType.length === 0) return null;
+
+              const itemsPerSuit = suitType === "1pc" ? 1 : suitType === "2pc" ? 2 : 3;
+              const unitCount = suitsOfType.length / itemsPerSuit;
+
+              return (
+                <div key={`${size}-${suitType}`} className="mb-6">
+                  <h3 className="text-md font-semibold text-gray-700 mb-3 ml-2">
+                    {suitType} Suits ({unitCount} units × {itemsPerSuit} items = {suitsOfType.length} barcodes)
+                  </h3>
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+                    {suitsOfType.map((barcode, i) => (
+                      <BarcodeCard key={`${size}-${suitType}-${i}`} barcode={barcode} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        );
+      })}
 
       {/* Print Styles */}
       <style jsx global>{`
@@ -245,8 +310,11 @@ function BarcodeCard({ barcode }: { barcode: BarcodeData }) {
         <p className="text-xs font-bold text-gray-800 truncate" title={barcode.design}>
           {barcode.design}
         </p>
+        <p className="text-xs text-gray-600">
+          {barcode.suitType} | {barcode.size}
+        </p>
         <p className="text-xs font-semibold text-blue-600">
-          {barcode.size} - #{barcode.unitNumber}
+          Unit #{barcode.unitNumber}
         </p>
         <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">
           {barcode.item}

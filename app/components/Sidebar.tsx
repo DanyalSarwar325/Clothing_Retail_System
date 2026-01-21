@@ -14,7 +14,10 @@ import {
   Wallet,
   Calculator,
   Menu,
-  X
+  X,
+  QrCode,
+  FileText,
+  UserPlus
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -82,27 +85,47 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
+        {user.role === "admin" && (
+          <Link href="/generate-barcodes" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<QrCode size={18} />}
+              label="Generate Barcodes"
+              active={pathname === "/generate-barcodes"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/reports" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<FileText size={18} />}
+              label="Reports"
+              active={pathname === "/reports"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/add-user" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<UserPlus size={18} />}
+              label="Add User"
+              active={pathname === "/add-user"}
+            />
+          </Link>
+        )}
+
         {canAccess("/cutting") && user.role !== "admin" && (
           <Link href="/cutting" onClick={closeSidebar}>
             <SidebarItem
               icon={<Scissors size={18} />}
-              label="Cutting"
-              active={pathname === "/cutting" || active === "add"}
+              label="Cutting (Scan)"
+              active={pathname === "/cutting"}
             />
           </Link>
         )}
 
-        {canAccess("/create-product") && user.role !== "admin" && (
-          <Link href="/create-product" onClick={closeSidebar}>
-            <SidebarItem
-              icon={<Plus size={18} />}
-              label="Create Product"
-              active={pathname.startsWith("/create-product")}
-            />
-          </Link>
-        )}
-
-        {canAccess("/print-barcodes") && (
+        {canAccess("/print-barcodes") && user.role === "admin" && (
           <Link href="/print-barcodes" onClick={closeSidebar}>
             <SidebarItem
               icon={<Printer size={18} />}
@@ -128,16 +151,6 @@ export default function Sidebar({ active, setActive }: any) {
               icon={<Box size={18} />}
               label="Store Scan"
               active={pathname.startsWith("/store")}
-            />
-          </Link>
-        )}
-
-        {canAccess("/rates") && (
-          <Link href="/rates" onClick={closeSidebar}>
-            <SidebarItem
-              icon={<DollarSign size={18} />}
-              label="Manage Rates"
-              active={pathname.startsWith("/rates")}
             />
           </Link>
         )}

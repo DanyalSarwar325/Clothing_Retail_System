@@ -18,21 +18,56 @@ const DEPARTMENTS = [
 
 async function calculateForDepartment(department: string) {
   const rateDoc = await Rate.findOne({ department });
-  const ratePerUnit = rateDoc?.ratePerUnit || 0;
+  const fallbackRate = rateDoc?.ratePerUnit || 0;
 
   // For Cutting department: only count 'scanned' barcodes
   // For other departments: count all scans
-  const matchStage: any = { "departmentHistory.department": department };
+  const matchStage: any = {};
   if (department === "Cutting") {
     matchStage.status = "scanned";
   }
 
+  // Aggregate with design-specific rates
   const scansAgg = await Barcode.aggregate([
-    { $unwind: "$departmentHistory" },
     { $match: matchStage },
-    { $group: { _id: null, total: { $sum: 1 } } },
+    { $unwind: "$departmentHistory" },
+    { $match: { "departmentHistory.department": department } },
+    {
+      $project: {
+        departmentRates: 1,
+        // Find the rate for this specific department
+        designRate: {
+          $let: {
+            vars: {
+              matchedRate: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: { $ifNull: ["$departmentRates", []] },
+                      as: "rate",
+                      cond: { $eq: ["$$rate.department", department] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+            in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalScans: { $sum: 1 },
+        totalDue: { $sum: "$designRate" },
+      },
+    },
   ]);
-  const totalScans = scansAgg?.[0]?.total || 0;
+
+  const totalScans = scansAgg?.[0]?.totalScans || 0;
+  const totalDue = scansAgg?.[0]?.totalDue || 0;
 
   const paymentsAgg = await Payment.aggregate([
     { $match: { department } },
@@ -40,12 +75,11 @@ async function calculateForDepartment(department: string) {
   ]);
   const totalPaid = paymentsAgg?.[0]?.totalPaid || 0;
 
-  const totalDue = totalScans * ratePerUnit;
   const pending = Math.max(totalDue - totalPaid, 0);
 
   return {
     department,
-    ratePerUnit,
+    fallbackRate,
     totalScans,
     totalPaid,
     totalDue,
