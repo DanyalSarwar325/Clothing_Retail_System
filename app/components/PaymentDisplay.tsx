@@ -1,7 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { DollarSign } from "lucide-react";
+
+// Departments that have item-based rates
+const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+
+// Departments that use FinalSticker model
+const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
 interface PaymentDisplayProps {
   userName: string;
@@ -14,14 +20,11 @@ export default function PaymentDisplay({ userName, department, scanCount }: Paym
     pendingPayment: number;
     scanCount: number;
     ratePerUnit: number;
+    note?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchPayment();
-  }, [userName, department, scanCount]);
-
-  const fetchPayment = async () => {
+  const fetchPayment = useCallback(async () => {
     try {
       const response = await fetch(
         `/api/payment/pending?userName=${encodeURIComponent(userName)}&department=${encodeURIComponent(department)}`
@@ -36,7 +39,25 @@ export default function PaymentDisplay({ userName, department, scanCount }: Paym
     } finally {
       setLoading(false);
     }
-  };
+  }, [userName, department]);
+
+  useEffect(() => {
+    fetchPayment();
+  }, [userName, department, scanCount, fetchPayment]);
+
+  // Refresh data when user comes back to the tab (e.g., after admin makes payment)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchPayment();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchPayment]);
 
   if (loading) {
     return (
@@ -50,6 +71,9 @@ export default function PaymentDisplay({ userName, department, scanCount }: Paym
   }
 
   if (!payment) return null;
+
+  const isItemBased = ITEM_BASED_DEPARTMENTS.includes(department);
+  const isFinalSticker = FINAL_STICKER_DEPARTMENTS.includes(department);
 
   return (
     <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border border-green-200 shadow-sm p-4">
@@ -68,7 +92,13 @@ export default function PaymentDisplay({ userName, department, scanCount }: Paym
         <div className="text-right">
           <p className="text-xs text-green-700">Total Scans</p>
           <p className="text-xl font-semibold text-green-900">{payment.scanCount}</p>
-          <p className="text-xs text-green-600">@ ₨{payment.ratePerUnit}/unit</p>
+          {isItemBased ? (
+            <p className="text-xs text-green-600 italic">Per-item rates</p>
+          ) : isFinalSticker ? (
+            <p className="text-xs text-green-600">@ ₨{payment.ratePerUnit}/scan</p>
+          ) : (
+            <p className="text-xs text-green-600">@ ₨{payment.ratePerUnit}/unit</p>
+          )}
         </div>
       </div>
     </div>

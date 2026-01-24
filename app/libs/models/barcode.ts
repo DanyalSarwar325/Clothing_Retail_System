@@ -28,9 +28,12 @@ export const SUIT_ITEMS: Record<SuitType, string[]> = {
 };
 
 // Department rates for a specific design
+// For Cutting, Sewing, Press - rates can be per item (Qameez, Shalwar, Dupatta)
+// For other departments - single rate per piece
 export interface IDesignDepartmentRate {
   department: Department;
   ratePerPiece: number;
+  item?: "Qameez" | "Shalwar" | "Dupatta"; // Optional: for item-based rates
 }
 
 // Department scan history entry
@@ -70,6 +73,15 @@ export interface IDepartmentPayment {
   amount: number;
 }
 
+// Quality check info
+export interface IQualityCheckInfo {
+  checkedAt: Date;
+  checkedBy: string;
+  status: "quality_ok" | "wasted";
+  department?: "Sewing" | "Cutting"; // Only required for wasted status
+  notes?: string;
+}
+
 export interface IBarcode extends Document {
   design: string;
   size: "S" | "M" | "L";
@@ -77,11 +89,12 @@ export interface IBarcode extends Document {
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
-  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "wasted";
+  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "wasted" | "quality_ok";
   currentDepartment: Department; // Current department where item is
   departmentHistory: IDepartmentScan[]; // History of department scans
   departmentRates: IDesignDepartmentRate[]; // Rates per department for this design
   defectiveInfo?: IDefectiveInfo; // Info when marked as defective/wasted
+  qualityCheckInfo?: IQualityCheckInfo; // Info when quality checked
   paidDepartments?: IDepartmentPayment[]; // Tracks which departments have paid for this piece
   productId?: mongoose.Types.ObjectId; // Optional link to product
   createdAt: Date;
@@ -96,6 +109,11 @@ const DesignDepartmentRateSchema = new Schema<IDesignDepartmentRate>({
     required: true 
   },
   ratePerPiece: { type: Number, required: true, min: 0 },
+  item: { 
+    type: String, 
+    enum: ["Qameez", "Shalwar", "Dupatta"],
+    required: false // Optional: for item-based rates (Cutting, Sewing, Press)
+  },
 });
 
 const DepartmentScanSchema = new Schema<IDepartmentScan>({
@@ -124,6 +142,22 @@ const DefectiveInfoSchema = new Schema<IDefectiveInfo>({
   notes: { type: String },
 });
 
+const QualityCheckInfoSchema = new Schema<IQualityCheckInfo>({
+  checkedAt: { type: Date, default: Date.now },
+  checkedBy: { type: String, required: true },
+  status: { 
+    type: String, 
+    enum: ["quality_ok", "wasted"], 
+    required: true 
+  },
+  department: { 
+    type: String, 
+    enum: ["Sewing", "Cutting"], 
+    required: false // Only required for wasted status
+  },
+  notes: { type: String },
+});
+
 const DepartmentPaymentSchema = new Schema<IDepartmentPayment>({
   department: { 
     type: String, 
@@ -142,7 +176,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   item: { type: String, enum: ["Shalwar", "Qameez", "Dupatta"], required: true },
   unitNumber: { type: Number, required: true },
   barcodeData: { type: String, required: true },
-  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed", "defective", "wasted"], default: "generated" },
+  status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed", "defective", "wasted", "quality_ok", "damaged"], default: "generated" },
   currentDepartment: { 
     type: String, 
     enum: DEPARTMENTS, 
@@ -151,6 +185,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   departmentHistory: [DepartmentScanSchema],
   departmentRates: [DesignDepartmentRateSchema],
   defectiveInfo: DefectiveInfoSchema,
+  qualityCheckInfo: QualityCheckInfoSchema,
   paidDepartments: [DepartmentPaymentSchema],
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
   createdAt: { type: Date, default: Date.now },

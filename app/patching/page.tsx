@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Wrench, AlertTriangle } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Wrench } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
-import DefectiveModal from "@/app/components/DefectiveModal";
 
 interface DepartmentScan {
   department: string;
@@ -38,8 +37,6 @@ export default function PatchingPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
-  const [showDefectiveModal, setShowDefectiveModal] = useState(false);
-  const [isDefectiveScanMode, setIsDefectiveScanMode] = useState(false);
 
   useEffect(() => {
     if (!scanning) return;
@@ -76,44 +73,27 @@ export default function PatchingPage() {
     setBarcodeDetails(null);
 
     try {
-      if (isDefectiveScanMode) {
-        const response = await fetch(`/api/barcodes/scan`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ barcodeData }),
-        });
+      const response = await fetch("/api/barcodes/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barcodeData,
+          department: "Patching",
+          scannedBy: user?.name || user?.username,
+        }),
+      });
 
-        const result = await response.json();
+      const result = await response.json();
 
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setShowDefectiveModal(true);
-        } else {
-          setError(result.message || "Barcode not found");
-        }
+      if (result.success) {
+        setBarcodeDetails(result.barcode);
+        setSuccess(`Product updated to Patching department by ${user?.name}`);
+        setScanCount((prev) => prev + 1);
       } else {
-        const response = await fetch("/api/barcodes/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barcodeData,
-            department: "Patching",
-            scannedBy: user?.name || user?.username,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setSuccess(`Product updated to Patching department by ${user?.name}`);
-          setScanCount((prev) => prev + 1);
-        } else {
-          if (result.alreadyScanned) {
-            toast.error(result.message);
-          }
-          setError(result.message || "Barcode not found");
+        if (result.alreadyScanned) {
+          toast.error(result.message);
         }
+        setError(result.message || "Barcode not found");
       }
     } catch (err: any) {
       setError(err.message || "Failed to process barcode");
@@ -126,15 +106,6 @@ export default function PatchingPage() {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
-    setIsDefectiveScanMode(false);
-    setScanning(true);
-  };
-
-  const startDefectiveScan = () => {
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setIsDefectiveScanMode(true);
     setScanning(true);
   };
 
@@ -144,8 +115,6 @@ export default function PatchingPage() {
     setSuccess("");
     setScanning(false);
     setShowHistory(false);
-    setIsDefectiveScanMode(false);
-    setShowDefectiveModal(false);
   };
 
   const formatDate = (dateString: string) => {
@@ -209,17 +178,17 @@ export default function PatchingPage() {
         </div>
 
         <div className="mb-6">
-          <DepartmentPaymentSummary department="Patching" />
+          <DepartmentPaymentSummary department="Patching" refreshKey={scanCount} />
         </div>
 
         {/* Payment Display */}
         <div className="mb-6">
-          <PaymentDisplay userName={user?.name || ""} department="Patching" scanCount={scanCount} />
+          <PaymentDisplay userName={user?.name || user?.username || ""} department="Patching" scanCount={scanCount} />
         </div>
 
         {/* Payment by Design */}
         <div className="mb-6">
-          <PaymentByDesignDisplay userName={user?.name || ""} department="Patching" />
+          <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Patching" scanCount={scanCount} />
         </div>
 
         {/* Scanner Section */}
@@ -240,13 +209,6 @@ export default function PatchingPage() {
                 <Scan size={20} />
                 Start Scanning
               </button>
-              <button
-                onClick={startDefectiveScan}
-                className="w-full bg-yellow-500 text-white py-4 rounded-lg font-semibold hover:bg-yellow-600 transition flex items-center justify-center gap-2"
-              >
-                <AlertTriangle size={20} />
-                Scan Defective Item
-              </button>
             </div>
           </div>
         )}
@@ -255,12 +217,7 @@ export default function PatchingPage() {
         {scanning && (
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="text-center mb-4">
-              <h2 className="text-lg font-semibold">
-                {isDefectiveScanMode ? "📷 Scanning Defective Item..." : "📷 Scanning..."}
-              </h2>
-              {isDefectiveScanMode && (
-                <p className="text-sm text-yellow-600">Scan the damaged/defective product</p>
-              )}
+              <h2 className="text-lg font-semibold">📷 Scanning...</h2>
             </div>
             <div id="reader" className="rounded-lg overflow-hidden"></div>
             <button
@@ -375,27 +332,6 @@ export default function PatchingPage() {
               </button>
             </div>
           </div>
-        )}
-
-        {/* Defective Modal */}
-        {barcodeDetails && (
-          <DefectiveModal
-            isOpen={showDefectiveModal}
-            onClose={() => {
-              setShowDefectiveModal(false);
-              resetScanner();
-            }}
-            barcodeId={barcodeDetails.id}
-            barcodeInfo={{
-              design: barcodeDetails.design,
-              item: barcodeDetails.item,
-              size: barcodeDetails.size,
-              unitNumber: barcodeDetails.unitNumber,
-            }}
-            department="Patching"
-            markedBy={user?.name || user?.username || "Unknown"}
-            onSuccess={resetScanner}
-          />
         )}
       </div>
     </div>

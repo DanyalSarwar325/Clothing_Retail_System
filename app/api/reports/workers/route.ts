@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import DbConnect from "@/app/libs/dbConnect";
 import Barcode from "@/app/libs/models/barcode";
+import FinalSticker from "@/app/libs/models/finalSticker";
 import Payment from "@/app/libs/models/payment";
 import User from "@/app/libs/models/user";
 
@@ -27,6 +28,7 @@ interface WorkerReport {
   totalPaid: number;
   pendingPayment: number;
   piecesByDesign: { design: string; count: number }[];
+  scansByDesign: { design: string; count: number }[]; // Total scans by design
 }
 
 export async function GET(request: NextRequest) {
@@ -85,68 +87,198 @@ export async function GET(request: NextRequest) {
         matchStage.design = { $regex: filterDesign, $options: "i" };
       }
 
-      // Get current pieces held by user (last scanner = current holder)
-      const currentPiecesAgg = await Barcode.aggregate([
-        { $match: filterDesign ? { design: { $regex: filterDesign, $options: "i" } } : {} },
-        { $addFields: { lastScan: { $arrayElemAt: ["$departmentHistory", -1] } } },
-        { $match: { "lastScan.scannedBy": userName } },
-        {
-          $group: {
-            _id: "$design",
-            count: { $sum: 1 },
-          },
-        },
-      ]);
+      // For Store department, only query FinalSticker (Store only handles final stickers)
+      // For other departments, query Barcode
+      let currentPieces = 0;
+      let piecesByDesign: { design: string; count: number }[] = [];
 
-      const currentPieces = currentPiecesAgg.reduce((sum, d) => sum + d.count, 0);
-      const piecesByDesign = currentPiecesAgg.map((d) => ({
-        design: d._id,
-        count: d.count,
-      }));
+      if (userDepartment === "Store") {
+        // Store only handles final stickers
+        const finalStickerPiecesAgg = await FinalSticker.aggregate([
+          { $match: filterDesign ? { design: { $regex: filterDesign, $options: "i" } } : {} },
+          { $addFields: { lastScan: { $arrayElemAt: ["$departmentHistory", -1] } } },
+          { $match: { "lastScan.scannedBy": userName } },
+          {
+            $group: {
+              _id: "$design",
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        currentPieces = finalStickerPiecesAgg.reduce((sum: number, d: any) => sum + d.count, 0);
+        piecesByDesign = finalStickerPiecesAgg.map((d: any) => ({
+          design: d._id,
+          count: d.count,
+        }));
+      } else {
+        // Other departments handle individual barcodes
+        const currentPiecesAgg = await Barcode.aggregate([
+          { $match: filterDesign ? { design: { $regex: filterDesign, $options: "i" } } : {} },
+          { $addFields: { lastScan: { $arrayElemAt: ["$departmentHistory", -1] } } },
+          { $match: { "lastScan.scannedBy": userName } },
+          {
+            $group: {
+              _id: "$design",
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        currentPieces = currentPiecesAgg.reduce((sum: number, d: any) => sum + d.count, 0);
+        piecesByDesign = currentPiecesAgg.map((d: any) => ({
+          design: d._id,
+          count: d.count,
+        }));
+      }
 
       // Get total scans by this user
-      const totalScansAgg = await Barcode.aggregate([
-        { $match: matchStage },
-        { $unwind: "$departmentHistory" },
-        {
-          $match: {
-            "departmentHistory.scannedBy": userName,
-            ...(Object.keys(dateFilter).length > 0
-              ? { "departmentHistory.scannedAt": dateFilter }
-              : {}),
-          },
-        },
-        { $count: "total" },
-      ]);
-      const totalScans = totalScansAgg[0]?.total || 0;
+      let totalScans = 0;
+      let scansToday = 0;
+      let scansThisWeek = 0;
 
-      // Get scans today
-      const scansTodayAgg = await Barcode.aggregate([
-        { $match: matchStage },
-        { $unwind: "$departmentHistory" },
-        {
-          $match: {
-            "departmentHistory.scannedBy": userName,
-            "departmentHistory.scannedAt": { $gte: todayStart },
+      if (userDepartment === "Store") {
+        // Store only handles final stickers
+        const finalStickerScansAgg = await FinalSticker.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              ...(Object.keys(dateFilter).length > 0
+                ? { "departmentHistory.scannedAt": dateFilter }
+                : {}),
+            },
           },
-        },
-        { $count: "total" },
-      ]);
-      const scansToday = scansTodayAgg[0]?.total || 0;
+          { $count: "total" },
+        ]);
+        totalScans = finalStickerScansAgg[0]?.total || 0;
 
-      // Get scans this week
-      const scansWeekAgg = await Barcode.aggregate([
-        { $match: matchStage },
-        { $unwind: "$departmentHistory" },
-        {
-          $match: {
-            "departmentHistory.scannedBy": userName,
-            "departmentHistory.scannedAt": { $gte: weekStart },
+        // Get FinalSticker scans today
+        const finalStickerScansTodayAgg = await FinalSticker.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.scannedAt": { $gte: todayStart },
+            },
           },
-        },
-        { $count: "total" },
-      ]);
-      const scansThisWeek = scansWeekAgg[0]?.total || 0;
+          { $count: "total" },
+        ]);
+        scansToday = finalStickerScansTodayAgg[0]?.total || 0;
+
+        // Get FinalSticker scans this week
+        const finalStickerScansWeekAgg = await FinalSticker.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.scannedAt": { $gte: weekStart },
+            },
+          },
+          { $count: "total" },
+        ]);
+        scansThisWeek = finalStickerScansWeekAgg[0]?.total || 0;
+      } else {
+        // Other departments handle individual barcodes
+        const totalScansAgg = await Barcode.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              ...(Object.keys(dateFilter).length > 0
+                ? { "departmentHistory.scannedAt": dateFilter }
+                : {}),
+            },
+          },
+          { $count: "total" },
+        ]);
+        totalScans = totalScansAgg[0]?.total || 0;
+
+        // Get scans today
+        const scansTodayAgg = await Barcode.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.scannedAt": { $gte: todayStart },
+            },
+          },
+          { $count: "total" },
+        ]);
+        scansToday = scansTodayAgg[0]?.total || 0;
+
+        // Get scans this week
+        const scansWeekAgg = await Barcode.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.scannedAt": { $gte: weekStart },
+            },
+          },
+          { $count: "total" },
+        ]);
+        scansThisWeek = scansWeekAgg[0]?.total || 0;
+      }
+
+      // Get scans by design for this user's department (this week)
+      let scansByDesign: { design: string; count: number }[] = [];
+
+      if (userDepartment === "Packing" || userDepartment === "Store") {
+        // For Packing and Store, query FinalSticker
+        const scansByDesignAgg = await FinalSticker.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.department": userDepartment,
+              "departmentHistory.scannedAt": { $gte: weekStart },
+            },
+          },
+          {
+            $group: {
+              _id: "$design",
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+        ]);
+        scansByDesign = scansByDesignAgg.map((d: any) => ({
+          design: d._id,
+          count: d.count,
+        }));
+      } else {
+        // For other departments, query Barcode
+        const scansByDesignAgg = await Barcode.aggregate([
+          { $match: matchStage },
+          { $unwind: "$departmentHistory" },
+          {
+            $match: {
+              "departmentHistory.scannedBy": userName,
+              "departmentHistory.department": userDepartment,
+              "departmentHistory.scannedAt": { $gte: weekStart },
+            },
+          },
+          {
+            $group: {
+              _id: "$design",
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+        ]);
+        scansByDesign = scansByDesignAgg.map((d: any) => ({
+          design: d._id,
+          count: d.count,
+        }));
+      }
 
       // Calculate total earned (based on design-specific rates)
       const earningsAgg = await Barcode.aggregate([
@@ -218,6 +350,7 @@ export async function GET(request: NextRequest) {
         totalPaid,
         pendingPayment,
         piecesByDesign,
+        scansByDesign,
       });
     }
 

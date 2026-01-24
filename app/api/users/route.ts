@@ -106,3 +106,46 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// DELETE - Delete a user
+export async function DELETE(request: NextRequest) {
+  try {
+    await dbConnect();
+
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("id");
+
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "User ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    // Prevent deleting admin users for safety
+    if (user.role === "admin") {
+      return NextResponse.json(
+        { success: false, error: "Cannot delete admin users" },
+        { status: 403 }
+      );
+    }
+
+    await User.findByIdAndDelete(userId);
+
+    return NextResponse.json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to delete user" },
+      { status: 500 }
+    );
+  }
+}

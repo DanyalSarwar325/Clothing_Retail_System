@@ -72,6 +72,7 @@ export default function PackingPage() {
     setBarcodeDetails(null);
 
     try {
+      // First try to scan as individual barcode
       const response = await fetch("/api/barcodes/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,11 +89,48 @@ export default function PackingPage() {
         setBarcodeDetails(result.barcode);
         setSuccess(`Product updated to Packing department by ${user?.name}`);
         setScanCount((prev) => prev + 1);
+        return;
+      }
+      
+      // If individual barcode not found, try as final sticker
+      const finalResponse = await fetch("/api/final-stickers/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barcodeData,
+          department: "Packing",
+          scannedBy: user?.name || user?.username,
+        }),
+      });
+
+      const finalResult = await finalResponse.json();
+
+      if (finalResult.success) {
+        // Convert final sticker to barcode details format for display
+        const sticker = finalResult.sticker;
+        setBarcodeDetails({
+          id: sticker._id,
+          design: sticker.design,
+          size: sticker.size,
+          item: `Complete Suit (${sticker.suitType})`,
+          unitNumber: sticker.unitNumber,
+          status: sticker.status,
+          currentDepartment: sticker.currentDepartment,
+          departmentHistory: sticker.departmentHistory,
+          createdAt: sticker.createdAt,
+        });
+        setSuccess(`Final sticker scanned at Packing by ${user?.name}`);
+        setScanCount((prev) => prev + 1);
+        return;
+      }
+
+      // Both failed
+      if (result.alreadyScanned) {
+        toast.error(result.message);
+      } else if (finalResult.alreadyScanned) {
+        toast.error(finalResult.message);
       } else {
-        if (result.alreadyScanned) {
-          toast.error(result.message);
-        }
-        setError(result.message || "Barcode not found");
+        setError(result.message || finalResult.message || "Barcode not found");
       }
     } catch (err: any) {
       setError(err.message || "Failed to process barcode");
@@ -177,12 +215,12 @@ export default function PackingPage() {
         </div>
 
         <div className="mb-6">
-          <DepartmentPaymentSummary department="Packing" />
+          <DepartmentPaymentSummary department="Packing" refreshKey={scanCount} />
         </div>
 
         {/* Payment Display */}
         <div className="mb-6">
-          <PaymentDisplay userName={user?.name || ""} department="Packing" scanCount={scanCount} />
+          <PaymentDisplay userName={user?.name || user?.username || ""} department="Packing" scanCount={scanCount} />
         </div>
 
         {/* Scanner Section */}

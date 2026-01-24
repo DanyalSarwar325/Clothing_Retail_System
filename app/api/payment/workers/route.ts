@@ -27,11 +27,6 @@ export async function GET(request: NextRequest) {
       "departmentHistory.department": department,
     };
 
-    // For Cutting department: only count 'scanned' barcodes (confirmed by sewing)
-    if (department === "Cutting") {
-      matchCondition.status = "scanned";
-    }
-
     // Get all workers who scanned in this department with their earnings
     const workersAgg = await Barcode.aggregate([
       { $match: matchCondition },

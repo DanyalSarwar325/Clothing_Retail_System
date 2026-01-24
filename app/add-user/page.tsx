@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Sidebar from "@/app/components/Sidebar";
-import { UserPlus, Users, Phone, Lock, User, Search } from "lucide-react";
+import { UserPlus, Users, Phone, Lock, User, Search, Trash2 } from "lucide-react";
 
 const DEPARTMENTS = [
   "Admin",
@@ -41,6 +41,35 @@ export default function AddUserPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("");
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (deleteConfirmId !== userId) {
+      setDeleteConfirmId(userId);
+      return;
+    }
+
+    try {
+      setDeletingUserId(userId);
+      const res = await fetch(`/api/users?id=${userId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setMessage({ type: "success", text: `User "${userName}" deleted successfully` });
+        fetchUsers();
+      } else {
+        setMessage({ type: "error", text: data.error || "Failed to delete user" });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "An error occurred while deleting user" });
+    } finally {
+      setDeletingUserId(null);
+      setDeleteConfirmId(null);
+    }
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -314,10 +343,28 @@ export default function AddUserPage() {
                           {user.department}
                         </span>
                         {user.contactNo && (
-                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                          <span className="text-xs text-gray-500 items-center gap-1 hidden sm:flex">
                             <Phone size={10} />
                             {user.contactNo}
                           </span>
+                        )}
+                        {user.department !== "Admin" && (
+                          <button
+                            onClick={() => handleDeleteUser(user._id, user.name)}
+                            disabled={deletingUserId === user._id}
+                            className={`p-1.5 rounded transition ${
+                              deleteConfirmId === user._id
+                                ? "bg-red-600 text-white hover:bg-red-700"
+                                : "text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            } disabled:opacity-50`}
+                            title={deleteConfirmId === user._id ? "Click again to confirm" : "Delete user"}
+                          >
+                            {deletingUserId === user._id ? (
+                              <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></div>
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                          </button>
                         )}
                       </div>
                     </div>

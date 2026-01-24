@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 import Sidebar from "@/app/components/Sidebar";
 import {
@@ -12,6 +12,7 @@ import {
   ChevronUp,
   Clock,
   User,
+  RefreshCw,
 } from "lucide-react";
 
 interface DepartmentCounts {
@@ -66,6 +67,18 @@ interface Unit {
   items: ProductItem[];
 }
 
+interface FinalStickerCard {
+  id: string;
+  size: string;
+  unitNumber: number;
+  suitType: string;
+  sellingPrice: number;
+  currentDepartment: string;
+  status: string;
+  departmentHistory: DepartmentScan[];
+  createdAt: string;
+}
+
 const DEPARTMENTS = [
   { key: "cutting", label: "Cutting", color: "bg-red-500" },
   { key: "sewing", label: "Sewing", color: "bg-orange-500" },
@@ -86,15 +99,12 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedDesign, setExpandedDesign] = useState<string | null>(null);
   const [designDetails, setDesignDetails] = useState<Unit[] | null>(null);
+  const [finalStickers, setFinalStickers] = useState<FinalStickerCard[] | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (user?.role === "admin") {
-      fetchDashboard();
-    }
-  }, [user]);
-
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async (showRefreshing = false) => {
+    if (showRefreshing) setRefreshing(true);
     try {
       const response = await fetch("/api/dashboard");
       const data = await response.json();
@@ -106,13 +116,39 @@ export default function AdminDashboard() {
       console.error("Failed to fetch dashboard:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      fetchDashboard();
+    }
+  }, [user, fetchDashboard]);
+
+  // Auto-refresh when user comes back to the tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && user?.role === "admin") {
+        fetchDashboard(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user, fetchDashboard]);
+
+  const handleRefresh = () => {
+    fetchDashboard(true);
   };
 
   const fetchDesignDetails = async (designName: string) => {
     if (expandedDesign === designName) {
       setExpandedDesign(null);
       setDesignDetails(null);
+      setFinalStickers(null);
       return;
     }
 
@@ -124,6 +160,7 @@ export default function AdminDashboard() {
       const data = await response.json();
       if (data.success) {
         setDesignDetails(data.units);
+        setFinalStickers(data.finalStickers || []);
       }
     } catch (error) {
       console.error("Failed to fetch design details:", error);
@@ -179,8 +216,20 @@ export default function AdminDashboard() {
       <div className="w-full lg:ml-64">
         {/* Header */}
         <header className="bg-white border-b px-4 sm:px-8 py-6 pt-16 lg:pt-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600 text-sm sm:text-base">Welcome back, {user.name}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+              <p className="text-gray-600 text-sm sm:text-base">Welcome back, {user.name}</p>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
         </header>
 
         <div className="p-4 sm:p-8">
@@ -336,6 +385,74 @@ export default function AdminDashboard() {
                           </div>
                         ) : (
                           <div className="space-y-4">
+                            {/* Final Stickers Section */}
+                            {finalStickers && finalStickers.length > 0 && (
+                              <div className="bg-white rounded-lg p-4 shadow-sm border-2 border-purple-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-semibold">
+                                    Final Stickers ({finalStickers.length})
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                  {finalStickers.map((sticker) => (
+                                    <div
+                                      key={sticker.id}
+                                      className="border-2 border-purple-100 rounded-lg p-3 bg-purple-50"
+                                    >
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="font-medium text-purple-900">
+                                          {sticker.suitType.toUpperCase()} - {sticker.size}
+                                        </span>
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-xs text-white ${getDepartmentColor(
+                                            sticker.currentDepartment
+                                          )}`}
+                                        >
+                                          {sticker.currentDepartment}
+                                        </span>
+                                      </div>
+                                      <div className="text-xs text-gray-600 mb-2">
+                                        <span className="font-medium">Unit #{sticker.unitNumber}</span>
+                                        <span className="mx-2">•</span>
+                                        <span className="text-green-600 font-semibold">Rs. {sticker.sellingPrice}</span>
+                                      </div>
+
+                                      {/* Department History */}
+                                      {sticker.departmentHistory.length > 0 && (
+                                        <div className="mt-2 pt-2 border-t border-purple-200">
+                                          <p className="text-xs text-gray-500 mb-1">
+                                            Scan History:
+                                          </p>
+                                          <div className="space-y-1">
+                                            {sticker.departmentHistory.map((scan, idx) => (
+                                              <div
+                                                key={idx}
+                                                className="flex items-center gap-2 text-xs text-gray-600"
+                                              >
+                                                <Clock size={12} />
+                                                <span>{scan.department}</span>
+                                                {scan.scannedBy && (
+                                                  <>
+                                                    <User size={12} />
+                                                    <span>{scan.scannedBy}</span>
+                                                  </>
+                                                )}
+                                                <span className="text-gray-400">
+                                                  {formatDate(scan.scannedAt)}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Individual Barcodes */}
                             {designDetails?.map((unit) => (
                               <div
                                 key={`${unit.size}-${unit.unitNumber}`}

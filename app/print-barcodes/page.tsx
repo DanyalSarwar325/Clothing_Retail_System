@@ -14,6 +14,7 @@ const SUIT_ITEMS: Record<string, string[]> = {
 interface DepartmentRate {
   department: string;
   ratePerPiece: number;
+  item?: string; // Optional: for item-based rates (Cutting, Sewing, Press)
 }
 
 interface BarcodeData {

@@ -4,21 +4,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Scissors, Plus, Minus, DollarSign } from "lucide-react";
 
-const DEPARTMENTS = [
-  "Cutting",
-  "Sewing",
-  "Quality",
-  "Handmade",
-  "Adda Work",
-  "Patching",
-  "Press",
-  "Packing",
-  "Store",
-];
+// Departments that have item-based rates
+const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+
+// Departments with single rate per unit
+const SINGLE_RATE_DEPARTMENTS = ["Quality", "Handmade", "Adda Work", "Patching", "Packing", "Store"];
+
+const ALL_DEPARTMENTS = [...ITEM_BASED_DEPARTMENTS, ...SINGLE_RATE_DEPARTMENTS];
 
 const SUIT_TYPES = ["1pc", "2pc", "3pc"] as const;
 const SIZES = ["S", "M", "L"] as const;
 const SIZE_LABELS = { S: "Small", M: "Medium", L: "Large" };
+const ITEMS = ["Qameez", "Shalwar", "Dupatta"] as const;
 
 interface SuitQuantity {
   "1pc": number;
@@ -32,9 +29,16 @@ interface SizeQuantities {
   L: SuitQuantity;
 }
 
+interface ItemRate {
+  Qameez: number;
+  Shalwar: number;
+  Dupatta: number;
+}
+
 interface DepartmentRate {
   department: string;
   ratePerPiece: number;
+  item?: string;
 }
 
 export default function AdminBarcodeGenerator() {
@@ -45,9 +49,24 @@ export default function AdminBarcodeGenerator() {
     M: { "1pc": 0, "2pc": 0, "3pc": 0 },
     L: { "1pc": 0, "2pc": 0, "3pc": 0 },
   });
-  const [rates, setRates] = useState<DepartmentRate[]>(
-    DEPARTMENTS.map((dept) => ({ department: dept, ratePerPiece: 0 }))
-  );
+  
+  // Item-based rates for Cutting, Sewing, Press
+  const [itemRates, setItemRates] = useState<Record<string, ItemRate>>({
+    Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+  });
+  
+  // Single rates for other departments
+  const [singleRates, setSingleRates] = useState<Record<string, number>>({
+    Quality: 0,
+    Handmade: 0,
+    "Adda Work": 0,
+    Patching: 0,
+    Packing: 0,
+    Store: 0,
+  });
+  
   const [error, setError] = useState("");
   const [showRates, setShowRates] = useState(false);
 
@@ -79,12 +98,35 @@ export default function AdminBarcodeGenerator() {
     }));
   };
 
-  const updateRate = (department: string, value: number) => {
-    setRates((prev) =>
-      prev.map((r) =>
-        r.department === department ? { ...r, ratePerPiece: Math.max(0, value) } : r
-      )
-    );
+  const updateItemRate = (department: string, item: keyof ItemRate, value: number) => {
+    setItemRates((prev) => ({
+      ...prev,
+      [department]: {
+        ...prev[department],
+        [item]: Math.max(0, value),
+      },
+    }));
+  };
+
+  const updateSingleRate = (department: string, value: number) => {
+    setSingleRates((prev) => ({
+      ...prev,
+      [department]: Math.max(0, value),
+    }));
+  };
+
+  // Get which items are needed based on quantities
+  const getRequiredItems = (): string[] => {
+    const has1pc = SIZES.some((s) => quantities[s]["1pc"] > 0);
+    const has2pc = SIZES.some((s) => quantities[s]["2pc"] > 0);
+    const has3pc = SIZES.some((s) => quantities[s]["3pc"] > 0);
+
+    const items = new Set<string>();
+    if (has1pc || has2pc || has3pc) items.add("Qameez");
+    if (has2pc || has3pc) items.add("Shalwar");
+    if (has3pc) items.add("Dupatta");
+
+    return Array.from(items);
   };
 
   // Calculate totals
@@ -122,14 +164,49 @@ export default function AdminBarcodeGenerator() {
       return;
     }
 
-    // Check if all rates are set
-    const hasAllRates = rates.every((r) => r.ratePerPiece > 0);
-    if (!hasAllRates) {
-      setError("Please set rates for all departments");
-      return;
+    const requiredItems = getRequiredItems();
+
+    // Validate item-based rates for Cutting, Sewing, Press
+    for (const dept of ITEM_BASED_DEPARTMENTS) {
+      for (const item of requiredItems) {
+        if (itemRates[dept][item as keyof ItemRate] <= 0) {
+          setError(`Please set ${dept} rate for ${item}`);
+          return;
+        }
+      }
+    }
+
+    // Validate single rates for other departments
+    for (const dept of SINGLE_RATE_DEPARTMENTS) {
+      if (singleRates[dept] <= 0) {
+        setError(`Please set rate for ${dept}`);
+        return;
+      }
     }
 
     setError("");
+
+    // Build rates array for URL
+    const rates: DepartmentRate[] = [];
+    
+    // Add item-based rates
+    for (const dept of ITEM_BASED_DEPARTMENTS) {
+      for (const item of requiredItems) {
+        rates.push({
+          department: dept,
+          ratePerPiece: itemRates[dept][item as keyof ItemRate],
+          item: item,
+        });
+      }
+    }
+    
+    // Add single rates
+    for (const dept of SINGLE_RATE_DEPARTMENTS) {
+      rates.push({
+        department: dept,
+        ratePerPiece: singleRates[dept],
+      });
+    }
 
     // Build query params
     const params = new URLSearchParams({
@@ -246,28 +323,87 @@ export default function AdminBarcodeGenerator() {
         </button>
 
         {showRates && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            {rates.map((rate) => (
-              <div key={rate.department} className="flex items-center gap-2">
-                <label className="text-sm text-gray-600 w-24 truncate" title={rate.department}>
-                  {rate.department}:
-                </label>
-                <div className="flex items-center border rounded px-2 py-1 flex-1">
-                  <span className="text-gray-500 text-sm">Rs.</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={rate.ratePerPiece || ""}
-                    onChange={(e) =>
-                      updateRate(rate.department, parseFloat(e.target.value) || 0)
-                    }
-                    placeholder="0"
-                    className="w-full ml-1 text-sm focus:outline-none"
-                  />
-                </div>
+          <div className="mt-4 space-y-6">
+            {/* Item-Based Rates for Cutting, Sewing, Press */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">
+                Item-Based Rates (Cutting, Sewing, Press)
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border px-3 py-2 text-left font-medium text-gray-600">Department</th>
+                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Qameez (Rs.)</th>
+                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Shalwar (Rs.)</th>
+                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Dupatta (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ITEM_BASED_DEPARTMENTS.map((dept) => (
+                      <tr key={dept}>
+                        <td className="border px-3 py-2 font-medium text-gray-900">{dept}</td>
+                        {ITEMS.map((item) => {
+                          const requiredItems = getRequiredItems();
+                          const isNeeded = requiredItems.includes(item);
+                          return (
+                            <td key={item} className="border px-2 py-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={itemRates[dept][item] || ""}
+                                onChange={(e) =>
+                                  updateItemRate(dept, item, parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="0"
+                                disabled={!isNeeded}
+                                className={`w-full text-center border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                                  !isNeeded ? "bg-gray-100 text-gray-400" : ""
+                                }`}
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
+              <p className="text-xs text-gray-500 mt-2">
+                * Only items required by your selected suit types are enabled
+              </p>
+            </div>
+
+            {/* Single Rates for Other Departments */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">
+                Single Rate per Unit (Other Departments)
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {SINGLE_RATE_DEPARTMENTS.map((dept) => (
+                  <div key={dept} className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600 w-24 truncate" title={dept}>
+                      {dept}:
+                    </label>
+                    <div className="flex items-center border rounded px-2 py-1 flex-1">
+                      <span className="text-gray-500 text-sm">Rs.</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={singleRates[dept] || ""}
+                        onChange={(e) =>
+                          updateSingleRate(dept, parseFloat(e.target.value) || 0)
+                        }
+                        placeholder="0"
+                        className="w-full ml-1 text-sm focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

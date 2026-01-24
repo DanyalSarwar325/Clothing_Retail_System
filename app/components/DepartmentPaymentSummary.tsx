@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Banknote, CircleDollarSign, Wallet, Barcode } from "lucide-react";
 
 interface DepartmentPaymentSummaryProps {
   department: string;
+  refreshKey?: number; // Optional key to trigger refresh (e.g., scanCount)
 }
 
 interface DepartmentPaymentData {
@@ -16,30 +17,44 @@ interface DepartmentPaymentData {
   pending: number;
 }
 
-export default function DepartmentPaymentSummary({ department }: DepartmentPaymentSummaryProps) {
+export default function DepartmentPaymentSummary({ department, refreshKey }: DepartmentPaymentSummaryProps) {
   const [data, setData] = useState<DepartmentPaymentData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch(`/api/payment/department?department=${encodeURIComponent(department)}`, {
-          cache: "no-store",
-        });
-        const result = await response.json();
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/payment/department?department=${encodeURIComponent(department)}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
 
-        if (result.success) {
-          setData(result.data);
-        }
-      } catch (error) {
-        console.error("Failed to load department payment summary", error);
-      } finally {
-        setLoading(false);
+      if (result.success) {
+        setData(result.data);
+      }
+    } catch (error) {
+      console.error("Failed to load department payment summary", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [department]);
+
+  useEffect(() => {
+    fetchData();
+  }, [department, refreshKey, fetchData]);
+
+  // Refresh data when user comes back to the tab (e.g., after admin makes payment)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchData();
       }
     };
 
-    fetchData();
-  }, [department]);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchData]);
 
   if (loading) {
     return (

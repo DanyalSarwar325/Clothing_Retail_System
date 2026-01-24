@@ -51,6 +51,11 @@ interface PiecesByDesign {
   count: number;
 }
 
+interface ScansByDesign {
+  design: string;
+  count: number;
+}
+
 interface WorkerReport {
   name: string;
   department: string;
@@ -62,6 +67,7 @@ interface WorkerReport {
   totalPaid: number;
   pendingPayment: number;
   piecesByDesign: PiecesByDesign[];
+  scansByDesign: ScansByDesign[];
 }
 
 interface DefectiveWorkerReport {
@@ -720,7 +726,7 @@ export default function ReportsPage() {
                               <div className="bg-white rounded-lg p-3 sm:p-4 border">
                                 <h4 className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-1.5">
                                   <Package size={12} />
-                                  Pieces
+                                  Pieces Held
                                 </h4>
                                 {worker.piecesByDesign.length === 0 ? (
                                   <p className="text-xs sm:text-sm text-gray-400">No pieces held</p>
@@ -730,6 +736,26 @@ export default function ReportsPage() {
                                       <div key={item.design} className="flex justify-between items-center">
                                         <span className="text-xs sm:text-sm text-gray-600 truncate mr-2">{item.design}</span>
                                         <span className="text-xs sm:text-sm font-medium bg-gray-100 px-1.5 sm:px-2 py-0.5 rounded">{item.count}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Scans by Design (This Week) */}
+                              <div className="bg-white rounded-lg p-3 sm:p-4 border">
+                                <h4 className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-1.5">
+                                  <BarChart3 size={12} />
+                                  Scans This Week
+                                </h4>
+                                {(!worker.scansByDesign || worker.scansByDesign.length === 0) ? (
+                                  <p className="text-xs sm:text-sm text-gray-400">No scans recorded</p>
+                                ) : (
+                                  <div className="space-y-1.5 max-h-24 sm:max-h-32 overflow-y-auto">
+                                    {worker.scansByDesign.map((item) => (
+                                      <div key={item.design} className="flex justify-between items-center">
+                                        <span className="text-xs sm:text-sm text-gray-600 truncate mr-2">{item.design}</span>
+                                        <span className="text-xs sm:text-sm font-medium bg-blue-100 text-blue-700 px-1.5 sm:px-2 py-0.5 rounded">{item.count}</span>
                                       </div>
                                     ))}
                                   </div>

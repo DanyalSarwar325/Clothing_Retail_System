@@ -3,6 +3,7 @@
 import { useAuth } from "@/app/context/AuthContext";
 import Sidebar from "@/app/components/Sidebar";
 import AdminBarcodeGenerator from "@/app/components/AdminBarcodeGenerator";
+import FinalStickerGenerator from "@/app/components/FinalStickerGenerator";
 import { LogOut } from "lucide-react";
 
 export default function GenerateBarcodesPage() {
@@ -47,8 +48,9 @@ export default function GenerateBarcodesPage() {
           </button>
         </header>
 
-        <div className="p-4 sm:p-8">
+        <div className="p-4 sm:p-8 space-y-8">
           <AdminBarcodeGenerator />
+          <FinalStickerGenerator />
         </div>
       </div>
     </div>

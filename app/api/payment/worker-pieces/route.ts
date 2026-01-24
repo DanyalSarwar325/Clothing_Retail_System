@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import DbConnect from "@/app/libs/dbConnect";
 import Barcode from "@/app/libs/models/barcode";
+import FinalSticker from "@/app/libs/models/finalSticker";
 import Rate from "@/app/libs/models/rate";
+
+// Departments that use item-based rates (different rate per Qameez, Shalwar, Dupatta)
+const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+
+// Departments that use final stickers
+const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
 // GET - Get all pieces for workers in a department grouped by worker and design
 export async function GET(request: NextRequest) {
@@ -21,82 +28,222 @@ export async function GET(request: NextRequest) {
     const rateDoc = await Rate.findOne({ department });
     const fallbackRate = rateDoc?.ratePerUnit || 0;
 
-    // Match condition based on department
-    const matchCondition: any = {
-      "departmentHistory.department": department,
-      status: { $nin: ["defective", "wasted"] }, // Exclude defective items
-    };
+    // Check if this department uses final stickers
+    const usesFinalStickers = FINAL_STICKER_DEPARTMENTS.includes(department);
+    
+    // Check if this department uses item-based rates
+    const usesItemBasedRates = ITEM_BASED_DEPARTMENTS.includes(department);
 
-    // For Cutting department: only count 'scanned' barcodes (confirmed by sewing)
-    if (department === "Cutting") {
-      matchCondition.status = "scanned";
-    }
+    let pieces: any[] = [];
 
-    // Get all pieces scanned in this department
-    const pieces = await Barcode.aggregate([
-      { $match: matchCondition },
-      { $unwind: "$departmentHistory" },
-      { $match: { "departmentHistory.department": department } },
-      {
-        $project: {
-          _id: 1,
-          design: 1,
-          item: 1,
-          size: 1,
-          suitType: 1,
-          unitNumber: 1,
-          workerName: "$departmentHistory.scannedBy",
-          scannedAt: "$departmentHistory.scannedAt",
-          departmentRates: 1,
-          paidDepartments: 1,
-          // Check if this piece is paid for this department
-          isPaid: {
-            $cond: [
-              { $isArray: "$paidDepartments" },
-              {
-                $gt: [
-                  {
-                    $size: {
-                      $filter: {
-                        input: "$paidDepartments",
-                        as: "pd",
-                        cond: { $eq: ["$$pd.department", department] },
-                      },
-                    },
-                  },
-                  0,
-                ],
-              },
-              false,
-            ],
+    if (usesFinalStickers) {
+      // Query FinalSticker collection for Packing/Store
+      pieces = await FinalSticker.aggregate([
+        {
+          $match: {
+            "departmentHistory.department": department,
+            status: { $nin: ["defective", "wasted"] },
           },
-          // Calculate rate for this piece
-          rate: {
-            $let: {
-              vars: {
-                matchedRate: {
-                  $arrayElemAt: [
+        },
+        { $unwind: "$departmentHistory" },
+        { $match: { "departmentHistory.department": department } },
+        {
+          $project: {
+            _id: 1,
+            design: 1,
+            item: { $literal: "Final Sticker" },
+            size: 1,
+            suitType: 1,
+            unitNumber: 1,
+            workerName: "$departmentHistory.scannedBy",
+            scannedAt: "$departmentHistory.scannedAt",
+            departmentRates: 1,
+            paidDepartments: 1,
+            isPaid: {
+              $cond: [
+                { $isArray: "$paidDepartments" },
+                {
+                  $gt: [
                     {
-                      $filter: {
-                        input: { $ifNull: ["$departmentRates", []] },
-                        as: "r",
-                        cond: { $eq: ["$$r.department", department] },
+                      $size: {
+                        $filter: {
+                          input: "$paidDepartments",
+                          as: "pd",
+                          cond: { $eq: ["$$pd.department", department] },
+                        },
                       },
                     },
                     0,
                   ],
                 },
+                false,
+              ],
+            },
+            rate: {
+              $let: {
+                vars: {
+                  matchedRate: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: { $ifNull: ["$departmentRates", []] },
+                          as: "r",
+                          cond: { $eq: ["$$r.department", department] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
               },
-              in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
             },
           },
         },
-      },
-      {
-        $match: { workerName: { $ne: null } }, // Filter out null worker names
-      },
-      { $sort: { scannedAt: -1 } },
-    ]);
+        { $match: { workerName: { $ne: null } } },
+        { $sort: { scannedAt: -1 } },
+      ]);
+    } else if (usesItemBasedRates) {
+      // For Cutting, Sewing, Press - match rate by department AND item
+      pieces = await Barcode.aggregate([
+        {
+          $match: {
+            "departmentHistory.department": department,
+            status: { $nin: ["defective", "wasted"] },
+          },
+        },
+        { $unwind: "$departmentHistory" },
+        { $match: { "departmentHistory.department": department } },
+        {
+          $project: {
+            _id: 1,
+            design: 1,
+            item: 1,
+            size: 1,
+            suitType: 1,
+            unitNumber: 1,
+            workerName: "$departmentHistory.scannedBy",
+            scannedAt: "$departmentHistory.scannedAt",
+            departmentRates: 1,
+            paidDepartments: 1,
+            isPaid: {
+              $cond: [
+                { $isArray: "$paidDepartments" },
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $filter: {
+                          input: "$paidDepartments",
+                          as: "pd",
+                          cond: { $eq: ["$$pd.department", department] },
+                        },
+                      },
+                    },
+                    0,
+                  ],
+                },
+                false,
+              ],
+            },
+            // For item-based departments, match by department AND item
+            rate: {
+              $let: {
+                vars: {
+                  matchedRate: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: { $ifNull: ["$departmentRates", []] },
+                          as: "r",
+                          cond: {
+                            $and: [
+                              { $eq: ["$$r.department", department] },
+                              { $eq: ["$$r.item", "$item"] },
+                            ],
+                          },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
+              },
+            },
+          },
+        },
+        { $match: { workerName: { $ne: null } } },
+        { $sort: { scannedAt: -1 } },
+      ]);
+    } else {
+      // For other departments - single rate per piece
+      pieces = await Barcode.aggregate([
+        {
+          $match: {
+            "departmentHistory.department": department,
+            status: { $nin: ["defective", "wasted"] },
+          },
+        },
+        { $unwind: "$departmentHistory" },
+        { $match: { "departmentHistory.department": department } },
+        {
+          $project: {
+            _id: 1,
+            design: 1,
+            item: 1,
+            size: 1,
+            suitType: 1,
+            unitNumber: 1,
+            workerName: "$departmentHistory.scannedBy",
+            scannedAt: "$departmentHistory.scannedAt",
+            departmentRates: 1,
+            paidDepartments: 1,
+            isPaid: {
+              $cond: [
+                { $isArray: "$paidDepartments" },
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $filter: {
+                          input: "$paidDepartments",
+                          as: "pd",
+                          cond: { $eq: ["$$pd.department", department] },
+                        },
+                      },
+                    },
+                    0,
+                  ],
+                },
+                false,
+              ],
+            },
+            rate: {
+              $let: {
+                vars: {
+                  matchedRate: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: { $ifNull: ["$departmentRates", []] },
+                          as: "r",
+                          cond: { $eq: ["$$r.department", department] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
+              },
+            },
+          },
+        },
+        { $match: { workerName: { $ne: null } } },
+        { $sort: { scannedAt: -1 } },
+      ]);
+    }
 
     // Group pieces by worker
     const workerMap: Record<string, any> = {};
@@ -207,8 +354,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get the piece to find its rate
-    const piece = await Barcode.findById(pieceId);
+    // Check if this department uses final stickers
+    const usesFinalStickers = FINAL_STICKER_DEPARTMENTS.includes(department);
+    
+    // Check if this department uses item-based rates
+    const usesItemBasedRates = ITEM_BASED_DEPARTMENTS.includes(department);
+
+    // Get the piece from appropriate collection
+    const Model = usesFinalStickers ? FinalSticker : Barcode;
+    const piece = await Model.findById(pieceId);
+    
     if (!piece) {
       return NextResponse.json(
         { success: false, message: "Piece not found" },
@@ -219,8 +374,20 @@ export async function POST(request: NextRequest) {
     // Get the rate for this piece
     const rateDoc = await Rate.findOne({ department });
     const fallbackRate = rateDoc?.ratePerUnit || 0;
-    const deptRate = piece.departmentRates?.find((r: any) => r.department === department);
-    const rate = deptRate?.ratePerPiece || fallbackRate;
+    
+    let rate = fallbackRate;
+    
+    if (usesItemBasedRates) {
+      // For Cutting, Sewing, Press - find rate matching department AND item
+      const deptRate = piece.departmentRates?.find(
+        (r: any) => r.department === department && r.item === piece.item
+      );
+      rate = deptRate?.ratePerPiece || fallbackRate;
+    } else {
+      // For other departments - find rate matching department only
+      const deptRate = piece.departmentRates?.find((r: any) => r.department === department);
+      rate = deptRate?.ratePerPiece || fallbackRate;
+    }
 
     // Check if already paid
     const alreadyPaid = piece.paidDepartments?.some((pd: any) => pd.department === department);
@@ -232,7 +399,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark as paid
-    await Barcode.findByIdAndUpdate(pieceId, {
+    await Model.findByIdAndUpdate(pieceId, {
       $push: {
         paidDepartments: {
           department,

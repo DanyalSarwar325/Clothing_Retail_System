@@ -8,7 +8,7 @@ import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
-import DefectiveModal from "@/app/components/DefectiveModal";
+import QualityCheckModal from "@/app/components/QualityCheckModal";
 
 interface DepartmentScan {
   department: string;
@@ -38,8 +38,8 @@ export default function QualityPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
-  const [showDefectiveModal, setShowDefectiveModal] = useState(false);
-  const [isDefectiveScanMode, setIsDefectiveScanMode] = useState(false);
+  const [showQualityCheckModal, setShowQualityCheckModal] = useState(false);
+  const [isQualityCheckMode, setIsQualityCheckMode] = useState(false);
 
   useEffect(() => {
     if (!scanning) return;
@@ -76,7 +76,8 @@ export default function QualityPage() {
     setBarcodeDetails(null);
 
     try {
-      if (isDefectiveScanMode) {
+      if (isQualityCheckMode) {
+        // Quality check mode - just fetch the barcode details and show modal
         const response = await fetch(`/api/barcodes/scan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -87,7 +88,7 @@ export default function QualityPage() {
 
         if (result.success) {
           setBarcodeDetails(result.barcode);
-          setShowDefectiveModal(true);
+          setShowQualityCheckModal(true);
         } else {
           setError(result.message || "Barcode not found");
         }
@@ -126,15 +127,15 @@ export default function QualityPage() {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
-    setIsDefectiveScanMode(false);
+    setIsQualityCheckMode(false);
     setScanning(true);
   };
 
-  const startDefectiveScan = () => {
+  const startQualityCheckScan = () => {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
-    setIsDefectiveScanMode(true);
+    setIsQualityCheckMode(true);
     setScanning(true);
   };
 
@@ -144,8 +145,8 @@ export default function QualityPage() {
     setSuccess("");
     setScanning(false);
     setShowHistory(false);
-    setIsDefectiveScanMode(false);
-    setShowDefectiveModal(false);
+    setIsQualityCheckMode(false);
+    setShowQualityCheckModal(false);
   };
 
   const formatDate = (dateString: string) => {
@@ -209,17 +210,17 @@ export default function QualityPage() {
         </div>
 
         <div className="mb-6">
-          <DepartmentPaymentSummary department="Quality" />
+          <DepartmentPaymentSummary department="Quality" refreshKey={scanCount} />
         </div>
 
         {/* Payment Display */}
         <div className="mb-6">
-          <PaymentDisplay userName={user?.name || ""} department="Quality" scanCount={scanCount} />
+          <PaymentDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
         </div>
 
         {/* Payment by Design */}
         <div className="mb-6">
-          <PaymentByDesignDisplay userName={user?.name || ""} department="Quality" />
+          <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
         </div>
 
         {/* Scanner Section */}
@@ -232,22 +233,13 @@ export default function QualityPage() {
             <p className="text-gray-600 mb-6">
               Click the button below to start scanning and verifying product quality
             </p>
-            <div className="space-y-3">
-              <button
-                onClick={startScanning}
-                className="w-full bg-emerald-600 text-white py-4 rounded-lg font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
-              >
-                <Scan size={20} />
-                Start Quality Check
-              </button>
-              <button
-                onClick={startDefectiveScan}
-                className="w-full bg-yellow-500 text-white py-4 rounded-lg font-semibold hover:bg-yellow-600 transition flex items-center justify-center gap-2"
-              >
-                <AlertTriangle size={20} />
-                Scan Defective Item
-              </button>
-            </div>
+            <button
+              onClick={startQualityCheckScan}
+              className="w-full bg-emerald-600 text-white py-4 rounded-lg font-semibold hover:bg-emerald-700 transition flex items-center justify-center gap-2"
+            >
+              <ShieldCheck size={20} />
+              Quality Verification Scan
+            </button>
           </div>
         )}
 
@@ -256,10 +248,10 @@ export default function QualityPage() {
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="text-center mb-4">
               <h2 className="text-lg font-semibold">
-                {isDefectiveScanMode ? "📷 Scanning Defective Item..." : "📷 Scanning for Quality Verification..."}
+                {isQualityCheckMode ? "📷 Scanning for Quality Verification..." : "📷 Scanning for Quality Verification..."}
               </h2>
-              {isDefectiveScanMode && (
-                <p className="text-sm text-yellow-600">Scan the damaged/defective product</p>
+              {isQualityCheckMode && (
+                <p className="text-sm text-blue-600">Scan the product to check quality status</p>
               )}
             </div>
             <div id="reader" className="rounded-lg overflow-hidden"></div>
@@ -378,12 +370,12 @@ export default function QualityPage() {
           </div>
         )}
 
-        {/* Defective Modal */}
+        {/* Quality Check Modal */}
         {barcodeDetails && (
-          <DefectiveModal
-            isOpen={showDefectiveModal}
+          <QualityCheckModal
+            isOpen={showQualityCheckModal}
             onClose={() => {
-              setShowDefectiveModal(false);
+              setShowQualityCheckModal(false);
               resetScanner();
             }}
             barcodeId={barcodeDetails.id}
@@ -393,9 +385,11 @@ export default function QualityPage() {
               size: barcodeDetails.size,
               unitNumber: barcodeDetails.unitNumber,
             }}
-            department="Quality"
-            markedBy={user?.name || user?.username || "Unknown"}
-            onSuccess={resetScanner}
+            checkedBy={user?.name || user?.username || "Unknown"}
+            onSuccess={() => {
+              setScanCount((prev) => prev + 1);
+              resetScanner();
+            }}
           />
         )}
       </div>

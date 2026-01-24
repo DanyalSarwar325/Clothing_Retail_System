@@ -4,12 +4,11 @@ import { useEffect, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import Sidebar from "@/app/components/Sidebar";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Scissors, AlertTriangle } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Scissors } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
-import DefectiveModal from "@/app/components/DefectiveModal";
 
 interface DepartmentScan {
   department: string;
@@ -41,8 +40,6 @@ export default function CuttingPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
-  const [showDefectiveModal, setShowDefectiveModal] = useState(false);
-  const [isDefectiveScanMode, setIsDefectiveScanMode] = useState(false);
 
   useEffect(() => {
     if (!scanning) return;
@@ -79,49 +76,27 @@ export default function CuttingPage() {
     setBarcodeDetails(null);
 
     try {
-      // For defective scan mode, just fetch the barcode details without updating department
-      if (isDefectiveScanMode) {
-        const response = await fetch(`/api/barcodes/scan`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barcodeData,
-            // Don't pass department to avoid updating it
-          }),
-        });
+      const response = await fetch("/api/barcodes/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barcodeData,
+          department: "Cutting",
+          scannedBy: user?.name || user?.username,
+        }),
+      });
 
-        const result = await response.json();
+      const result = await response.json();
 
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setShowDefectiveModal(true); // Automatically show defective modal
-        } else {
-          setError(result.message || "Barcode not found");
-        }
+      if (result.success) {
+        setBarcodeDetails(result.barcode);
+        setSuccess(`Product scanned in Cutting department by ${user?.name}`);
+        setScanCount((prev) => prev + 1);
       } else {
-        // Normal scan - update department
-        const response = await fetch("/api/barcodes/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barcodeData,
-            department: "Cutting",
-            scannedBy: user?.name || user?.username,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setSuccess(`Product scanned in Cutting department by ${user?.name}`);
-          setScanCount((prev) => prev + 1);
-        } else {
-          if (result.alreadyScanned) {
-            toast.error(result.message);
-          }
-          setError(result.message || "Barcode not found");
+        if (result.alreadyScanned) {
+          toast.error(result.message);
         }
+        setError(result.message || "Barcode not found");
       }
     } catch (err: any) {
       setError(err.message || "Failed to process barcode");
@@ -134,15 +109,6 @@ export default function CuttingPage() {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
-    setIsDefectiveScanMode(false);
-    setScanning(true);
-  };
-
-  const startDefectiveScan = () => {
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setIsDefectiveScanMode(true);
     setScanning(true);
   };
 
@@ -152,8 +118,6 @@ export default function CuttingPage() {
     setSuccess("");
     setScanning(false);
     setShowHistory(false);
-    setIsDefectiveScanMode(false);
-    setShowDefectiveModal(false);
   };
 
   const formatDate = (dateString: string) => {
@@ -217,17 +181,17 @@ export default function CuttingPage() {
         </div>
 
         <div className="mb-6">
-          <DepartmentPaymentSummary department="Cutting" />
+          <DepartmentPaymentSummary department="Cutting" refreshKey={scanCount} />
         </div>
 
         {/* Payment Display */}
         <div className="mb-6">
-          <PaymentDisplay userName={user?.name || ""} department="Cutting" scanCount={scanCount} />
+          <PaymentDisplay userName={user?.name || user?.username || ""} department="Cutting" scanCount={scanCount} />
         </div>
 
         {/* Payment by Design */}
         <div className="mb-6">
-          <PaymentByDesignDisplay userName={user?.name || ""} department="Cutting" />
+          <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Cutting" scanCount={scanCount} />
         </div>
 
         {/* Scanner Section */}
@@ -248,13 +212,6 @@ export default function CuttingPage() {
                 <Scan size={20} />
                 Start Scanning
               </button>
-              <button
-                onClick={startDefectiveScan}
-                className="w-full bg-yellow-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition flex items-center gap-2 justify-center"
-              >
-                <AlertTriangle size={20} />
-                Scan Defective Item
-              </button>
             </div>
           </div>
         )}
@@ -264,12 +221,7 @@ export default function CuttingPage() {
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {isDefectiveScanMode ? "Scanning Defective Item..." : "Scanning..."}
-                </h2>
-                {isDefectiveScanMode && (
-                  <p className="text-sm text-yellow-600">Scan the damaged/defective product</p>
-                )}
+                <h2 className="text-lg font-semibold text-gray-900">Scanning...</h2>
               </div>
               <button
                 onClick={resetScanner}
@@ -392,27 +344,6 @@ export default function CuttingPage() {
               </div>
             </div>
           </div>
-        )}
-
-        {/* Defective Modal */}
-        {barcodeDetails && (
-          <DefectiveModal
-            isOpen={showDefectiveModal}
-            onClose={() => {
-              setShowDefectiveModal(false);
-              resetScanner();
-            }}
-            barcodeId={barcodeDetails.id}
-            barcodeInfo={{
-              design: barcodeDetails.design,
-              item: barcodeDetails.item,
-              size: barcodeDetails.size,
-              unitNumber: barcodeDetails.unitNumber,
-            }}
-            department="Cutting"
-            markedBy={user?.name || user?.username || "Unknown"}
-            onSuccess={resetScanner}
-          />
         )}
       </div>
     </div>

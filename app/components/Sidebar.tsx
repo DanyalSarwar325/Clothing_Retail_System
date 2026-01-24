@@ -17,7 +17,8 @@ import {
   X,
   QrCode,
   FileText,
-  UserPlus
+  UserPlus,
+  Layers
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -145,7 +146,7 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/store") && (
+        {canAccess("/store") && user.role !== "admin" && (
           <Link href="/store" onClick={closeSidebar}>
             <SidebarItem
               icon={<Box size={18} />}
@@ -171,6 +172,26 @@ export default function Sidebar({ active, setActive }: any) {
               icon={<Calculator size={18} />}
               label="Job Costing"
               active={pathname.startsWith("/job-costing")}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/raw-materials" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<Layers size={18} />}
+              label="Raw Materials"
+              active={pathname.startsWith("/raw-materials")}
+            />
+          </Link>
+        )}
+
+        {canAccess("/revenue") && user.role === "admin" && (
+          <Link href="/revenue" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<DollarSign size={18} />}
+              label="Revenue"
+              active={pathname.startsWith("/revenue")}
             />
           </Link>
         )}

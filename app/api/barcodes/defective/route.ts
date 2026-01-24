@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import DbConnect from "@/app/libs/dbConnect";
 import Barcode, { DEPARTMENTS, Department, DEFECT_REASONS, DefectReason } from "@/app/libs/models/barcode";
 
-// POST - Mark a barcode as defective
+// POST - Mark a barcode as defective (Only Quality department can do this)
 export async function POST(request: NextRequest) {
   try {
     await DbConnect();
@@ -17,10 +17,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!department || !DEPARTMENTS.includes(department as Department)) {
+    // Only Quality department can mark items as defective
+    if (department !== "Quality") {
       return NextResponse.json(
-        { success: false, message: "Valid department is required" },
-        { status: 400 }
+        { success: false, message: "Only Quality department can mark items as defective" },
+        { status: 403 }
       );
     }
 
