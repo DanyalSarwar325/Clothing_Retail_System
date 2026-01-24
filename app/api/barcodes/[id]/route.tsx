@@ -5,12 +5,13 @@ import Barcode from "@/app/libs/models/barcode";
 // GET - Get single barcode by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await DbConnect();
 
-    const barcode = await Barcode.findById(params.id);
+    const { id } = await params;
+    const barcode = await Barcode.findById(id);
 
     if (!barcode) {
       return NextResponse.json(
@@ -35,11 +36,12 @@ export async function GET(
 // PATCH - Update barcode status (e.g., mark as sold)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await DbConnect();
 
+    const { id } = await params;
     const body = await request.json();
     const { status } = body;
 
@@ -56,7 +58,7 @@ export async function PATCH(
     }
 
     const barcode = await Barcode.findByIdAndUpdate(
-      params.id,
+      id,
       updateData,
       { new: true }
     );
@@ -85,12 +87,13 @@ export async function PATCH(
 // DELETE - Delete a barcode
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await DbConnect();
 
-    const barcode = await Barcode.findByIdAndDelete(params.id);
+    const { id } = await params;
+    const barcode = await Barcode.findByIdAndDelete(id);
 
     if (!barcode) {
       return NextResponse.json(
