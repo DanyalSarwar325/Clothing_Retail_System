@@ -34,6 +34,7 @@ const ROLE_ROUTES: Record<string, string[]> = {
     "/job-costing",
     "/raw-materials",
     "/revenue",
+    "/outpass",
     "/api",
   ],
   cutting: ["/cutting", "/api"],

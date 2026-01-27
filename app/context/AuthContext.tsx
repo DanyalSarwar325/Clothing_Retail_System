@@ -40,6 +40,7 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/job-costing",
     "/raw-materials",
     "/revenue",
+    "/outpass",
   ],
   cutting: ["/cutting"],
   sewing: ["/sewing"],
