@@ -113,7 +113,7 @@ export default function PaymentsPage() {
       if (data.success) {
         setDepartmentData(data.data);
         // Expand all workers by default
-        const allWorkers = new Set(data.data.workers.map((w: WorkerData) => w.workerName));
+        const allWorkers = new Set<string>(data.data.workers.map((w: WorkerData) => w.workerName));
         setExpandedWorkers(allWorkers);
       } else {
         setError(data.message || "Failed to fetch data");

@@ -36,8 +36,7 @@ const PacketSchema = new Schema<IPacket>({
   createdAt: { type: Date, default: Date.now },
 });
 
-// Indexes
-PacketSchema.index({ packetId: 1 });
+// Indexes (packetId already has unique:true which creates an index)
 PacketSchema.index({ design: 1, size: 1, unitNumber: 1 });
 PacketSchema.index({ packedBy: 1 });
 

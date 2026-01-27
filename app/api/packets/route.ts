@@ -65,10 +65,11 @@ export async function POST(request: NextRequest) {
 
     // Check we have all 3 items: Shalwar, Qameez, Dupatta
     const items = barcodes.map((b) => b.item).sort();
-    const requiredItems = ["Dupatta", "Qameez", "Shalwar"].sort();
+    const requiredItems = ["Dupatta", "Qameez", "Shalwar"] as const;
+    const sortedRequiredItems = [...requiredItems].sort();
 
-    if (JSON.stringify(items) !== JSON.stringify(requiredItems)) {
-      const missingItems = requiredItems.filter((item) => !items.includes(item));
+    if (JSON.stringify(items) !== JSON.stringify(sortedRequiredItems)) {
+      const missingItems = sortedRequiredItems.filter((item) => !items.includes(item));
       return NextResponse.json(
         { 
           success: false, 

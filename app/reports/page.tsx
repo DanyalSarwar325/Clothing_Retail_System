@@ -140,7 +140,6 @@ export default function ReportsPage() {
       const data = await response.json();
       if (data.success) {
         setDesigns(data.data.designs);
-        setWorkers(data.data.workers);
       }
     } catch (error) {
       console.error("Failed to fetch filter options:", error);

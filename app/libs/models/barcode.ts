@@ -89,7 +89,7 @@ export interface IBarcode extends Document {
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
-  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "wasted" | "quality_ok";
+  status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "wasted" | "quality_ok" | "damaged";
   currentDepartment: Department; // Current department where item is
   departmentHistory: IDepartmentScan[]; // History of department scans
   departmentRates: IDesignDepartmentRate[]; // Rates per department for this design
