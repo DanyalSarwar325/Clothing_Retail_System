@@ -50,9 +50,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already marked as defective
-    if (barcode.status === "defective" || barcode.status === "wasted") {
+    if (barcode.status === "defective" || barcode.status === "damaged") {
       return NextResponse.json(
-        { success: false, message: "This barcode is already marked as defective/wasted" },
+        { success: false, message: "This barcode is already marked as defective/damaged" },
         { status: 400 }
       );
     }
@@ -101,9 +101,9 @@ export async function GET(request: NextRequest) {
     const department = searchParams.get("department");
     const groupByWorker = searchParams.get("groupByWorker") === "true";
 
-    // Build query
+    // Build query - include both defective and damaged status
     const query: any = {
-      status: { $in: ["defective", "wasted"] },
+      status: { $in: ["defective", "damaged"] },
     };
 
     if (design) {
@@ -111,11 +111,15 @@ export async function GET(request: NextRequest) {
     }
 
     if (department && DEPARTMENTS.includes(department as Department)) {
-      query["defectiveInfo.department"] = department;
+      // Check both defectiveInfo and qualityCheckInfo for department
+      query.$or = [
+        { "defectiveInfo.department": department },
+        { "qualityCheckInfo.department": department }
+      ];
     }
 
     const defectiveBarcodes = await Barcode.find(query)
-      .sort({ "defectiveInfo.markedAt": -1 })
+      .sort({ createdAt: -1 })
       .lean();
 
     // Group by worker if requested
@@ -130,8 +134,18 @@ export async function GET(request: NextRequest) {
       }> = {};
 
       defectiveBarcodes.forEach((b: any) => {
-        const workerName = b.defectiveInfo?.markedBy || "Unknown";
-        const dept = b.defectiveInfo?.department || "Unknown";
+        // For quality-checked damaged items, use responsiblePerson if available, otherwise use checkedBy
+        // For defective items (from defective modal), use markedBy
+        const workerName = b.qualityCheckInfo?.responsiblePerson 
+          || b.defectiveInfo?.markedBy 
+          || b.qualityCheckInfo?.checkedBy 
+          || "Unknown";
+        
+        // Get department from either qualityCheckInfo or defectiveInfo
+        const dept = b.qualityCheckInfo?.department 
+          || b.defectiveInfo?.department 
+          || "Unknown";
+        
         const workerKey = `${workerName}-${dept}`;
 
         if (!workerStats[workerKey]) {
@@ -148,16 +162,23 @@ export async function GET(request: NextRequest) {
         workerStats[workerKey].totalDefective++;
         workerStats[workerKey].byDesign[b.design] = (workerStats[workerKey].byDesign[b.design] || 0) + 1;
         
-        const reason = b.defectiveInfo?.reason || "Unknown";
+        // Get reason from defectiveInfo or notes from qualityCheckInfo
+        const reason = b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue";
         workerStats[workerKey].byReason[reason] = (workerStats[workerKey].byReason[reason] || 0) + 1;
 
-        // Keep last 5 recent defects
-        if (workerStats[workerKey].recentDefects.length < 5) {
+        // Keep last 10 recent defects with full piece info
+        if (workerStats[workerKey].recentDefects.length < 10) {
           workerStats[workerKey].recentDefects.push({
             design: b.design,
             item: b.item,
-            reason: b.defectiveInfo?.reason,
-            markedAt: b.defectiveInfo?.markedAt,
+            size: b.size,
+            suitType: b.suitType,
+            unitNumber: b.unitNumber,
+            reason: b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue",
+            markedAt: b.qualityCheckInfo?.checkedAt || b.defectiveInfo?.markedAt,
+            markedBy: b.qualityCheckInfo?.checkedBy || b.defectiveInfo?.markedBy,
+            responsiblePerson: b.qualityCheckInfo?.responsiblePerson || b.defectiveInfo?.markedBy || "Unknown",
+            responsibleDepartment: b.qualityCheckInfo?.department || b.defectiveInfo?.department || "Unknown",
           });
         }
       });
@@ -193,8 +214,8 @@ export async function GET(request: NextRequest) {
       defectiveBarcodes
         .filter((b: any) => b.design === designName)
         .forEach((b: any) => {
-          const dept = b.defectiveInfo?.department || "Unknown";
-          const reason = b.defectiveInfo?.reason || "Unknown";
+          const dept = b.qualityCheckInfo?.department || b.defectiveInfo?.department || "Unknown";
+          const reason = b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue";
           byDepartment[dept] = (byDepartment[dept] || 0) + 1;
           byReason[reason] = (byReason[reason] || 0) + 1;
         });
@@ -220,6 +241,7 @@ export async function GET(request: NextRequest) {
         unitNumber: b.unitNumber,
         status: b.status,
         defectiveInfo: b.defectiveInfo,
+        qualityCheckInfo: b.qualityCheckInfo,
         createdAt: b.createdAt,
       })),
     });

@@ -4,13 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Scissors, Plus, Minus, DollarSign } from "lucide-react";
 
-// Departments that have item-based rates
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+// Departments that have item-based rates (all except Packing and Store)
+// Packing and Store rates are set when generating final stickers
+const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Quality", "Handmade", "Adda Work", "Patching", "Press"];
 
-// Departments with single rate per unit
-const SINGLE_RATE_DEPARTMENTS = ["Quality", "Handmade", "Adda Work", "Patching", "Packing", "Store"];
+// No single rate departments for initial barcode generation
+// Packing and Store are handled in Final Sticker generation
+const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
-const ALL_DEPARTMENTS = [...ITEM_BASED_DEPARTMENTS, ...SINGLE_RATE_DEPARTMENTS];
+const ALL_DEPARTMENTS = [...ITEM_BASED_DEPARTMENTS];
 
 const SUIT_TYPES = ["1pc", "2pc", "3pc"] as const;
 const SIZES = ["S", "M", "L"] as const;
@@ -50,21 +52,15 @@ export default function AdminBarcodeGenerator() {
     L: { "1pc": 0, "2pc": 0, "3pc": 0 },
   });
   
-  // Item-based rates for Cutting, Sewing, Press
+  // Item-based rates for all departments (except Packing and Store)
   const [itemRates, setItemRates] = useState<Record<string, ItemRate>>({
     Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-  });
-  
-  // Single rates for other departments
-  const [singleRates, setSingleRates] = useState<Record<string, number>>({
-    Quality: 0,
-    Handmade: 0,
-    "Adda Work": 0,
-    Patching: 0,
-    Packing: 0,
-    Store: 0,
   });
   
   const [error, setError] = useState("");
@@ -105,13 +101,6 @@ export default function AdminBarcodeGenerator() {
         ...prev[department],
         [item]: Math.max(0, value),
       },
-    }));
-  };
-
-  const updateSingleRate = (department: string, value: number) => {
-    setSingleRates((prev) => ({
-      ...prev,
-      [department]: Math.max(0, value),
     }));
   };
 
@@ -166,7 +155,7 @@ export default function AdminBarcodeGenerator() {
 
     const requiredItems = getRequiredItems();
 
-    // Validate item-based rates for Cutting, Sewing, Press
+    // Validate item-based rates for all departments (except Packing and Store)
     for (const dept of ITEM_BASED_DEPARTMENTS) {
       for (const item of requiredItems) {
         if (itemRates[dept][item as keyof ItemRate] <= 0) {
@@ -176,20 +165,12 @@ export default function AdminBarcodeGenerator() {
       }
     }
 
-    // Validate single rates for other departments
-    for (const dept of SINGLE_RATE_DEPARTMENTS) {
-      if (singleRates[dept] <= 0) {
-        setError(`Please set rate for ${dept}`);
-        return;
-      }
-    }
-
     setError("");
 
     // Build rates array for URL
     const rates: DepartmentRate[] = [];
     
-    // Add item-based rates
+    // Add item-based rates for all departments (except Packing and Store)
     for (const dept of ITEM_BASED_DEPARTMENTS) {
       for (const item of requiredItems) {
         rates.push({
@@ -198,14 +179,6 @@ export default function AdminBarcodeGenerator() {
           item: item,
         });
       }
-    }
-    
-    // Add single rates
-    for (const dept of SINGLE_RATE_DEPARTMENTS) {
-      rates.push({
-        department: dept,
-        ratePerPiece: singleRates[dept],
-      });
     }
 
     // Build query params
@@ -324,11 +297,12 @@ export default function AdminBarcodeGenerator() {
 
         {showRates && (
           <div className="mt-4 space-y-6">
-            {/* Item-Based Rates for Cutting, Sewing, Press */}
+            {/* Item-Based Rates for All Departments (except Packing, Store) */}
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-3">
-                Item-Based Rates (Cutting, Sewing, Press)
+                Item-Based Rates (Per Department)
               </h4>
+              <p className="text-xs text-gray-500 mb-2">Packing & Store rates are set when generating final stickers</p>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
@@ -373,36 +347,6 @@ export default function AdminBarcodeGenerator() {
               <p className="text-xs text-gray-500 mt-2">
                 * Only items required by your selected suit types are enabled
               </p>
-            </div>
-
-            {/* Single Rates for Other Departments */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">
-                Single Rate per Unit (Other Departments)
-              </h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {SINGLE_RATE_DEPARTMENTS.map((dept) => (
-                  <div key={dept} className="flex items-center gap-2">
-                    <label className="text-sm text-gray-600 w-24 truncate" title={dept}>
-                      {dept}:
-                    </label>
-                    <div className="flex items-center border rounded px-2 py-1 flex-1">
-                      <span className="text-gray-500 text-sm">Rs.</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={singleRates[dept] || ""}
-                        onChange={(e) =>
-                          updateSingleRate(dept, parseFloat(e.target.value) || 0)
-                        }
-                        placeholder="0"
-                        className="w-full ml-1 text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         )}

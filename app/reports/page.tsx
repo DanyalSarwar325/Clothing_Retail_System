@@ -79,8 +79,14 @@ interface DefectiveWorkerReport {
   recentDefects: {
     design: string;
     item: string;
+    size: string;
+    suitType: string;
+    unitNumber: number;
     reason: string;
     markedAt: string;
+    markedBy: string;
+    responsiblePerson: string;
+    responsibleDepartment: string;
   }[];
 }
 
@@ -494,6 +500,49 @@ export default function ReportsPage() {
                         {/* Expanded Details */}
                         {expandedDefectiveWorker === `${worker.name}-${worker.department}` && (
                           <div className="px-4 py-3 bg-red-50 border-t">
+                            {/* Recent Defects - Piece Details */}
+                            <div className="mb-4">
+                              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                <Package size={12} />
+                                Damaged Pieces Detail
+                              </h4>
+                              <div className="bg-white rounded-lg border overflow-hidden">
+                                <div className="max-h-64 overflow-y-auto">
+                                  <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 sticky top-0">
+                                      <tr>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Piece Info</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Damaged By</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Department</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reason</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                      {worker.recentDefects.map((defect, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50">
+                                          <td className="px-3 py-2">
+                                            <p className="font-medium text-gray-900">{defect.design}</p>
+                                            <p className="text-xs text-gray-500">
+                                              {defect.item} • {defect.size} • Unit #{defect.unitNumber}
+                                            </p>
+                                          </td>
+                                          <td className="px-3 py-2">
+                                            <span className="font-medium text-red-700">{defect.responsiblePerson || defect.markedBy}</span>
+                                          </td>
+                                          <td className="px-3 py-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${DEPT_COLORS[defect.responsibleDepartment]?.light || "bg-gray-100"} ${DEPT_COLORS[defect.responsibleDepartment]?.text || "text-gray-600"}`}>
+                                              {defect.responsibleDepartment}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-2 text-gray-600 text-xs">{defect.reason}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               {/* By Design */}
                               <div className="bg-white rounded-lg p-3 border">

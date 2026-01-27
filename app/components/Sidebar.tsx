@@ -18,7 +18,8 @@ import {
   QrCode,
   FileText,
   UserPlus,
-  Layers
+  Layers,
+  FileOutput
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -102,6 +103,16 @@ export default function Sidebar({ active, setActive }: any) {
               icon={<FileText size={18} />}
               label="Reports"
               active={pathname === "/reports"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/outpass" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<FileOutput size={18} />}
+              label="Outpass"
+              active={pathname === "/outpass"}
             />
           </Link>
         )}

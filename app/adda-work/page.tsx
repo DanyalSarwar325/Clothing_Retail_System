@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Sparkles } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Sparkles, FileOutput } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
+import OutpassModal from "@/app/components/OutpassModal";
 
 interface DepartmentScan {
   department: string;
@@ -37,6 +38,7 @@ export default function AddaWorkPage() {
   const [success, setSuccess] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  const [showOutpassModal, setShowOutpassModal] = useState(false);
 
   useEffect(() => {
     if (!scanning) return;
@@ -151,6 +153,13 @@ export default function AddaWorkPage() {
             <p className="text-sm text-gray-500">Processed Today</p>
             <p className="text-2xl font-bold text-indigo-600">{scanCount}</p>
           </div>
+          <button
+            onClick={() => setShowOutpassModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg transition"
+          >
+            <FileOutput size={18} />
+            Outpass
+          </button>
           <button
             onClick={logout}
             className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition"
@@ -333,6 +342,14 @@ export default function AddaWorkPage() {
             </div>
           </div>
         )}
+
+        {/* Outpass Modal */}
+        <OutpassModal
+          isOpen={showOutpassModal}
+          onClose={() => setShowOutpassModal(false)}
+          department="Adda Work"
+          userName={user?.name || user?.username || ""}
+        />
       </div>
     </div>
   );

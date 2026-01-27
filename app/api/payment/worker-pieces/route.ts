@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         {
           $match: {
             "departmentHistory.department": department,
-            status: { $nin: ["defective", "wasted"] },
+            status: { $nin: ["defective", "damaged"] },
           },
         },
         { $unwind: "$departmentHistory" },
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
         {
           $match: {
             "departmentHistory.department": department,
-            status: { $nin: ["defective", "wasted"] },
+            status: { $nin: ["defective", "damaged"] },
           },
         },
         { $unwind: "$departmentHistory" },
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
         {
           $match: {
             "departmentHistory.department": department,
-            status: { $nin: ["defective", "wasted"] },
+            status: { $nin: ["defective", "damaged"] },
           },
         },
         { $unwind: "$departmentHistory" },
