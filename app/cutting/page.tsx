@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Scissors, FileOutput } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Scissors, FileOutput, X } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
@@ -42,33 +41,13 @@ export default function CuttingPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [showOutpassModal, setShowOutpassModal] = useState(false);
+  const [scannerInput, setScannerInput] = useState("");
+  const scannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!scanning) return;
-
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-      },
-      false
-    );
-
-    scanner.render(
-      async (decodedText) => {
-        scanner.clear();
-        setScanning(false);
-        await processScan(decodedText);
-      },
-      () => {
-        // ignore scan errors
-      }
-    );
-
-    return () => {
-      scanner.clear().catch(() => {});
-    };
+    if (scanning && scannerInputRef.current) {
+      scannerInputRef.current.focus();
+    }
   }, [scanning]);
 
   const processScan = async (barcodeData: string) => {
@@ -204,7 +183,7 @@ export default function CuttingPage() {
         </div>
 
         {/* Scanner Section */}
-        {!scanning && !barcodeDetails && !loading && (
+        {!scanning && !barcodeDetails && !loading && (error === "") && (
           <div className="bg-white rounded-xl shadow-sm p-6 text-center">
             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Scan className="text-red-600" size={40} />
@@ -213,33 +192,58 @@ export default function CuttingPage() {
             <p className="text-gray-600 mb-6">
               Scan a barcode to update product location to Cutting department
             </p>
-            <div className="space-y-3">
-              <button
-                onClick={startScanning}
-                className="w-full bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition flex items-center gap-2 justify-center"
-              >
-                <Scan size={20} />
-                Start Scanning
-              </button>
-            </div>
+            <button
+              onClick={startScanning}
+              className="w-full bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition flex items-center gap-2 justify-center"
+            >
+              <Scan size={20} />
+              Start Scanning
+            </button>
           </div>
         )}
 
-        {/* QR Scanner */}
+        {/* Barcode Scanner Input - Waiting for Scan */}
         {scanning && (
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Scanning...</h2>
-              </div>
+              <h2 className="text-lg font-semibold text-gray-900">Waiting for Scan...</h2>
               <button
                 onClick={resetScanner}
-                className="text-gray-500 hover:text-gray-700"
+                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition"
               >
-                Cancel
+                <X size={20} />
               </button>
             </div>
-            <div id="reader" className="rounded-lg overflow-hidden"></div>
+            <div className="flex flex-col items-center">
+              <div className="animate-pulse mb-4">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                  <Scan className="text-red-600" size={32} />
+                </div>
+              </div>
+              <p className="text-gray-600 mb-4">Point your barcode scanner at the product barcode</p>
+              <input
+                ref={scannerInputRef}
+                type="text"
+                value={scannerInput}
+                onChange={(e) => setScannerInput(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && scannerInput.trim()) {
+                    e.preventDefault();
+                    const value = scannerInput.trim();
+                    setScannerInput("");
+                    setScanning(false);
+                    await processScan(value);
+                  }
+                }}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-center opacity-0 absolute"
+                autoComplete="off"
+                autoFocus
+              />
+              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-red-600 rounded-full animate-[scan_1.5s_ease-in-out_infinite]" style={{width: '30%'}}></div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Scanner input is active and ready</p>
+            </div>
           </div>
         )}
 

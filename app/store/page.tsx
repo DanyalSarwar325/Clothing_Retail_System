@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Box, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Box, ArrowDownToLine, ArrowUpFromLine, X } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
@@ -52,33 +51,13 @@ export default function StorePage() {
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [scanMode, setScanMode] = useState<ScanMode>("check-in");
+  const [scannerInput, setScannerInput] = useState("");
+  const scannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!scanning) return;
-
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-      },
-      false
-    );
-
-    scanner.render(
-      async (decodedText) => {
-        scanner.clear();
-        setScanning(false);
-        await processScan(decodedText);
-      },
-      () => {
-        // ignore scan errors
-      }
-    );
-
-    return () => {
-      scanner.clear().catch(() => {});
-    };
+    if (scanning && scannerInputRef.current) {
+      scannerInputRef.current.focus();
+    }
   }, [scanning]);
 
   const processScan = async (barcodeData: string) => {
@@ -221,7 +200,7 @@ export default function StorePage() {
         </div>
 
         {/* Scanner Section */}
-        {!scanning && !barcodeDetails && !finalStickerDetails && !loading && (
+        {!scanning && !barcodeDetails && !finalStickerDetails && !loading && (error === "") && (
           <div className="bg-white rounded-xl shadow-sm p-6 text-center">
             <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Scan className="text-blue-600" size={40} />
@@ -256,31 +235,62 @@ export default function StorePage() {
           </div>
         )}
 
-        {/* Active Scanner */}
+        {/* Barcode Scanner Input - Waiting for Scan */}
         {scanning && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className={`text-center mb-4 p-3 rounded-lg ${scanMode === "check-in" ? "bg-green-100" : "bg-orange-100"}`}>
-              <h2 className="text-lg font-semibold flex items-center justify-center gap-2">
-                {scanMode === "check-in" ? (
-                  <>
-                    <ArrowDownToLine className="text-green-600" size={20} />
-                    <span className="text-green-800">Scanning for Check In</span>
-                  </>
-                ) : (
-                  <>
-                    <ArrowUpFromLine className="text-orange-600" size={20} />
-                    <span className="text-orange-800">Scanning for Check Out (Dispatch)</span>
-                  </>
-                )}
-              </h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className={`flex-1 text-center p-3 rounded-lg ${scanMode === "check-in" ? "bg-green-100" : "bg-orange-100"}`}>
+                <h2 className="text-lg font-semibold flex items-center justify-center gap-2">
+                  {scanMode === "check-in" ? (
+                    <>
+                      <ArrowDownToLine className="text-green-600" size={20} />
+                      <span className="text-green-800">Waiting for Check In Scan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowUpFromLine className="text-orange-600" size={20} />
+                      <span className="text-orange-800">Waiting for Check Out Scan...</span>
+                    </>
+                  )}
+                </h2>
+              </div>
+              <button
+                onClick={resetScanner}
+                className="ml-2 p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+              >
+                <X size={20} />
+              </button>
             </div>
-            <div id="reader" className="rounded-lg overflow-hidden"></div>
-            <button
-              onClick={() => setScanning(false)}
-              className="mt-4 w-full py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
+            <div className="flex flex-col items-center">
+              <div className="animate-pulse mb-4">
+                <div className={`w-16 h-16 ${scanMode === "check-in" ? "bg-green-100" : "bg-orange-100"} rounded-full flex items-center justify-center`}>
+                  <Scan className={scanMode === "check-in" ? "text-green-600" : "text-orange-600"} size={32} />
+                </div>
+              </div>
+              <p className="text-gray-600 mb-4">Point your barcode scanner at the product barcode</p>
+              <input
+                ref={scannerInputRef}
+                type="text"
+                value={scannerInput}
+                onChange={(e) => setScannerInput(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && scannerInput.trim()) {
+                    e.preventDefault();
+                    const value = scannerInput.trim();
+                    setScannerInput("");
+                    setScanning(false);
+                    await processScan(value);
+                  }
+                }}
+                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 ${scanMode === "check-in" ? "focus:ring-green-500 focus:border-green-500" : "focus:ring-orange-500 focus:border-orange-500"} text-center opacity-0 absolute`}
+                autoComplete="off"
+                autoFocus
+              />
+              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+                <div className={`h-full ${scanMode === "check-in" ? "bg-green-600" : "bg-orange-600"} rounded-full animate-[scan_1.5s_ease-in-out_infinite]`} style={{width: '30%'}}></div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Scanner input is active and ready</p>
+            </div>
           </div>
         )}
 

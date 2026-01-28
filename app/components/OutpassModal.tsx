@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { useEffect, useState, useRef } from "react";
 import { X, FileOutput, CheckCircle, AlertCircle, Scan } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -18,6 +17,8 @@ export default function OutpassModal({ isOpen, onClose, department, userName }: 
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
   const [scannedInfo, setScannedInfo] = useState<{ design: string; item: string } | null>(null);
+  const [scannerInput, setScannerInput] = useState("");
+  const scannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -27,31 +28,9 @@ export default function OutpassModal({ isOpen, onClose, department, userName }: 
   }, [isOpen]);
 
   useEffect(() => {
-    if (!scanning || !isOpen) return;
-
-    const scanner = new Html5QrcodeScanner(
-      "outpass-reader",
-      {
-        fps: 10,
-        qrbox: { width: 200, height: 200 },
-      },
-      false
-    );
-
-    scanner.render(
-      async (decodedText) => {
-        scanner.clear();
-        setScanning(false);
-        await processOutpassScan(decodedText);
-      },
-      () => {
-        // ignore scan errors
-      }
-    );
-
-    return () => {
-      scanner.clear().catch(() => {});
-    };
+    if (scanning && isOpen && scannerInputRef.current) {
+      scannerInputRef.current.focus();
+    }
   }, [scanning, isOpen]);
 
   const resetState = () => {
@@ -197,13 +176,44 @@ export default function OutpassModal({ isOpen, onClose, department, userName }: 
           )}
 
           {/* Scanner */}
+          {/* Barcode Scanner Input - Waiting for Scan */}
           {scanning && !loading && !success && !error && (
-            <div>
-              <div id="outpass-reader" className="rounded-lg overflow-hidden mb-3"></div>
+            <div className="text-center py-4">
+              <div className="animate-pulse mb-3">
+                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto">
+                  <Scan className="text-orange-600" size={32} />
+                </div>
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-1">Waiting for Scan...</h3>
+              <p className="text-sm text-gray-500 mb-3">
+                Point your barcode scanner at the product
+              </p>
+              <input
+                ref={scannerInputRef}
+                type="text"
+                value={scannerInput}
+                onChange={(e) => setScannerInput(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && scannerInput.trim()) {
+                    e.preventDefault();
+                    const value = scannerInput.trim();
+                    setScannerInput("");
+                    setScanning(false);
+                    await processOutpassScan(value);
+                  }
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-center opacity-0 absolute"
+                autoComplete="off"
+                autoFocus
+              />
+              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden mb-3">
+                <div className="h-full bg-orange-600 rounded-full animate-[scan_1.5s_ease-in-out_infinite]" style={{width: '30%'}}></div>
+              </div>
               <button
                 onClick={() => setScanning(false)}
-                className="w-full bg-gray-100 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-200 transition"
+                className="w-full bg-gray-100 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-200 transition flex items-center gap-2 justify-center"
               >
+                <X size={16} />
                 Cancel
               </button>
             </div>
