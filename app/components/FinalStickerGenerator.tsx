@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sticker, RefreshCw, Printer, Trash2, Check, AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
+import QRCode from "qrcode";
 
 interface DesignInfo {
   availableDesigns: string[];
@@ -334,6 +335,84 @@ export default function FinalStickerGenerator() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export function PrintFinalStickers({ design }: { design: string }) {
+  const [stickers, setStickers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStickers = async () => {
+      try {
+        const response = await fetch(`/api/final-stickers?design=${encodeURIComponent(design)}`);
+        const data = await response.json();
+
+        if (data.success) {
+          const stickerData = data.stickers.map((sticker: any) => {
+            const qr = QRCode.toDataURL(JSON.stringify(sticker));
+            return { ...sticker, qr };
+          });
+          setStickers(await Promise.all(stickerData));
+        } else {
+          console.error("Failed to fetch stickers", data.message);
+        }
+      } catch (error) {
+        console.error("Error fetching stickers", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStickers();
+  }, [design]);
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div className="p-4">
+      <button
+        onClick={() => window.print()}
+        className="bg-green-600 text-white px-4 py-2 rounded-lg mb-4"
+      >
+        🖨️ Print Stickers
+      </button>
+
+      <div className="print:block">
+        {stickers.map((sticker, index) => (
+          <div
+            key={index}
+            className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4"
+          >
+            <img src={sticker.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
+            <div className="mt-2 text-center">
+              <p className="text-sm font-bold text-gray-800">{sticker.design}</p>
+              <p className="text-sm text-gray-600">{sticker.suitType} | {sticker.size}</p>
+              <p className="text-sm font-semibold text-blue-600">Unit #{sticker.unitNumber}</p>
+              <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">{sticker.item}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: 50mm auto;
+            margin: 0;
+          }
+          body {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .sticker-card {
+            page-break-after: always;
+          }
+        }
+      `}</style>
     </div>
   );
 }

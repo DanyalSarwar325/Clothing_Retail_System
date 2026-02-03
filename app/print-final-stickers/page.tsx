@@ -141,7 +141,7 @@ function PrintFinalStickersContent() {
           onClick={() => window.print()}
           className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
         >
-          🖨️ Print Final Stickers
+          🖨️ Print Final Stickers (50mm Roll)
         </button>
         <button
           onClick={() => window.history.back()}
@@ -151,47 +151,19 @@ function PrintFinalStickersContent() {
         </button>
       </div>
 
-      {/* Stickers grouped by Size and Suit Type */}
-      {(["Small", "Medium", "Large"] as const).map((size) => {
-        const sizeGroup = groupedStickers[size];
-        const totalForSize =
-          sizeGroup["1pc"].length + sizeGroup["2pc"].length + sizeGroup["3pc"].length;
+      {/* Stickers printed sequentially for 50mm thermal roll */}
+      <div className="print:block">
+        {stickers.map((sticker, index) => (
+          <FinalStickerCard key={index} sticker={sticker} />
+        ))}
+      </div>
 
-        if (totalForSize === 0) return null;
-
-        return (
-          <div key={size} className="mb-8">
-            <h2 className={`text-xl font-bold mb-4 ${sizeColors[size]} border-b pb-2`}>
-              {size} Size - {totalForSize} stickers
-            </h2>
-
-            {(["1pc", "2pc", "3pc"] as const).map((suitType) => {
-              const suitsOfType = sizeGroup[suitType];
-              if (suitsOfType.length === 0) return null;
-
-              return (
-                <div key={`${size}-${suitType}`} className="mb-6">
-                  <h3 className="text-md font-semibold text-gray-700 mb-3 ml-2">
-                    {suitType} Suits ({suitsOfType.length} stickers)
-                  </h3>
-                  <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-                    {suitsOfType.map((sticker, i) => (
-                      <FinalStickerCard key={`${size}-${suitType}-${i}`} sticker={sticker} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-
-      {/* Print Styles */}
+      {/* Print Styles for 50mm Thermal Paper Roll */}
       <style jsx global>{`
         @media print {
           @page {
-            size: A4;
-            margin: 10mm;
+            size: 50mm auto;
+            margin: 0;
           }
           body {
             -webkit-print-color-adjust: exact !important;
@@ -201,8 +173,7 @@ function PrintFinalStickersContent() {
             display: none !important;
           }
           .sticker-card {
-            break-inside: avoid;
-            page-break-inside: avoid;
+            page-break-after: always;
           }
         }
       `}</style>
@@ -230,19 +201,19 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
   };
 
   return (
-    <div className="sticker-card border-2 border-purple-400 rounded-lg p-3 text-center bg-white shadow-sm">
-      <div className="bg-purple-600 text-white text-xs font-bold py-1 px-2 rounded mb-2">
+    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4 text-center bg-white">
+      <div className="bg-purple-600 text-white text-xs font-bold py-1 px-2 rounded mb-2 inline-block">
         FINAL STICKER
       </div>
-      <img src={sticker.qr} alt="QR Code" className="w-24 h-24 mx-auto" />
+      <img src={sticker.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
       <div className="mt-2 space-y-1">
-        <p className="text-xs font-bold text-gray-800 truncate" title={sticker.design}>
+        <p className="text-sm font-bold text-gray-800" title={sticker.design}>
           {sticker.design}
         </p>
-        <div className={`text-xs font-semibold py-1 px-2 rounded ${suitTypeColors[sticker.suitType]}`}>
+        <div className={`text-sm font-semibold py-1 px-2 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
           {sticker.suitType} Suit
         </div>
-        <p className="text-xs text-gray-600">{sticker.size}</p>
+        <p className="text-sm text-gray-600">{sticker.size}</p>
         <p className="text-sm font-bold text-purple-600 bg-purple-50 rounded py-1">
           Unit #{sticker.unitNumber}
         </p>

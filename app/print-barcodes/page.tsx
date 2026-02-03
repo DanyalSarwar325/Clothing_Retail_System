@@ -41,8 +41,6 @@ function PrintBarcodesContent() {
   const searchParams = useSearchParams();
   const [barcodes, setBarcodes] = useState<BarcodeData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const hasGeneratedRef = useRef(false);
 
@@ -180,155 +178,56 @@ function PrintBarcodesContent() {
     );
   }
 
-  // Group barcodes by size and suit type
-  const groupedBarcodes = {
-    Small: {
-      "1pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "1pc"),
-      "2pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "2pc"),
-      "3pc": barcodes.filter((b) => b.size === "Small" && b.suitType === "3pc"),
-    },
-    Medium: {
-      "1pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "1pc"),
-      "2pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "2pc"),
-      "3pc": barcodes.filter((b) => b.size === "Medium" && b.suitType === "3pc"),
-    },
-    Large: {
-      "1pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "1pc"),
-      "2pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "2pc"),
-      "3pc": barcodes.filter((b) => b.size === "Large" && b.suitType === "3pc"),
-    },
-  };
-
-  const sizeColors = {
-    Small: "text-blue-600",
-    Medium: "text-green-600",
-    Large: "text-purple-600",
-  };
-
   return (
     <div className="p-8 bg-white min-h-screen">
-      {/* Status Banner */}
-      {saving && (
-        <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg print:hidden">
-          ⏳ Saving barcodes to database...
-        </div>
-      )}
-      {saved && (
-        <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-800 rounded-lg print:hidden">
-          ✅ {barcodes.length} barcodes saved to database successfully!
-        </div>
-      )}
       {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-800 rounded-lg print:hidden">
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-800 rounded-lg">
           ❌ Error: {error}
         </div>
       )}
 
-      {/* Print Header */}
-      <div className="print:block mb-8">
-        <h1 className="text-2xl font-bold text-center mb-2">
-          Barcodes for Design: {searchParams.get("design")}
-        </h1>
-        <p className="text-center text-gray-600">
-          Total: {barcodes.length} barcodes
-        </p>
-      </div>
+      <button
+        onClick={() => window.print()}
+        className="bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700 mb-4"
+      >
+        🖨️ Print Barcodes
+      </button>
 
-      {/* Action Buttons - Hidden on print */}
-      <div className="flex gap-4 mb-8 print:hidden">
-        <button
-          onClick={() => window.print()}
-          className="bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700"
-        >
-          🖨️ Print Barcodes
-        </button>
-        <button
-          onClick={() => window.history.back()}
-          className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700"
-        >
-          ← Go Back
-        </button>
-      </div>
-
-      {/* Barcodes grouped by Size and Suit Type */}
-      {(["Small", "Medium", "Large"] as const).map((size) => {
-        const sizeGroup = groupedBarcodes[size];
-        const totalForSize = sizeGroup["1pc"].length + sizeGroup["2pc"].length + sizeGroup["3pc"].length;
-        
-        if (totalForSize === 0) return null;
-
-        return (
-          <div key={size} className="mb-8">
-            <h2 className={`text-xl font-bold mb-4 ${sizeColors[size]} border-b pb-2`}>
-              {size} Size - {totalForSize} barcodes
-            </h2>
-
-            {(["1pc", "2pc", "3pc"] as const).map((suitType) => {
-              const suitsOfType = sizeGroup[suitType];
-              if (suitsOfType.length === 0) return null;
-
-              const itemsPerSuit = suitType === "1pc" ? 1 : suitType === "2pc" ? 2 : 3;
-              const unitCount = suitsOfType.length / itemsPerSuit;
-
-              return (
-                <div key={`${size}-${suitType}`} className="mb-6">
-                  <h3 className="text-md font-semibold text-gray-700 mb-3 ml-2">
-                    {suitType} Suits ({unitCount} units × {itemsPerSuit} items = {suitsOfType.length} barcodes)
-                  </h3>
-                  <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-                    {suitsOfType.map((barcode, i) => (
-                      <BarcodeCard key={`${size}-${suitType}-${i}`} barcode={barcode} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+      <div className="print:block">
+        {barcodes.map((barcode, index) => (
+          <div key={index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-4 mb-4">
+            <img src={barcode.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
+            <div className="mt-2 text-center">
+              <p className="text-sm font-bold text-gray-800">{barcode.design}</p>
+              <p className="text-sm text-gray-600">
+                {barcode.suitType} | {barcode.size}
+              </p>
+              <p className="text-sm font-semibold text-blue-600">
+                Unit #{barcode.unitNumber}
+              </p>
+              <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">
+                {barcode.item}
+              </p>
+            </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
 
-      {/* Print Styles */}
       <style jsx global>{`
         @media print {
           @page {
-            size: A4;
-            margin: 10mm;
+            size: 50mm auto;
+            margin: 0;
           }
           body {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .print\\:hidden {
-            display: none !important;
-          }
           .barcode-card {
-            break-inside: avoid;
-            page-break-inside: avoid;
+            page-break-after: always;
           }
         }
       `}</style>
-    </div>
-  );
-}
-
-function BarcodeCard({ barcode }: { barcode: BarcodeData }) {
-  return (
-    <div className="barcode-card border-2 border-gray-300 rounded-lg p-3 text-center bg-white shadow-sm">
-      <img src={barcode.qr} alt="QR Code" className="w-24 h-24 mx-auto" />
-      <div className="mt-2 space-y-1">
-        <p className="text-xs font-bold text-gray-800 truncate" title={barcode.design}>
-          {barcode.design}
-        </p>
-        <p className="text-xs text-gray-600">
-          {barcode.suitType} | {barcode.size}
-        </p>
-        <p className="text-xs font-semibold text-blue-600">
-          Unit #{barcode.unitNumber}
-        </p>
-        <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">
-          {barcode.item}
-        </p>
-      </div>
     </div>
   );
 }
