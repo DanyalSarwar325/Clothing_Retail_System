@@ -42,6 +42,8 @@ function PrintBarcodesContent() {
   const [barcodes, setBarcodes] = useState<BarcodeData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const hasGeneratedRef = useRef(false);
 
   useEffect(() => {
