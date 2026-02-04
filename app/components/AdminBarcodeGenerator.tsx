@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Scissors, Plus, Minus, DollarSign } from "lucide-react";
+import { Scissors, Plus, Minus, DollarSign, Check, Loader2 } from "lucide-react";
 
 // Departments that have item-based rates (all except Packing and Store)
 // Packing and Store rates are set when generating final stickers
@@ -18,6 +17,13 @@ const SUIT_TYPES = ["1pc", "2pc", "3pc"] as const;
 const SIZES = ["S", "M", "L"] as const;
 const SIZE_LABELS = { S: "Small", M: "Medium", L: "Large" };
 const ITEMS = ["Qameez", "Shalwar", "Dupatta"] as const;
+
+// Items based on suit type
+const SUIT_ITEMS: Record<string, string[]> = {
+  "1pc": ["Qameez"],
+  "2pc": ["Qameez", "Shalwar"],
+  "3pc": ["Qameez", "Shalwar", "Dupatta"],
+};
 
 interface SuitQuantity {
   "1pc": number;
@@ -44,7 +50,6 @@ interface DepartmentRate {
 }
 
 export default function AdminBarcodeGenerator() {
-  const router = useRouter();
   const [design, setDesign] = useState("");
   const [quantities, setQuantities] = useState<SizeQuantities>({
     S: { "1pc": 0, "2pc": 0, "3pc": 0 },
@@ -65,6 +70,9 @@ export default function AdminBarcodeGenerator() {
   
   const [error, setError] = useState("");
   const [showRates, setShowRates] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
 
   const updateQuantity = (
     size: keyof SizeQuantities,
@@ -141,7 +149,7 @@ export default function AdminBarcodeGenerator() {
     return total;
   };
 
-  const generateBarcodes = () => {
+  const generateBarcodes = async () => {
     if (!design.trim()) {
       setError("Please enter a design name");
       return;
@@ -156,9 +164,11 @@ export default function AdminBarcodeGenerator() {
     const requiredItems = getRequiredItems();
 
     // Validate item-based rates for all departments (except Packing and Store)
+    // Allow 0 as a valid rate, only check for negative or undefined values
     for (const dept of ITEM_BASED_DEPARTMENTS) {
       for (const item of requiredItems) {
-        if (itemRates[dept][item as keyof ItemRate] <= 0) {
+        const rate = itemRates[dept][item as keyof ItemRate];
+        if (rate < 0 || rate === undefined || rate === null) {
           setError(`Please set ${dept} rate for ${item}`);
           return;
         }
@@ -166,41 +176,97 @@ export default function AdminBarcodeGenerator() {
     }
 
     setError("");
+    setSaving(true);
+    setSuccess(false);
 
-    // Build rates array for URL
-    const rates: DepartmentRate[] = [];
-    
-    // Add item-based rates for all departments (except Packing and Store)
-    for (const dept of ITEM_BASED_DEPARTMENTS) {
-      for (const item of requiredItems) {
-        rates.push({
-          department: dept,
-          ratePerPiece: itemRates[dept][item as keyof ItemRate],
-          item: item,
-        });
+    try {
+      // Build rates array
+      const rates: DepartmentRate[] = [];
+      
+      // Add item-based rates for all departments (except Packing and Store)
+      for (const dept of ITEM_BASED_DEPARTMENTS) {
+        for (const item of requiredItems) {
+          rates.push({
+            department: dept,
+            ratePerPiece: itemRates[dept][item as keyof ItemRate],
+            item: item,
+          });
+        }
       }
+
+      // Generate barcode data for each size and suit type
+      const barcodesToSave: any[] = [];
+      
+      for (const size of SIZES) {
+        for (const suitType of SUIT_TYPES) {
+          const qty = quantities[size][suitType];
+          if (qty === 0) continue;
+
+          const items = SUIT_ITEMS[suitType];
+          
+          for (let unit = 1; unit <= qty; unit++) {
+            for (const item of items) {
+              const payload = { design, size, suitType, item, unit };
+              const barcodeDataStr = JSON.stringify(payload);
+              
+              barcodesToSave.push({
+                design: design,
+                size: size,
+                suitType: suitType,
+                item: item,
+                unitNumber: unit,
+                barcodeData: barcodeDataStr,
+                status: "generated",
+                currentDepartment: "Admin",
+                departmentHistory: [{
+                  department: "Admin",
+                  scannedAt: new Date().toISOString(),
+                  scannedBy: "Admin",
+                }],
+                departmentRates: rates,
+              });
+            }
+          }
+        }
+      }
+
+      // Save barcodes to database
+      const response = await fetch("/api/barcodes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcodes: barcodesToSave }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setSuccess(true);
+        setSavedCount(result.count || barcodesToSave.length);
+        
+        // Reset form after successful save
+        setDesign("");
+        setQuantities({
+          S: { "1pc": 0, "2pc": 0, "3pc": 0 },
+          M: { "1pc": 0, "2pc": 0, "3pc": 0 },
+          L: { "1pc": 0, "2pc": 0, "3pc": 0 },
+        });
+        setItemRates({
+          Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+        });
+      } else {
+        setError(result.message || "Failed to save barcodes");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to generate barcodes");
+    } finally {
+      setSaving(false);
     }
-
-    // Build query params
-    const params = new URLSearchParams({
-      design: design,
-      // Small quantities
-      s1pc: quantities.S["1pc"].toString(),
-      s2pc: quantities.S["2pc"].toString(),
-      s3pc: quantities.S["3pc"].toString(),
-      // Medium quantities
-      m1pc: quantities.M["1pc"].toString(),
-      m2pc: quantities.M["2pc"].toString(),
-      m3pc: quantities.M["3pc"].toString(),
-      // Large quantities
-      l1pc: quantities.L["1pc"].toString(),
-      l2pc: quantities.L["2pc"].toString(),
-      l3pc: quantities.L["3pc"].toString(),
-      // Rates as JSON
-      rates: JSON.stringify(rates),
-    });
-
-    router.push(`/print-barcodes?${params.toString()}`);
   };
 
   return (
@@ -396,14 +462,42 @@ export default function AdminBarcodeGenerator() {
         </div>
       )}
 
+      {/* Success Message */}
+      {success && (
+        <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Check size={20} className="text-green-600" />
+            <span className="font-semibold">Barcodes Generated Successfully!</span>
+          </div>
+          <p className="text-sm mt-1">
+            {savedCount} barcodes have been saved. Go to <strong>"Print Barcodes"</strong> page to view and print them.
+          </p>
+        </div>
+      )}
+
       {/* Generate Button */}
       <button
         onClick={generateBarcodes}
-        className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2"
+        disabled={saving}
+        className={`w-full py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+          saving 
+            ? "bg-gray-400 text-gray-200 cursor-not-allowed" 
+            : "bg-blue-600 text-white hover:bg-blue-700"
+        }`}
       >
-        <Scissors size={18} />
-        Generate Barcodes & Print
+        {saving ? (
+          <>
+            <Loader2 size={18} className="animate-spin" />
+            Generating & Saving...
+          </>
+        ) : (
+          <>
+            <Scissors size={18} />
+            Generate Barcodes
+          </>
+        )}
       </button>
     </div>
   );
 }
+
