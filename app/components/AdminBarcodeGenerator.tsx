@@ -164,11 +164,11 @@ export default function AdminBarcodeGenerator() {
     const requiredItems = getRequiredItems();
 
     // Validate item-based rates for all departments (except Packing and Store)
-    // Allow 0 as a valid rate, only check for negative or undefined values
+    // 0 is a valid rate - only reject negative, undefined, null, or NaN
     for (const dept of ITEM_BASED_DEPARTMENTS) {
       for (const item of requiredItems) {
         const rate = itemRates[dept][item as keyof ItemRate];
-        if (rate < 0 || rate === undefined || rate === null) {
+        if (rate === undefined || rate === null || isNaN(rate) || rate < 0) {
           setError(`Please set ${dept} rate for ${item}`);
           return;
         }
@@ -392,13 +392,14 @@ export default function AdminBarcodeGenerator() {
                         {ITEMS.map((item) => {
                           const requiredItems = getRequiredItems();
                           const isNeeded = requiredItems.includes(item);
+                          const rateValue = itemRates[dept][item];
                           return (
                             <td key={item} className="border px-2 py-2">
                               <input
                                 type="number"
                                 min="0"
                                 step="0.5"
-                                value={itemRates[dept][item] || ""}
+                                value={rateValue === 0 ? "0" : rateValue || ""}
                                 onChange={(e) =>
                                   updateItemRate(dept, item, parseFloat(e.target.value) || 0)
                                 }
