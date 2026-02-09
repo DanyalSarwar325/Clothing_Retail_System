@@ -396,13 +396,15 @@ export default function AdminBarcodeGenerator() {
                           return (
                             <td key={item} className="border px-2 py-2">
                               <input
-                                type="number"
-                                min="0"
-                                step="0.5"
+                                type="text"
+                                inputMode="decimal"
                                 value={rateValue}
-                                onChange={(e) =>
-                                  updateItemRate(dept, item, parseFloat(e.target.value) || 0)
-                                }
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                                    updateItemRate(dept, item, parseFloat(val) || 0);
+                                  }
+                                }}
                                 placeholder="0"
                                 disabled={!isNeeded}
                                 className={`w-full text-center border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
