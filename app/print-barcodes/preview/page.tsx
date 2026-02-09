@@ -9,6 +9,7 @@ interface BarcodeWithQR {
   suitType: "1pc" | "2pc" | "3pc";
   item: string;
   unitNumber: number;
+  totalUnitsInBatch?: number;
   qr: string;
 }
 
@@ -24,6 +25,7 @@ export default function PrintPreviewPage() {
     if (storedBarcodes) {
       setBarcodes(JSON.parse(storedBarcodes));
     }
+    
     setLoading(false);
   }, []);
 
@@ -71,7 +73,7 @@ export default function PrintPreviewPage() {
                 {barcode.suitType} | {SIZE_LABELS[barcode.size]}
               </p>
               <p className="text-sm font-semibold text-blue-600">
-                Unit #{barcode.unitNumber}
+                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `Unit #${barcode.unitNumber}`}
               </p>
               <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">
                 {barcode.item}

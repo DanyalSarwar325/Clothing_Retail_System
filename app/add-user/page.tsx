@@ -126,8 +126,8 @@ export default function AddUserPage() {
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.username.toLowerCase().includes(searchTerm.toLowerCase());
+      (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (user.username?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     const matchesDepartment = !filterDepartment || user.department === filterDepartment;
     return matchesSearch && matchesDepartment;
   });
@@ -331,10 +331,10 @@ export default function AddUserPage() {
                     >
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {user.name.charAt(0).toUpperCase()}
+                          {(user.name || user.username || '?').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                          <p className="text-sm font-medium text-gray-900">{user.name || user.username}</p>
                           <p className="text-xs text-gray-500">@{user.username}</p>
                         </div>
                       </div>
@@ -350,7 +350,7 @@ export default function AddUserPage() {
                         )}
                         {user.department !== "Admin" && (
                           <button
-                            onClick={() => handleDeleteUser(user._id, user.name)}
+                            onClick={() => handleDeleteUser(user._id, user.name || user.username)}
                             disabled={deletingUserId === user._id}
                             className={`p-1.5 rounded transition ${
                               deleteConfirmId === user._id

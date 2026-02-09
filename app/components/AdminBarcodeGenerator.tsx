@@ -197,6 +197,10 @@ export default function AdminBarcodeGenerator() {
       // Generate barcode data for each size and suit type
       const barcodesToSave: any[] = [];
       
+      // Calculate total pieces across all quantities for global sequential numbering
+      const totalPieces = getTotalBarcodes();
+      let globalUnitNumber = 0;
+      
       for (const size of SIZES) {
         for (const suitType of SUIT_TYPES) {
           const qty = quantities[size][suitType];
@@ -206,7 +210,8 @@ export default function AdminBarcodeGenerator() {
           
           for (let unit = 1; unit <= qty; unit++) {
             for (const item of items) {
-              const payload = { design, size, suitType, item, unit };
+              globalUnitNumber++;
+              const payload = { design, size, suitType, item, unit: globalUnitNumber, totalUnits: totalPieces };
               const barcodeDataStr = JSON.stringify(payload);
               
               barcodesToSave.push({
@@ -214,7 +219,8 @@ export default function AdminBarcodeGenerator() {
                 size: size,
                 suitType: suitType,
                 item: item,
-                unitNumber: unit,
+                unitNumber: globalUnitNumber,
+                totalUnitsInBatch: totalPieces,
                 barcodeData: barcodeDataStr,
                 status: "generated",
                 currentDepartment: "Admin",

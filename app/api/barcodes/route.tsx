@@ -66,3 +66,35 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// DELETE - Delete barcodes by design name
+export async function DELETE(request: NextRequest) {
+  try {
+    await DbConnect();
+
+    const { searchParams } = new URL(request.url);
+    const design = searchParams.get("design");
+
+    if (!design) {
+      return NextResponse.json(
+        { success: false, message: "Design name is required" },
+        { status: 400 }
+      );
+    }
+
+    // Delete all barcodes with matching design name
+    const result = await Barcode.deleteMany({ design: design });
+
+    return NextResponse.json({
+      success: true,
+      message: `${result.deletedCount} barcodes deleted successfully`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (error: any) {
+    console.error("Error deleting barcodes:", error);
+    return NextResponse.json(
+      { success: false, message: error.message || "Failed to delete barcodes" },
+      { status: 500 }
+    );
+  }
+}

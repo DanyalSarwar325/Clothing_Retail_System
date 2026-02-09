@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Printer, RefreshCw, CheckSquare, Square, ChevronDown, ChevronUp } from "lucide-react";
+import { Printer, RefreshCw, CheckSquare, Square, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import Sidebar from "@/app/components/Sidebar";
 import { useAuth } from "@/app/context/AuthContext";
 
@@ -19,6 +19,7 @@ interface BarcodeFromDB {
   suitType: "1pc" | "2pc" | "3pc";
   item: string;
   unitNumber: number;
+  totalUnitsInBatch?: number;
   barcodeData: string;
   status: string;
   departmentRates: DepartmentRate[];
@@ -45,6 +46,8 @@ export default function PrintBarcodesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [generatingQR, setGeneratingQR] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ design: string; barcodeIds: string[] } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Fetch all generated (not yet printed) barcodes
   const fetchBarcodes = async () => {
@@ -121,6 +124,36 @@ export default function PrintBarcodesPage() {
   useEffect(() => {
     fetchBarcodes();
   }, []);
+
+  // Delete design barcodes
+  const handleDeleteDesign = (design: string, barcodeIds: string[]) => {
+    setDeleteConfirm({ design, barcodeIds });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    
+    setDeleting(true);
+    try {
+      // Delete all barcodes for this design
+      const response = await fetch(`/api/barcodes?design=${encodeURIComponent(deleteConfirm.design)}`, {
+        method: "DELETE",
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        // Remove from local state
+        setDesignGroups((prev) => prev.filter((g) => g.design !== deleteConfirm.design));
+        setDeleteConfirm(null);
+      } else {
+        setError(result.message || "Failed to delete barcodes");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to delete barcodes");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Toggle design selection
   const toggleDesignSelection = (designIndex: number) => {
@@ -306,15 +339,27 @@ export default function PrintBarcodesPage() {
                           </p>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleDesignExpansion(idx);
-                        }}
-                        className="p-2 hover:bg-gray-200 rounded-lg"
-                      >
-                        {group.expanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDesign(group.design, group.barcodes.map((b) => b._id));
+                          }}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                          title="Delete design"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleDesignExpansion(idx);
+                          }}
+                          className="p-2 hover:bg-gray-200 rounded-lg"
+                        >
+                          {group.expanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Expanded View - Show barcodes preview */}
@@ -335,7 +380,7 @@ export default function PrintBarcodesPage() {
                                 {barcode.suitType} | {barcode.size}
                               </p>
                               <p className="text-xs text-gray-500">
-                                Unit #{barcode.unitNumber} - {barcode.item}
+                                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `Unit #${barcode.unitNumber}`} - {barcode.item}
                               </p>
                             </div>
                           ))}
@@ -356,6 +401,51 @@ export default function PrintBarcodesPage() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="text-red-600" size={24} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Design?</h3>
+              <p className="text-gray-600 mb-4">
+                Are you sure you want to delete <span className="font-semibold">"{deleteConfirm.design}"</span>?
+                This will remove all {deleteConfirm.barcodeIds.length} barcodes for this design.
+              </p>
+              <p className="text-sm text-red-600 mb-6">This action cannot be undone.</p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition flex items-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      Delete
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
