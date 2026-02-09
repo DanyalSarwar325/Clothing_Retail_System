@@ -399,7 +399,7 @@ export default function AdminBarcodeGenerator() {
                                 type="number"
                                 min="0"
                                 step="0.5"
-                                value={rateValue === 0 ? "0" : rateValue || ""}
+                                value={rateValue}
                                 onChange={(e) =>
                                   updateItemRate(dept, item, parseFloat(e.target.value) || 0)
                                 }
