@@ -65,17 +65,17 @@ export default function PrintPreviewPage() {
 
       <div className="print:block">
         {barcodes.map((barcode, index) => (
-          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-4 mb-4">
-            <img src={barcode.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
-            <div className="mt-2 text-center">
-              <p className="text-sm font-bold text-gray-800">{barcode.design}</p>
-              <p className="text-sm text-gray-600">
+          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2">
+            <img src={barcode.qr} alt="QR Code" className="w-24 h-24 mx-auto print:w-20 print:h-20" />
+            <div className="mt-1 text-center">
+              <p className="text-xs font-bold text-gray-800 print:text-[8pt]">{barcode.design}</p>
+              <p className="text-xs text-gray-600 print:text-[7pt]">
                 {barcode.suitType} | {SIZE_LABELS[barcode.size]}
               </p>
-              <p className="text-sm font-semibold text-blue-600">
+              <p className="text-xs font-semibold text-blue-600 print:text-[7pt]">
                 {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `Unit #${barcode.unitNumber}`}
               </p>
-              <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">
+              <p className="text-xs font-bold text-gray-900 bg-gray-100 rounded py-0.5 print:text-[8pt]">
                 {barcode.item}
               </p>
             </div>
@@ -86,7 +86,7 @@ export default function PrintPreviewPage() {
       <style jsx global>{`
         @media print {
           @page {
-            size: 50mm auto;
+            size: 32mm auto;
             margin: 0;
           }
           body {
@@ -95,6 +95,7 @@ export default function PrintPreviewPage() {
           }
           .barcode-card {
             page-break-after: always;
+            padding: 2mm;
           }
           .print\\:hidden {
             display: none !important;
