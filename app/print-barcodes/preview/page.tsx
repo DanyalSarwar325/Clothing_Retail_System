@@ -65,9 +65,8 @@ export default function PrintPreviewPage() {
 
       <div className="print:block">
         {barcodes.map((barcode, index) => (
-          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2">
-            <img src={barcode.qr} alt="QR Code" className="w-24 h-24 mx-auto print:w-20 print:h-20" />
-            <div className="mt-1 text-center">
+          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2 pt-2 print:pt-3">
+            <div className="text-center mb-1">
               <p className="text-xs font-bold text-gray-800 print:text-[8pt]">{barcode.design}</p>
               <p className="text-xs text-gray-600 print:text-[7pt]">
                 {barcode.suitType} | {SIZE_LABELS[barcode.size]}
@@ -79,6 +78,7 @@ export default function PrintPreviewPage() {
                 {barcode.item}
               </p>
             </div>
+            <img src={barcode.qr} alt="QR Code" className="w-24 h-24 mx-auto print:w-20 print:h-20" />
           </div>
         ))}
       </div>
