@@ -86,12 +86,13 @@ export default function PrintPreviewPage() {
       <style jsx global>{`
         @media print {
           @page {
-            size: 32mm auto;
+            size: 32mm 999mm;
             margin: 0;
           }
           body {
             margin: 0 !important;
             padding: 0 !important;
+            width: 32mm !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
@@ -101,7 +102,7 @@ export default function PrintPreviewPage() {
             padding-top: 3mm !important;
             padding-left: 2mm !important;
             padding-right: 2mm !important;
-            padding-bottom: 10mm !important;
+            padding-bottom: 5mm !important;
             margin: 0 !important;
             border-bottom: 1px dashed #999 !important;
             box-sizing: border-box;
