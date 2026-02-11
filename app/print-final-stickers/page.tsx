@@ -177,8 +177,8 @@ function PrintFinalStickersContent() {
           .sticker-card {
             page-break-after: always;
             page-break-inside: avoid;
-            padding-top: 0 !important;
-            padding-bottom: 3mm !important;
+            padding-top: 10mm !important;
+            padding-bottom: 4mm !important;
             margin: 0 !important;
             min-height: 60mm;
             box-sizing: border-box;
