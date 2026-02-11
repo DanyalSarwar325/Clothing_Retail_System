@@ -141,7 +141,7 @@ function PrintFinalStickersContent() {
           onClick={() => window.print()}
           className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
         >
-          🖨️ Print Final Stickers (50mm Roll)
+          🖨️ Print Final Stickers (30mm Roll)
         </button>
         <button
           onClick={() => window.history.back()}
@@ -162,7 +162,7 @@ function PrintFinalStickersContent() {
       <style jsx global>{`
         @media print {
           @page {
-            size: 50mm auto;
+            size: 30mm auto;
             margin: 0;
           }
           body {

@@ -49,7 +49,7 @@ export default function PrintPreviewPage() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-screen">
+    <div className="p-8 print:p-0 bg-white min-h-screen">
       <div className="print:hidden mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Print Preview</h1>
@@ -90,12 +90,25 @@ export default function PrintPreviewPage() {
             margin: 0;
           }
           body {
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
           .barcode-card {
             page-break-after: always;
-            padding: 2mm;
+            page-break-inside: avoid;
+            padding-top: 3mm !important;
+            padding-left: 2mm !important;
+            padding-right: 2mm !important;
+            padding-bottom: 2mm !important;
+            margin: 0 !important;
+            border: none !important;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
           }
           .print\\:hidden {
             display: none !important;
