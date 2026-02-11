@@ -96,14 +96,14 @@ export default function PrintPreviewPage() {
             print-color-adjust: exact !important;
           }
           .barcode-card {
-            page-break-after: always;
+            page-break-after: avoid;
             page-break-inside: avoid;
             padding-top: 3mm !important;
             padding-left: 2mm !important;
             padding-right: 2mm !important;
-            padding-bottom: 2mm !important;
+            padding-bottom: 5mm !important;
             margin: 0 !important;
-            border: none !important;
+            border-bottom: 1px dashed #999 !important;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
