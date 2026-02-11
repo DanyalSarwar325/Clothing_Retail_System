@@ -177,15 +177,15 @@ function PrintFinalStickersContent() {
           .sticker-card {
             page-break-after: always;
             page-break-inside: avoid;
-            padding-top: 15mm !important;
-            padding-bottom: 4mm !important;
+            padding-top: 0 !important;
+            padding-bottom: 3mm !important;
             margin: 0 !important;
             min-height: 60mm;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start;
+            justify-content: flex-end;
           }
         }
       `}</style>
