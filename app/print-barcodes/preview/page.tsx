@@ -101,7 +101,7 @@ export default function PrintPreviewPage() {
             padding-top: 3mm !important;
             padding-left: 2mm !important;
             padding-right: 2mm !important;
-            padding-bottom: 10mm !important;
+            padding-bottom: 12mm !important;
             margin: 0 !important;
             border-bottom: 1px dashed #999 !important;
             box-sizing: border-box;
