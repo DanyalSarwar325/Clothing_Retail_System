@@ -98,10 +98,10 @@ export default function PrintPreviewPage() {
           .barcode-card {
             page-break-after: avoid;
             page-break-inside: avoid;
-            padding-top: 5mm !important;
+            padding-top: 10mm !important;
             padding-left: 2mm !important;
             padding-right: 2mm !important;
-            padding-bottom: 12mm !important;
+            padding-bottom: 10mm !important;
             margin: 0 !important;
             border-bottom: 1px dashed #999 !important;
             box-sizing: border-box;
