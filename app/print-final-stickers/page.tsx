@@ -124,7 +124,7 @@ function PrintFinalStickersContent() {
   };
 
   return (
-    <div className="p-8 bg-white min-h-screen">
+    <div className="p-8 print:p-0 bg-white min-h-screen">
       {/* Print Header - Hidden on print */}
       <div className="print:hidden mb-8">
         <h1 className="text-2xl font-bold text-center mb-2">
