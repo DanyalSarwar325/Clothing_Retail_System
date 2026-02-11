@@ -179,9 +179,9 @@ function PrintFinalStickersContent() {
             page-break-inside: avoid;
             page-break-before: auto;
             padding-top: 0 !important;
-            padding-bottom: 3mm !important;
+            padding-bottom: 12.7mm !important;
             margin: 0 !important;
-            border: none !important;
+            border-bottom: 2px dashed #999 !important;
             min-height: 70mm;
             height: 70mm;
             box-sizing: border-box;
