@@ -166,6 +166,8 @@ function PrintFinalStickersContent() {
             margin: 0;
           }
           body {
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
@@ -174,6 +176,16 @@ function PrintFinalStickersContent() {
           }
           .sticker-card {
             page-break-after: always;
+            page-break-inside: avoid;
+            padding-top: 6mm !important;
+            padding-bottom: 4mm !important;
+            margin: 0 !important;
+            min-height: 60mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
           }
         }
       `}</style>
@@ -201,7 +213,7 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
   };
 
   return (
-    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4 text-center bg-white">
+    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4 pt-4 text-center bg-white">
       <div className="bg-purple-600 text-white text-xs font-bold py-1 px-2 rounded mb-2 inline-block">
         FINAL STICKER
       </div>
