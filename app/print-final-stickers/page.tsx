@@ -125,8 +125,8 @@ function PrintFinalStickersContent() {
 
   return (
     <div className="p-8 bg-white min-h-screen">
-      {/* Print Header */}
-      <div className="print:block mb-8">
+      {/* Print Header - Hidden on print */}
+      <div className="print:hidden mb-8">
         <h1 className="text-2xl font-bold text-center mb-2">
           Final Stickers for Design: {design}
         </h1>
@@ -177,10 +177,13 @@ function PrintFinalStickersContent() {
           .sticker-card {
             page-break-after: always;
             page-break-inside: avoid;
-            padding-top: 10mm !important;
-            padding-bottom: 4mm !important;
+            page-break-before: auto;
+            padding-top: 0 !important;
+            padding-bottom: 3mm !important;
             margin: 0 !important;
-            min-height: 60mm;
+            border: none !important;
+            min-height: 70mm;
+            height: 70mm;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
