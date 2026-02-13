@@ -135,7 +135,6 @@ const FinalStickerSchema = new Schema<IFinalSticker>(
 
 // Compound index for efficient queries
 FinalStickerSchema.index({ design: 1, size: 1, unitNumber: 1 });
-FinalStickerSchema.index({ barcodeData: 1 });
 FinalStickerSchema.index({ status: 1 });
 
 // Prevent model overwrite error in development with hot reload
