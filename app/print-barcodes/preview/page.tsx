@@ -13,8 +13,6 @@ interface BarcodeWithQR {
   qr: string;
 }
 
-const SIZE_LABELS = { S: "Small", M: "Medium", L: "Large" };
-
 export default function PrintPreviewPage() {
   const [barcodes, setBarcodes] = useState<BarcodeWithQR[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,26 +57,26 @@ export default function PrintPreviewPage() {
           onClick={() => window.print()}
           className="bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700"
         >
-          🖨️ Print Barcodes
+          🖨️ Print Barcodes (3cm × 5cm)
         </button>
       </div>
 
       <div className="print:block">
         {barcodes.map((barcode, index) => (
-          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2 pt-2 print:pt-3">
-            <div className="text-center mb-1">
-              <p className="text-xs font-bold text-gray-800 print:text-[8pt]">{barcode.design}</p>
-              <p className="text-xs text-gray-600 print:text-[7pt]">
-                {barcode.suitType} | {SIZE_LABELS[barcode.size]}
+          <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2 pt-2 text-center bg-white">
+            <div className="barcode-info text-center mb-0.5">
+              <p className="barcode-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]">{barcode.design}</p>
+              <p className="text-[7px] text-gray-600">
+                {barcode.suitType} | {barcode.size}
               </p>
-              <p className="text-xs font-semibold text-blue-600 print:text-[7pt]">
-                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `Unit #${barcode.unitNumber}`}
+              <p className="text-[7px] font-semibold text-blue-600">
+                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.unitNumber}`}
               </p>
-              <p className="text-xs font-bold text-gray-900 bg-gray-100 rounded py-0.5 print:text-[8pt]">
+              <p className="barcode-item text-[8px] font-bold text-gray-900 bg-gray-100 rounded py-0.5">
                 {barcode.item}
               </p>
             </div>
-            <img src={barcode.qr} alt="QR Code" className="w-24 h-24 mx-auto print:w-20 print:h-20" />
+            <img src={barcode.qr} alt="QR Code" className="barcode-qr w-24 h-24 mx-auto" />
           </div>
         ))}
       </div>
@@ -86,30 +84,54 @@ export default function PrintPreviewPage() {
       <style jsx global>{`
         @media print {
           @page {
-            size: 32mm 999mm;
-            margin: 0;
+            size: 30mm 50mm;
+            margin: 1mm;
           }
           body {
             margin: 0 !important;
             padding: 0 !important;
-            width: 32mm !important;
+            width: 28mm !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            font-size: 6pt !important;
           }
           .barcode-card {
-            page-break-after: avoid;
+            page-break-after: always;
             page-break-inside: avoid;
-            padding-top: 6mm !important;
-            padding-left: 2mm !important;
-            padding-right: 2mm !important;
-            padding-bottom: 5mm !important;
+            padding: 0 !important;
             margin: 0 !important;
-            border-bottom: 1px dashed #999 !important;
+            border: none !important;
+            width: 28mm;
+            height: 48mm;
+            max-height: 48mm;
+            overflow: hidden;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start;
+            justify-content: center;
+            gap: 0;
+          }
+          .barcode-card .barcode-info p {
+            font-size: 5.5pt !important;
+            padding: 0.3mm 1mm !important;
+            margin: 0 !important;
+            line-height: 1.2 !important;
+          }
+          .barcode-card .barcode-design {
+            font-size: 6pt !important;
+            max-width: 26mm;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .barcode-card .barcode-item {
+            font-size: 6.5pt !important;
+            font-weight: bold !important;
+          }
+          .barcode-card .barcode-qr {
+            width: 18mm !important;
+            height: 18mm !important;
           }
           .print\\:hidden {
             display: none !important;

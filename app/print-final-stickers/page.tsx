@@ -141,7 +141,7 @@ function PrintFinalStickersContent() {
           onClick={() => window.print()}
           className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
         >
-          🖨️ Print Final Stickers (30mm Roll)
+          🖨️ Print Final Stickers (3cm × 5cm)
         </button>
         <button
           onClick={() => window.history.back()}
@@ -158,18 +158,19 @@ function PrintFinalStickersContent() {
         ))}
       </div>
 
-      {/* Print Styles for 50mm Thermal Paper Roll */}
+      {/* Print Styles for 30mm x 50mm Individual Paper Sheets */}
       <style jsx global>{`
         @media print {
           @page {
-            size: 30mm auto;
-            margin: 0;
+            size: 30mm 50mm;
+            margin: 1mm;
           }
           body {
             margin: 0 !important;
             padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            font-size: 6pt !important;
           }
           .print\\:hidden {
             display: none !important;
@@ -178,17 +179,49 @@ function PrintFinalStickersContent() {
             page-break-after: always;
             page-break-inside: avoid;
             page-break-before: auto;
-            padding-top: 0 !important;
-            padding-bottom: 12.7mm !important;
+            padding: 0mm !important;
             margin: 0 !important;
-            border-bottom: 2px dashed #999 !important;
-            min-height: 70mm;
-            height: 70mm;
+            border: none !important;
+            width: 28mm;
+            height: 48mm;
+            max-height: 48mm;
+            overflow: hidden;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: center;
+            gap: 0;
+          }
+          .sticker-card .sticker-header {
+            font-size: 5pt !important;
+            padding: 0.5mm 1mm !important;
+            margin-bottom: 0.5mm !important;
+          }
+          .sticker-card .sticker-qr {
+            width: 18mm !important;
+            height: 18mm !important;
+          }
+          .sticker-card .sticker-info {
+            gap: 0 !important;
+          }
+          .sticker-card .sticker-info p,
+          .sticker-card .sticker-info div {
+            font-size: 5.5pt !important;
+            padding: 0.3mm 1mm !important;
+            margin: 0 !important;
+            line-height: 1.2 !important;
+          }
+          .sticker-card .sticker-design {
+            font-size: 5.5pt !important;
+            max-width: 26mm;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .sticker-card .sticker-price {
+            font-size: 6pt !important;
+            font-weight: bold !important;
           }
         }
       `}</style>
@@ -216,24 +249,23 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
   };
 
   return (
-    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4 pt-4 text-center bg-white">
-      <div className="bg-purple-600 text-white text-xs font-bold py-1 px-2 rounded mb-2 inline-block">
+    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 text-center bg-white">
+      <div className="sticker-header bg-purple-600 text-white text-[7px] font-bold py-0.5 px-1.5 rounded mb-1 inline-block">
         FINAL STICKER
       </div>
-      <img src={sticker.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
-      <div className="mt-2 space-y-1">
-        <p className="text-sm font-bold text-gray-800" title={sticker.design}>
+      <img src={sticker.qr} alt="QR Code" className="sticker-qr w-24 h-24 mx-auto" />
+      <div className="sticker-info mt-1 space-y-0.5">
+        <p className="sticker-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]" title={sticker.design}>
           {sticker.design}
         </p>
-        <div className={`text-sm font-semibold py-1 px-2 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
-          {sticker.suitType} Suit
+        <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
+          {sticker.suitType} | {sticker.sizeCode}
         </div>
-        <p className="text-sm text-gray-600">{sticker.size}</p>
-        <p className="text-sm font-bold text-purple-600 bg-purple-50 rounded py-1">
-          Unit #{sticker.unitNumber}
+        <p className="text-[7px] font-bold text-purple-600 bg-purple-50 rounded py-0.5">
+          #{sticker.unitNumber}
         </p>
         {sticker.sellingPrice > 0 && (
-          <p className="text-sm font-bold text-green-700 bg-green-100 rounded py-1">
+          <p className="sticker-price text-[8px] font-bold text-green-700 bg-green-100 rounded py-0.5">
             PKR {sticker.sellingPrice.toLocaleString()}
           </p>
         )}
