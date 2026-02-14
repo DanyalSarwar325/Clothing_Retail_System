@@ -11,6 +11,7 @@ interface FinalStickerData {
   sizeCode: "S" | "M" | "L";
   suitType: "1pc" | "2pc" | "3pc";
   unitNumber: number;
+  totalStickers: number;
   sellingPrice: number;
   barcodeData: string;
 }
@@ -46,6 +47,8 @@ function PrintFinalStickersContent() {
 
         const sizeLabels: Record<string, string> = { S: "Small", M: "Medium", L: "Large" };
 
+        const totalStickers = data.stickers.length;
+
         // Generate QR codes for each sticker
         const stickersWithQR: FinalStickerData[] = await Promise.all(
           data.stickers.map(async (sticker: any) => {
@@ -57,6 +60,7 @@ function PrintFinalStickersContent() {
               sizeCode: sticker.size,
               suitType: sticker.suitType,
               unitNumber: sticker.unitNumber,
+              totalStickers,
               sellingPrice: sticker.sellingPrice || 0,
               barcodeData: sticker.barcodeData,
             } as FinalStickerData;
@@ -248,6 +252,12 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
     "3pc": "bg-purple-100 text-purple-800",
   };
 
+  const suitItems: Record<string, string> = {
+    "1pc": "Qameez",
+    "2pc": "Qameez + Shalwar",
+    "3pc": "Qameez + Shalwar + Dupatta",
+  };
+
   return (
     <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 text-center bg-white">
       <div className="sticker-header bg-purple-600 text-white text-[7px] font-bold py-0.5 px-1.5 rounded mb-1 inline-block">
@@ -261,8 +271,11 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
         <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
           {sticker.suitType} | {sticker.sizeCode}
         </div>
+        <p className="text-[6px] text-gray-500">
+          {suitItems[sticker.suitType]}
+        </p>
         <p className="text-[7px] font-bold text-purple-600 bg-purple-50 rounded py-0.5">
-          #{sticker.unitNumber}
+          {sticker.unitNumber}/{sticker.totalStickers}
         </p>
         {sticker.sellingPrice > 0 && (
           <p className="sticker-price text-[8px] font-bold text-green-700 bg-green-100 rounded py-0.5">

@@ -19,6 +19,7 @@ interface BarcodeFromDB {
   suitType: "1pc" | "2pc" | "3pc";
   item: string;
   unitNumber: number;
+  sequenceNumber?: number;
   totalUnitsInBatch?: number;
   barcodeData: string;
   status: string;
@@ -380,7 +381,7 @@ export default function PrintBarcodesPage() {
                                 {barcode.suitType} | {barcode.size}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `Unit #${barcode.unitNumber}`} - {barcode.item}
+                                {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`} - {barcode.item}
                               </p>
                             </div>
                           ))}

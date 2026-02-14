@@ -9,6 +9,7 @@ interface BarcodeWithQR {
   suitType: "1pc" | "2pc" | "3pc";
   item: string;
   unitNumber: number;
+  sequenceNumber?: number;
   totalUnitsInBatch?: number;
   qr: string;
 }
@@ -70,7 +71,7 @@ export default function PrintPreviewPage() {
                 {barcode.suitType} | {barcode.size}
               </p>
               <p className="text-[7px] font-semibold text-blue-600">
-                {barcode.totalUnitsInBatch ? `${barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.unitNumber}`}
+                {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`}
               </p>
               <p className="barcode-item text-[8px] font-bold text-gray-900 bg-gray-100 rounded py-0.5">
                 {barcode.item}

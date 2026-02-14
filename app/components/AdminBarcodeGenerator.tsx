@@ -197,9 +197,9 @@ export default function AdminBarcodeGenerator() {
       // Generate barcode data for each size and suit type
       const barcodesToSave: any[] = [];
       
-      // Calculate total pieces across all quantities for global sequential numbering
+      // Calculate total individual barcodes for X/Y display
       const totalPieces = getTotalBarcodes();
-      let globalUnitNumber = 0;
+      let globalSequence = 0; // For unique barcode data & X/Y display only
       
       for (const size of SIZES) {
         for (const suitType of SUIT_TYPES) {
@@ -208,10 +208,13 @@ export default function AdminBarcodeGenerator() {
 
           const items = SUIT_ITEMS[suitType];
           
+          // unitNumber is per size+suitType: each complete suit is a unit
+          // e.g. Large 3pc qty=3 → unit 1, 2, 3 (each with Qameez, Shalwar, Dupatta)
           for (let unit = 1; unit <= qty; unit++) {
             for (const item of items) {
-              globalUnitNumber++;
-              const payload = { design, size, suitType, item, unit: globalUnitNumber, totalUnits: totalPieces };
+              globalSequence++;
+              // Barcode payload does NOT include unitNumber (not printed on QR)
+              const payload = { design, size, suitType, item, seq: globalSequence, totalItems: totalPieces };
               const barcodeDataStr = JSON.stringify(payload);
               
               barcodesToSave.push({
@@ -219,7 +222,8 @@ export default function AdminBarcodeGenerator() {
                 size: size,
                 suitType: suitType,
                 item: item,
-                unitNumber: globalUnitNumber,
+                unitNumber: unit, // Per size+suitType unit (for final sticker grouping)
+                sequenceNumber: globalSequence, // Global 1/N sequential display number
                 totalUnitsInBatch: totalPieces,
                 barcodeData: barcodeDataStr,
                 status: "generated",

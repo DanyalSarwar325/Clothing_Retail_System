@@ -90,6 +90,7 @@ export interface IBarcode extends Document {
   suitType: SuitType; // 1pc, 2pc, or 3pc suit
   item: "Shalwar" | "Qameez" | "Dupatta";
   unitNumber: number;
+  sequenceNumber: number; // Global sequential number for X/Y display (1/10, 2/10...)
   totalUnitsInBatch: number; // Total pieces in the batch for X/Y display
   barcodeData: string; // JSON string of barcode payload
   status: "generated" | "scanned" | "available" | "sold" | "returned" | "packed" | "defective" | "quality_ok" | "damaged";
@@ -182,6 +183,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   suitType: { type: String, enum: ["1pc", "2pc", "3pc"], required: true, default: "3pc" },
   item: { type: String, enum: ["Shalwar", "Qameez", "Dupatta"], required: true },
   unitNumber: { type: Number, required: true },
+  sequenceNumber: { type: Number, required: false }, // Global sequential number for X/Y display
   totalUnitsInBatch: { type: Number, required: false }, // Total pieces in the batch for X/Y display
   barcodeData: { type: String, required: true },
   status: { type: String, enum: ["generated", "scanned", "available", "sold", "returned", "packed", "defective", "quality_ok", "damaged"], default: "generated" },

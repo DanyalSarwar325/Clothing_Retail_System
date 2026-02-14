@@ -96,9 +96,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate final stickers for each unique suit
-    const stickersToCreate = suitCombinations.map((combo) => {
-      const { design, size, suitType, unitNumber } = combo._id;
+    // Generate final stickers for each unique suit with global sequential numbering
+    const totalSuits = suitCombinations.length;
+    const stickersToCreate = suitCombinations.map((combo, index) => {
+      const { design, size, suitType } = combo._id;
+      const globalUnitNumber = index + 1; // Sequential: 1, 2, 3 ... N across all sizes
 
       // Get the selling price for this suit type
       const sellingPrice = prices[suitType] || 0;
@@ -109,7 +111,7 @@ export async function POST(request: NextRequest) {
         design,
         size,
         suitType,
-        unitNumber,
+        unitNumber: globalUnitNumber,
         sellingPrice,
         timestamp: Date.now(),
       };
@@ -118,7 +120,7 @@ export async function POST(request: NextRequest) {
         design,
         size,
         suitType,
-        unitNumber,
+        unitNumber: globalUnitNumber,
         sellingPrice,
         departmentRates: [
           { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
