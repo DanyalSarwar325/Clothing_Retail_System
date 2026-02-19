@@ -77,7 +77,7 @@ export default function PrintPreviewPage() {
                 {barcode.item}
               </p>
             </div>
-            <img src={barcode.qr} alt="QR Code" className="barcode-qr w-24 h-24 mx-auto" />
+            <img src={barcode.qr} alt="QR Code" className="barcode-qr w-24 h-24" />
           </div>
         ))}
       </div>
@@ -99,7 +99,7 @@ export default function PrintPreviewPage() {
           .barcode-card {
             page-break-after: always;
             page-break-inside: avoid;
-            padding: 3mm 0 0 0 !important;
+            padding: 10mm 0 0 0 !important;
             margin: 0 !important;
             border: none !important;
             width: 28mm;
@@ -138,7 +138,9 @@ export default function PrintPreviewPage() {
           .barcode-card .barcode-qr {
             width: 21mm !important;
             height: 21mm !important;
-            margin: 0 auto !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            margin-right: 0 !important;
             margin-left: 6mm !important;
             display: block !important;
           }
