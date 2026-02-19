@@ -113,11 +113,16 @@ export default function PrintPreviewPage() {
             justify-content: center;
             gap: 0;
           }
+          .barcode-card .barcode-info {
+            text-align: center !important;
+            width: 100%;
+          }
           .barcode-card .barcode-info p {
             font-size: 5.5pt !important;
             padding: 0.3mm 1mm !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             line-height: 1.2 !important;
+            text-align: center !important;
           }
           .barcode-card .barcode-design {
             font-size: 6pt !important;
@@ -133,6 +138,8 @@ export default function PrintPreviewPage() {
           .barcode-card .barcode-qr {
             width: 21mm !important;
             height: 21mm !important;
+            margin: 0 auto !important;
+            display: block !important;
           }
           .print\\:hidden {
             display: none !important;
