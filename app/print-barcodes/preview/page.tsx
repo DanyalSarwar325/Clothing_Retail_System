@@ -113,6 +113,7 @@ export default function PrintPreviewPage() {
             justify-content: center;
             gap: 0;
           }
+            
           .barcode-card .barcode-info {
             text-align: center !important;
             width: 100%;
