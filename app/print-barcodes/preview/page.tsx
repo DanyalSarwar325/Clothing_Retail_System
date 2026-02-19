@@ -99,7 +99,7 @@ export default function PrintPreviewPage() {
           .barcode-card {
             page-break-after: always;
             page-break-inside: avoid;
-            padding: 0 !important;
+            padding: 3mm 0 0 0 !important;
             margin: 0 !important;
             border: none !important;
             width: 28mm;
@@ -131,8 +131,8 @@ export default function PrintPreviewPage() {
             font-weight: bold !important;
           }
           .barcode-card .barcode-qr {
-            width: 18mm !important;
-            height: 18mm !important;
+            width: 21mm !important;
+            height: 21mm !important;
           }
           .print\\:hidden {
             display: none !important;
