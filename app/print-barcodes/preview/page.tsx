@@ -139,6 +139,7 @@ export default function PrintPreviewPage() {
             width: 21mm !important;
             height: 21mm !important;
             margin: 0 auto !important;
+            margin-left: 3mm !important;
             display: block !important;
           }
           .print\\:hidden {
