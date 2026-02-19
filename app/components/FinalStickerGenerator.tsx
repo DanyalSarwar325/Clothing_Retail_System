@@ -73,11 +73,11 @@ export default function FinalStickerGenerator() {
     }
 
     // Validate Packing and Store rates
-    if (departmentRates.Packing <= 0) {
+    if (departmentRates.Packing < 0 || departmentRates.Packing === undefined || departmentRates.Packing === null) {
       toast.error("Please set Packing rate");
       return;
     }
-    if (departmentRates.Store <= 0) {
+    if (departmentRates.Store < 0 || departmentRates.Store === undefined || departmentRates.Store === null) {
       toast.error("Please set Store rate");
       return;
     }
@@ -237,7 +237,7 @@ export default function FinalStickerGenerator() {
                     <input
                       type="number"
                       min="0"
-                      value={departmentRates.Packing || ""}
+                      value={departmentRates.Packing !== undefined && departmentRates.Packing !== null ? departmentRates.Packing : ""}
                       onChange={(e) => setDepartmentRates({ ...departmentRates, Packing: Number(e.target.value) })}
                       placeholder="Rate per scan"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -249,7 +249,7 @@ export default function FinalStickerGenerator() {
                     <input
                       type="number"
                       min="0"
-                      value={departmentRates.Store || ""}
+                      value={departmentRates.Store !== undefined && departmentRates.Store !== null ? departmentRates.Store : ""}
                       onChange={(e) => setDepartmentRates({ ...departmentRates, Store: Number(e.target.value) })}
                       placeholder="Rate per scan"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"

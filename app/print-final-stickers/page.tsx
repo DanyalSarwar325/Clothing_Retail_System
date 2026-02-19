@@ -183,7 +183,7 @@ function PrintFinalStickersContent() {
             page-break-after: always;
             page-break-inside: avoid;
             page-break-before: auto;
-            padding: 0mm !important;
+            padding: 13mm 0 0 0 !important;
             margin: 0 !important;
             border: none !important;
             width: 28mm;
@@ -201,20 +201,30 @@ function PrintFinalStickersContent() {
             font-size: 5pt !important;
             padding: 0.5mm 1mm !important;
             margin-bottom: 0.5mm !important;
+            margin-left: 6mm !important;
           }
           .sticker-card .sticker-qr {
-            width: 18mm !important;
-            height: 18mm !important;
+            width: 21mm !important;
+            height: 21mm !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            margin-right: 0 !important;
+            margin-left: 9mm !important;
+            display: block !important;
           }
           .sticker-card .sticker-info {
             gap: 0 !important;
+            text-align: center !important;
+            width: 100%;
+            margin-left: 6mm !important;
           }
           .sticker-card .sticker-info p,
           .sticker-card .sticker-info div {
             font-size: 5.5pt !important;
             padding: 0.3mm 1mm !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             line-height: 1.2 !important;
+            text-align: center !important;
           }
           .sticker-card .sticker-design {
             font-size: 5.5pt !important;
@@ -263,7 +273,7 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
       <div className="sticker-header bg-purple-600 text-white text-[7px] font-bold py-0.5 px-1.5 rounded mb-1 inline-block">
         FINAL STICKER
       </div>
-      <img src={sticker.qr} alt="QR Code" className="sticker-qr w-24 h-24 mx-auto" />
+      <img src={sticker.qr} alt="QR Code" className="sticker-qr w-24 h-24" />
       <div className="sticker-info mt-1 space-y-0.5">
         <p className="sticker-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]" title={sticker.design}>
           {sticker.design}

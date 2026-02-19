@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate department rates
-    if (!departmentRates || departmentRates.Packing <= 0 || departmentRates.Store <= 0) {
+    if (!departmentRates || departmentRates.Packing < 0 || departmentRates.Store < 0 || departmentRates.Packing === undefined || departmentRates.Store === undefined) {
       return NextResponse.json(
         { success: false, message: "Packing and Store rates are required" },
         { status: 400 }
