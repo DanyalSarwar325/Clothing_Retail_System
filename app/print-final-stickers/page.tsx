@@ -145,7 +145,7 @@ function PrintFinalStickersContent() {
           onClick={() => window.print()}
           className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
         >
-          🖨️ Print Final Stickers (25mm × 50mm)
+          🖨️ Print Final Stickers (25mm × 50mm Landscape)
         </button>
         <button
           onClick={() => window.history.back()}
@@ -162,12 +162,12 @@ function PrintFinalStickersContent() {
         ))}
       </div>
 
-      {/* Print Styles for 25mm x 50mm Individual Paper Sheets */}
+      {/* Print Styles for 25mm x 50mm paper loaded in LANDSCAPE (50mm wide x 25mm tall in printer) */}
       <style jsx global>{`
         @media print {
           @page {
-            size: 25mm 50mm;
-            margin: 1mm;
+            size: 50mm 25mm;
+            margin: 0.5mm;
           }
           body {
             margin: 0 !important;
@@ -183,57 +183,61 @@ function PrintFinalStickersContent() {
             page-break-after: always;
             page-break-inside: avoid;
             page-break-before: auto;
-            padding: 1mm 0.5mm 0.5mm 0.5mm !important;
+            padding: 0.5mm !important;
             margin: 0 !important;
             border: none !important;
-            width: 23mm;
-            height: 48mm;
-            max-height: 48mm;
+            width: 49mm;
+            height: 24mm;
+            max-height: 24mm;
             overflow: hidden;
             box-sizing: border-box;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             align-items: center;
-            justify-content: flex-start;
-            gap: 0;
+            justify-content: center;
+            gap: 1mm;
           }
           .sticker-card .sticker-header {
-            font-size: 4.5pt !important;
-            padding: 0.3mm 0.8mm !important;
-            margin-bottom: 0.3mm !important;
+            font-size: 4pt !important;
+            padding: 0.2mm 0.5mm !important;
+            margin-bottom: 0.2mm !important;
             margin-left: 0 !important;
           }
           .sticker-card .sticker-qr {
-            width: 18mm !important;
-            height: 18mm !important;
-            margin: 0.5mm 0 !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
+            width: 19mm !important;
+            height: 19mm !important;
+            min-width: 19mm !important;
+            margin: 0 !important;
             display: block !important;
           }
           .sticker-card .sticker-info {
             gap: 0 !important;
             text-align: center !important;
-            width: 100%;
+            width: auto;
+            flex: 1;
             margin-left: 0 !important;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
           }
           .sticker-card .sticker-info p,
           .sticker-card .sticker-info div {
-            font-size: 5pt !important;
-            padding: 0.2mm 0.5mm !important;
+            font-size: 4.5pt !important;
+            padding: 0.1mm 0.3mm !important;
             margin: 0 auto !important;
-            line-height: 1.15 !important;
+            line-height: 1.1 !important;
             text-align: center !important;
           }
           .sticker-card .sticker-design {
             font-size: 5pt !important;
-            max-width: 21mm;
+            max-width: 26mm;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
           }
           .sticker-card .sticker-price {
-            font-size: 5.5pt !important;
+            font-size: 5pt !important;
             font-weight: bold !important;
           }
         }
@@ -268,13 +272,13 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
   };
 
   return (
-    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 text-center bg-white">
-      <div className="sticker-header bg-purple-600 text-white text-[6px] font-bold py-0.5 px-1 rounded mb-0.5 inline-block">
-        FINAL STICKER
-      </div>
+    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 bg-white flex flex-row items-center gap-2 px-2">
       <img src={sticker.qr} alt="QR Code" className="sticker-qr w-20 h-20" />
-      <div className="sticker-info mt-0.5 space-y-0.5">
-        <p className="sticker-design text-[7px] font-bold text-gray-800 truncate max-w-[23mm]" title={sticker.design}>
+      <div className="sticker-info text-center space-y-0.5 flex-1">
+        <div className="sticker-header bg-purple-600 text-white text-[6px] font-bold py-0.5 px-1 rounded mb-0.5 inline-block">
+          FINAL STICKER
+        </div>
+        <p className="sticker-design text-[7px] font-bold text-gray-800 truncate max-w-[28mm]" title={sticker.design}>
           {sticker.design}
         </p>
         <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
