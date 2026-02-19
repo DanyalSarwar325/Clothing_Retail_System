@@ -116,6 +116,7 @@ export default function PrintPreviewPage() {
           .barcode-card .barcode-info {
             text-align: center !important;
             width: 100%;
+            margin-left: 6mm !important;
           }
           .barcode-card .barcode-info p {
             font-size: 5.5pt !important;
