@@ -23,11 +23,8 @@ export default function FinalStickerGenerator() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [prices, setPrices] = useState({
-    "1pc": 0,
-    "2pc": 0,
-    "3pc": 0,
-  });
+  const [sellingPrice, setSellingPrice] = useState(0);
+  const [suitType, setSuitType] = useState<"2pc" | "3pc">("2pc");
   // Department rates for Packing and Store
   const [departmentRates, setDepartmentRates] = useState({
     Packing: 0,
@@ -66,9 +63,9 @@ export default function FinalStickerGenerator() {
       return;
     }
 
-    // Validate that at least one price is set
-    if (prices["1pc"] <= 0 && prices["2pc"] <= 0 && prices["3pc"] <= 0) {
-      toast.error("Please set at least one selling price");
+    // Validate selling price
+    if (sellingPrice <= 0) {
+      toast.error("Please set the selling price");
       return;
     }
 
@@ -87,7 +84,7 @@ export default function FinalStickerGenerator() {
       const response = await fetch("/api/final-stickers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ design: selectedDesign, prices, departmentRates }),
+        body: JSON.stringify({ design: selectedDesign, sellingPrice, suitType, departmentRates }),
       });
 
       const data = await response.json();
@@ -182,46 +179,37 @@ export default function FinalStickerGenerator() {
               ))}
             </select>
 
-            {/* Selling Prices */}
+            {/* Selling Price & Suit Type */}
             {selectedDesign && (
               <div className="bg-purple-50 rounded-lg p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Set Selling Prices (PKR)</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <h4 className="font-medium text-gray-900 mb-3">Sticker Configuration</h4>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">1pc Suit</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Selling Price (PKR)</label>
                     <input
                       type="number"
                       min="0"
-                      value={prices["1pc"] || ""}
-                      onChange={(e) => setPrices({ ...prices, "1pc": Number(e.target.value) })}
-                      placeholder="Price"
+                      value={sellingPrice || ""}
+                      onChange={(e) => setSellingPrice(Number(e.target.value))}
+                      placeholder="e.g. 5000"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
                       disabled={generating}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">2pc Suit</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={prices["2pc"] || ""}
-                      onChange={(e) => setPrices({ ...prices, "2pc": Number(e.target.value) })}
-                      placeholder="Price"
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Suit Type</label>
+                    <select
+                      value={suitType}
+                      onChange={(e) => setSuitType(e.target.value as "2pc" | "3pc")}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
                       disabled={generating}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">3pc Suit</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={prices["3pc"] || ""}
-                      onChange={(e) => setPrices({ ...prices, "3pc": Number(e.target.value) })}
-                      placeholder="Price"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      disabled={generating}
-                    />
+                    >
+                      <option value="2pc">2pc (Qameez + Shalwar)</option>
+                      <option value="3pc">3pc (Qameez + Shalwar + Dupatta)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Total barcodes per size will be divided by {suitType === "2pc" ? 2 : 3} to get sticker count
+                    </p>
                   </div>
                 </div>
               </div>

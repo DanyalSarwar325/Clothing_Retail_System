@@ -59,6 +59,8 @@ interface ProductItem {
   departmentHistory: DepartmentScan[];
   createdAt: string;
   scannedAt?: string;
+  sequenceNumber?: number;
+  totalUnitsInBatch?: number;
 }
 
 interface Unit {
@@ -474,7 +476,14 @@ export default function AdminDashboard() {
                                       className="border rounded-lg p-3"
                                     >
                                       <div className="flex items-center justify-between mb-2">
-                                        <span className="font-medium">{item.item}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium">{item.item}</span>
+                                          {item.sequenceNumber && item.totalUnitsInBatch && (
+                                            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">
+                                              {item.sequenceNumber}/{item.totalUnitsInBatch}
+                                            </span>
+                                          )}
+                                        </div>
                                         <span
                                           className={`px-2 py-0.5 rounded text-xs text-white ${getDepartmentColor(
                                             item.currentDepartment

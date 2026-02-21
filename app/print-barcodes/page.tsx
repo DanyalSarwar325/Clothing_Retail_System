@@ -378,10 +378,10 @@ export default function PrintBarcodesPage() {
                                 className="w-20 h-20 mx-auto"
                               />
                               <p className="text-xs font-medium text-gray-700 mt-1">
-                                {barcode.suitType} | {barcode.size}
+                                {barcode.item} | {barcode.size}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`} - {barcode.item}
+                                {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`}
                               </p>
                             </div>
                           ))}

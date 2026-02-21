@@ -68,7 +68,7 @@ export default function PrintPreviewPage() {
             <div className="barcode-info text-center mb-0.5">
               <p className="barcode-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]">{barcode.design}</p>
               <p className="text-[7px] text-gray-600">
-                {barcode.suitType} | {barcode.size}
+                {barcode.item} | {barcode.size}
               </p>
               <p className="text-[7px] font-semibold text-blue-600">
                 {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`}

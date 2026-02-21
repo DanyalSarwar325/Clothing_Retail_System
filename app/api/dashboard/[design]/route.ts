@@ -44,6 +44,8 @@ export async function GET(
         departmentHistory: barcode.departmentHistory || [],
         createdAt: barcode.createdAt,
         scannedAt: barcode.scannedAt,
+        sequenceNumber: barcode.sequenceNumber,
+        totalUnitsInBatch: barcode.totalUnitsInBatch,
       });
     });
 

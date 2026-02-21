@@ -25,16 +25,16 @@ const SUIT_ITEMS: Record<string, string[]> = {
   "3pc": ["Qameez", "Shalwar", "Dupatta"],
 };
 
-interface SuitQuantity {
-  "1pc": number;
-  "2pc": number;
-  "3pc": number;
+interface ItemQuantity {
+  Qameez: number;
+  Shalwar: number;
+  Dupatta: number;
 }
 
 interface SizeQuantities {
-  S: SuitQuantity;
-  M: SuitQuantity;
-  L: SuitQuantity;
+  S: ItemQuantity;
+  M: ItemQuantity;
+  L: ItemQuantity;
 }
 
 interface ItemRate {
@@ -52,9 +52,9 @@ interface DepartmentRate {
 export default function AdminBarcodeGenerator() {
   const [design, setDesign] = useState("");
   const [quantities, setQuantities] = useState<SizeQuantities>({
-    S: { "1pc": 0, "2pc": 0, "3pc": 0 },
-    M: { "1pc": 0, "2pc": 0, "3pc": 0 },
-    L: { "1pc": 0, "2pc": 0, "3pc": 0 },
+    S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    M: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
   });
   
   // Item-based rates for all departments (except Packing and Store)
@@ -76,28 +76,28 @@ export default function AdminBarcodeGenerator() {
 
   const updateQuantity = (
     size: keyof SizeQuantities,
-    suitType: keyof SuitQuantity,
+    item: keyof ItemQuantity,
     delta: number
   ) => {
     setQuantities((prev) => ({
       ...prev,
       [size]: {
         ...prev[size],
-        [suitType]: Math.max(0, prev[size][suitType] + delta),
+        [item]: Math.max(0, prev[size][item] + delta),
       },
     }));
   };
 
   const setQuantityValue = (
     size: keyof SizeQuantities,
-    suitType: keyof SuitQuantity,
+    item: keyof ItemQuantity,
     value: number
   ) => {
     setQuantities((prev) => ({
       ...prev,
       [size]: {
         ...prev[size],
-        [suitType]: Math.max(0, value),
+        [item]: Math.max(0, value),
       },
     }));
   };
@@ -114,37 +114,35 @@ export default function AdminBarcodeGenerator() {
 
   // Get which items are needed based on quantities
   const getRequiredItems = (): string[] => {
-    const has1pc = SIZES.some((s) => quantities[s]["1pc"] > 0);
-    const has2pc = SIZES.some((s) => quantities[s]["2pc"] > 0);
-    const has3pc = SIZES.some((s) => quantities[s]["3pc"] > 0);
-
-    const items = new Set<string>();
-    if (has1pc || has2pc || has3pc) items.add("Qameez");
-    if (has2pc || has3pc) items.add("Shalwar");
-    if (has3pc) items.add("Dupatta");
-
-    return Array.from(items);
+    const items: string[] = [];
+    for (const item of ITEMS) {
+      if (SIZES.some((s) => quantities[s][item] > 0)) {
+        items.push(item);
+      }
+    }
+    return items;
   };
 
   // Calculate totals
   const getTotalBarcodes = () => {
     let total = 0;
     for (const size of SIZES) {
-      for (const suitType of SUIT_TYPES) {
-        const qty = quantities[size][suitType];
-        const itemCount = suitType === "1pc" ? 1 : suitType === "2pc" ? 2 : 3;
-        total += qty * itemCount;
+      for (const item of ITEMS) {
+        total += quantities[size][item];
       }
     }
     return total;
   };
 
   const getTotalUnits = () => {
+    return getTotalBarcodes();
+  };
+
+  // Get total count for a specific item across all sizes
+  const getItemTotal = (item: typeof ITEMS[number]) => {
     let total = 0;
     for (const size of SIZES) {
-      for (const suitType of SUIT_TYPES) {
-        total += quantities[size][suitType];
-      }
+      total += quantities[size][item];
     }
     return total;
   };
@@ -194,48 +192,54 @@ export default function AdminBarcodeGenerator() {
         }
       }
 
-      // Generate barcode data for each size and suit type
+      // Generate barcode data per item type with per-item sequence numbering
       const barcodesToSave: any[] = [];
       
-      // Calculate total individual barcodes for X/Y display
-      const totalPieces = getTotalBarcodes();
-      let globalSequence = 0; // For unique barcode data & X/Y display only
+      // Map item to suitType for backward compatibility
+      const ITEM_TO_SUIT_TYPE: Record<string, string> = {
+        Qameez: "1pc",
+        Shalwar: "2pc",
+        Dupatta: "3pc",
+      };
       
-      for (const size of SIZES) {
-        for (const suitType of SUIT_TYPES) {
-          const qty = quantities[size][suitType];
+      // For each item type, generate barcodes with per-item sequence numbering
+      // e.g., 10 Small Qameez + 3 Medium Qameez + 4 Large Qameez = 17 total Qameez
+      // Sequence: 1/17, 2/17, ..., 17/17 (across all sizes for that item)
+      for (const item of ITEMS) {
+        const totalForItem = getItemTotal(item);
+        if (totalForItem === 0) continue;
+        
+        let itemSequence = 0;
+        
+        for (const size of SIZES) {
+          const qty = quantities[size][item];
           if (qty === 0) continue;
-
-          const items = SUIT_ITEMS[suitType];
           
-          // unitNumber is per size+suitType: each complete suit is a unit
-          // e.g. Large 3pc qty=3 → unit 1, 2, 3 (each with Qameez, Shalwar, Dupatta)
           for (let unit = 1; unit <= qty; unit++) {
-            for (const item of items) {
-              globalSequence++;
-              // Barcode payload does NOT include unitNumber (not printed on QR)
-              const payload = { design, size, suitType, item, seq: globalSequence, totalItems: totalPieces };
-              const barcodeDataStr = JSON.stringify(payload);
-              
-              barcodesToSave.push({
-                design: design,
-                size: size,
-                suitType: suitType,
-                item: item,
-                unitNumber: unit, // Per size+suitType unit (for final sticker grouping)
-                sequenceNumber: globalSequence, // Global 1/N sequential display number
-                totalUnitsInBatch: totalPieces,
-                barcodeData: barcodeDataStr,
-                status: "generated",
-                currentDepartment: "Admin",
-                departmentHistory: [{
-                  department: "Admin",
-                  scannedAt: new Date().toISOString(),
-                  scannedBy: "Admin",
-                }],
-                departmentRates: rates,
-              });
-            }
+            itemSequence++;
+            const suitType = ITEM_TO_SUIT_TYPE[item];
+            // QR payload includes size so it's printed on the QR code
+            const payload = { design, size, item, seq: itemSequence, totalItems: totalForItem };
+            const barcodeDataStr = JSON.stringify(payload);
+            
+            barcodesToSave.push({
+              design: design,
+              size: size,
+              suitType: suitType,
+              item: item,
+              unitNumber: unit,
+              sequenceNumber: itemSequence, // Per-item sequential number
+              totalUnitsInBatch: totalForItem, // Total for this item type
+              barcodeData: barcodeDataStr,
+              status: "generated",
+              currentDepartment: "Admin",
+              departmentHistory: [{
+                department: "Admin",
+                scannedAt: new Date().toISOString(),
+                scannedBy: "Admin",
+              }],
+              departmentRates: rates,
+            });
           }
         }
       }
@@ -256,9 +260,9 @@ export default function AdminBarcodeGenerator() {
         // Reset form after successful save
         setDesign("");
         setQuantities({
-          S: { "1pc": 0, "2pc": 0, "3pc": 0 },
-          M: { "1pc": 0, "2pc": 0, "3pc": 0 },
-          L: { "1pc": 0, "2pc": 0, "3pc": 0 },
+          S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          M: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+          L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
         });
         setItemRates({
           Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
@@ -312,9 +316,9 @@ export default function AdminBarcodeGenerator() {
             <thead>
               <tr className="bg-gray-50">
                 <th className="border px-4 py-2 text-left text-sm font-medium text-gray-600">Size</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">1pc Suit</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">2pc Suit</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">3pc Suit</th>
+                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Qameez</th>
+                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Shalwar</th>
+                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Dupatta</th>
                 <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Total</th>
               </tr>
             </thead>
@@ -324,11 +328,11 @@ export default function AdminBarcodeGenerator() {
                   <td className="border px-4 py-3 font-medium text-gray-900">
                     {SIZE_LABELS[size]}
                   </td>
-                  {SUIT_TYPES.map((suitType) => (
-                    <td key={suitType} className="border px-2 py-2">
+                  {ITEMS.map((item) => (
+                    <td key={item} className="border px-2 py-2">
                       <div className="flex items-center justify-center gap-1">
                         <button
-                          onClick={() => updateQuantity(size, suitType, -1)}
+                          onClick={() => updateQuantity(size, item, -1)}
                           className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded"
                         >
                           <Minus size={14} />
@@ -336,14 +340,14 @@ export default function AdminBarcodeGenerator() {
                         <input
                           type="number"
                           min="0"
-                          value={quantities[size][suitType]}
+                          value={quantities[size][item]}
                           onChange={(e) =>
-                            setQuantityValue(size, suitType, parseInt(e.target.value) || 0)
+                            setQuantityValue(size, item, parseInt(e.target.value) || 0)
                           }
                           className="w-14 text-center border rounded px-1 py-1 text-sm"
                         />
                         <button
-                          onClick={() => updateQuantity(size, suitType, 1)}
+                          onClick={() => updateQuantity(size, item, 1)}
                           className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded"
                         >
                           <Plus size={14} />
@@ -352,7 +356,7 @@ export default function AdminBarcodeGenerator() {
                     </td>
                   ))}
                   <td className="border px-4 py-2 text-center font-semibold text-gray-700">
-                    {quantities[size]["1pc"] + quantities[size]["2pc"] + quantities[size]["3pc"]}
+                    {quantities[size]["Qameez"] + quantities[size]["Shalwar"] + quantities[size]["Dupatta"]}
                   </td>
                 </tr>
               ))}
@@ -436,24 +440,19 @@ export default function AdminBarcodeGenerator() {
         <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
           <h3 className="text-sm font-semibold text-blue-800 mb-3">Preview Summary</h3>
           <div className="space-y-2 text-sm text-blue-700">
-            {SIZES.map((size) => {
-              const sizeTotal = SUIT_TYPES.reduce((sum, st) => {
-                const qty = quantities[size][st];
-                const items = st === "1pc" ? 1 : st === "2pc" ? 2 : 3;
-                return sum + qty * items;
-              }, 0);
-              if (sizeTotal === 0) return null;
+            {ITEMS.map((item) => {
+              const itemTotal = getItemTotal(item);
+              if (itemTotal === 0) return null;
               return (
-                <div key={size}>
-                  <strong>{SIZE_LABELS[size]}:</strong>
+                <div key={item}>
+                  <strong>{item}:</strong> {itemTotal} pieces (Sequence: 1/{itemTotal} → {itemTotal}/{itemTotal})
                   <ul className="ml-4">
-                    {SUIT_TYPES.map((st) => {
-                      const qty = quantities[size][st];
+                    {SIZES.map((size) => {
+                      const qty = quantities[size][item];
                       if (qty === 0) return null;
-                      const items = st === "1pc" ? 1 : st === "2pc" ? 2 : 3;
                       return (
-                        <li key={st}>
-                          • {qty} × {st} = {qty * items} barcodes
+                        <li key={size}>
+                          • {SIZE_LABELS[size]}: {qty}
                         </li>
                       );
                     })}
@@ -462,7 +461,7 @@ export default function AdminBarcodeGenerator() {
               );
             })}
             <div className="pt-2 border-t border-blue-300 font-bold">
-              Total: {getTotalUnits()} units = {getTotalBarcodes()} barcodes
+              Total: {getTotalBarcodes()} barcodes
             </div>
           </div>
         </div>

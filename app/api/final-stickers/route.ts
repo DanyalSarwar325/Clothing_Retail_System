@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     await DbConnect();
 
     const body = await request.json();
-    const { design, prices, departmentRates } = body;
+    const { design, sellingPrice, suitType, departmentRates } = body;
 
     if (!design) {
       return NextResponse.json(
@@ -46,9 +46,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!prices || (prices["1pc"] <= 0 && prices["2pc"] <= 0 && prices["3pc"] <= 0)) {
+    if (!sellingPrice || sellingPrice <= 0) {
       return NextResponse.json(
-        { success: false, message: "At least one selling price is required" },
+        { success: false, message: "Selling price is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!suitType || !["2pc", "3pc"].includes(suitType)) {
+      return NextResponse.json(
+        { success: false, message: "Suit type must be 2pc or 3pc" },
         { status: 400 }
       );
     }
@@ -70,74 +77,77 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get all unique combinations from existing barcodes for this design
-    // Group by design, size, suitType, and unitNumber to find all unique suits
-    const suitCombinations = await Barcode.aggregate([
+    // Get total barcodes per size for this design
+    const sizeGroups = await Barcode.aggregate([
       { $match: { design } },
       {
         $group: {
-          _id: {
-            design: "$design",
-            size: "$size",
-            suitType: "$suitType",
-            unitNumber: "$unitNumber",
-          },
+          _id: "$size",
+          totalBarcodes: { $sum: 1 },
         },
       },
-      {
-        $sort: { "_id.size": 1, "_id.unitNumber": 1 },
-      },
+      { $sort: { _id: 1 } },
     ]);
 
-    if (suitCombinations.length === 0) {
+    if (sizeGroups.length === 0) {
       return NextResponse.json(
         { success: false, message: "No barcodes found for this design" },
         { status: 404 }
       );
     }
 
-    // Generate final stickers for each unique suit with global sequential numbering
-    const totalSuits = suitCombinations.length;
-    const stickersToCreate = suitCombinations.map((combo, index) => {
-      const { design, size, suitType } = combo._id;
-      const globalUnitNumber = index + 1; // Sequential: 1, 2, 3 ... N across all sizes
+    const divisor = suitType === "2pc" ? 2 : 3;
 
-      // Get the selling price for this suit type
-      const sellingPrice = prices[suitType] || 0;
+    // Generate final stickers: for each size, total barcodes / divisor = number of stickers
+    const stickersToCreate: any[] = [];
 
-      // Generate unique barcode data for final sticker
-      const barcodePayload = {
-        type: "final",
-        design,
-        size,
-        suitType,
-        unitNumber: globalUnitNumber,
-        sellingPrice,
-        timestamp: Date.now(),
-      };
+    for (const group of sizeGroups) {
+      const size = group._id; // "S", "M", or "L"
+      const totalBarcodesForSize = group.totalBarcodes;
+      const stickerCount = Math.floor(totalBarcodesForSize / divisor);
 
-      return {
-        design,
-        size,
-        suitType,
-        unitNumber: globalUnitNumber,
-        sellingPrice,
-        departmentRates: [
-          { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
-          { department: "Store", ratePerPiece: departmentRates.Store || 0 },
-        ],
-        barcodeData: JSON.stringify(barcodePayload),
-        status: "generated",
-        currentDepartment: "Press",
-        departmentHistory: [],
-      };
-    });
+      for (let i = 1; i <= stickerCount; i++) {
+        // Generate unique barcode data for final sticker
+        const barcodePayload = {
+          type: "final",
+          design,
+          size,
+          suitType,
+          unitNumber: i,
+          sellingPrice,
+          timestamp: Date.now() + stickersToCreate.length, // ensure uniqueness
+        };
+
+        stickersToCreate.push({
+          design,
+          size,
+          suitType,
+          unitNumber: i,
+          sellingPrice,
+          departmentRates: [
+            { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
+            { department: "Store", ratePerPiece: departmentRates.Store || 0 },
+          ],
+          barcodeData: JSON.stringify(barcodePayload),
+          status: "generated",
+          currentDepartment: "Press",
+          departmentHistory: [],
+        });
+      }
+    }
+
+    if (stickersToCreate.length === 0) {
+      return NextResponse.json(
+        { success: false, message: `Not enough barcodes per size to create ${suitType} stickers. Need at least ${divisor} barcodes per size.` },
+        { status: 400 }
+      );
+    }
 
     const createdStickers = await FinalSticker.insertMany(stickersToCreate);
 
     return NextResponse.json({
       success: true,
-      message: `Generated ${createdStickers.length} final stickers for design "${design}"`,
+      message: `Generated ${createdStickers.length} final stickers for design "${design}" (${suitType})`,
       stickers: createdStickers,
       count: createdStickers.length,
     });

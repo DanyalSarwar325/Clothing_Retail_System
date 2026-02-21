@@ -102,30 +102,13 @@ function PrintFinalStickersContent() {
     );
   }
 
-  // Group stickers by size and suit type
-  const groupedStickers = {
-    Small: {
-      "1pc": stickers.filter((s) => s.size === "Small" && s.suitType === "1pc"),
-      "2pc": stickers.filter((s) => s.size === "Small" && s.suitType === "2pc"),
-      "3pc": stickers.filter((s) => s.size === "Small" && s.suitType === "3pc"),
-    },
-    Medium: {
-      "1pc": stickers.filter((s) => s.size === "Medium" && s.suitType === "1pc"),
-      "2pc": stickers.filter((s) => s.size === "Medium" && s.suitType === "2pc"),
-      "3pc": stickers.filter((s) => s.size === "Medium" && s.suitType === "3pc"),
-    },
-    Large: {
-      "1pc": stickers.filter((s) => s.size === "Large" && s.suitType === "1pc"),
-      "2pc": stickers.filter((s) => s.size === "Large" && s.suitType === "2pc"),
-      "3pc": stickers.filter((s) => s.size === "Large" && s.suitType === "3pc"),
-    },
-  };
-
-  const sizeColors = {
-    Small: "text-blue-600",
-    Medium: "text-green-600",
-    Large: "text-purple-600",
-  };
+  // Group stickers by size
+  const groupedStickers: Record<string, FinalStickerData[]> = {};
+  stickers.forEach((s) => {
+    const key = s.size;
+    if (!groupedStickers[key]) groupedStickers[key] = [];
+    groupedStickers[key].push(s);
+  });
 
   return (
     <div className="p-8 print:p-0 bg-white min-h-screen">
@@ -266,7 +249,6 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
   };
 
   const suitItems: Record<string, string> = {
-    "1pc": "Qameez",
     "2pc": "Qameez + Shalwar",
     "3pc": "Qameez + Shalwar + Dupatta",
   };
@@ -281,15 +263,14 @@ function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
         <p className="sticker-design text-[7px] font-bold text-gray-800 truncate max-w-[28mm]" title={sticker.design}>
           {sticker.design}
         </p>
-        <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType]}`}>
+        <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType] || "bg-gray-100 text-gray-800"}`}>
           {sticker.suitType} | {sticker.sizeCode}
         </div>
-        <p className="text-[6px] text-gray-500">
-          {suitItems[sticker.suitType]}
-        </p>
-        <p className="text-[7px] font-bold text-purple-600 bg-purple-50 rounded py-0.5">
-          {sticker.unitNumber}/{sticker.totalStickers}
-        </p>
+        {suitItems[sticker.suitType] && (
+          <p className="text-[6px] text-gray-500">
+            {suitItems[sticker.suitType]}
+          </p>
+        )}
         {sticker.sellingPrice > 0 && (
           <p className="sticker-price text-[8px] font-bold text-green-700 bg-green-100 rounded py-0.5">
             PKR {sticker.sellingPrice.toLocaleString()}
