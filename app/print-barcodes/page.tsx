@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import QRCode from "qrcode";
 import { Printer, RefreshCw, CheckSquare, Square, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import Sidebar from "@/app/components/Sidebar";
@@ -34,7 +34,8 @@ interface BarcodeWithQR extends BarcodeFromDB {
 
 interface DesignGroup {
   design: string;
-  barcodes: BarcodeWithQR[];
+  barcodes: BarcodeFromDB[];
+  previewQRs: BarcodeWithQR[]; // Only first 12 with QR generated
   selected: boolean;
   expanded: boolean;
 }
@@ -46,11 +47,23 @@ export default function PrintBarcodesPage() {
   const [designGroups, setDesignGroups] = useState<DesignGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [generatingQR, setGeneratingQR] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ design: string; barcodeIds: string[] } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Fetch all generated (not yet printed) barcodes
+  // Sort barcodes helper
+  const sortBarcodes = (barcodes: BarcodeFromDB[]) => {
+    return [...barcodes].sort((a, b) => {
+      const sizeOrder = { S: 1, M: 2, L: 3 };
+      const suitOrder = { "1pc": 1, "2pc": 2, "3pc": 3 };
+      const itemOrder: Record<string, number> = { Qameez: 1, Shalwar: 2, Dupatta: 3 };
+      if (sizeOrder[a.size] !== sizeOrder[b.size]) return sizeOrder[a.size] - sizeOrder[b.size];
+      if (suitOrder[a.suitType] !== suitOrder[b.suitType]) return suitOrder[a.suitType] - suitOrder[b.suitType];
+      if (a.unitNumber !== b.unitNumber) return a.unitNumber - b.unitNumber;
+      return (itemOrder[a.item] || 0) - (itemOrder[b.item] || 0);
+    });
+  };
+
+  // Fetch all generated (not yet printed) barcodes — NO QR generation here
   const fetchBarcodes = async () => {
     setLoading(true);
     setError("");
@@ -60,56 +73,41 @@ export default function PrintBarcodesPage() {
 
       if (result.success) {
         const barcodes: BarcodeFromDB[] = result.barcodes;
-        
-        // Generate QR codes for each barcode
-        setGeneratingQR(true);
-        const barcodesWithQR: BarcodeWithQR[] = await Promise.all(
-          barcodes.map(async (barcode) => {
-            const qr = await QRCode.toDataURL(barcode.barcodeData);
-            return { ...barcode, qr };
-          })
-        );
-        setGeneratingQR(false);
 
-        // Group by design
-        const groups: Record<string, BarcodeWithQR[]> = {};
-        barcodesWithQR.forEach((barcode) => {
-          if (!groups[barcode.design]) {
-            groups[barcode.design] = [];
-          }
+        // Group by design (no QR generation yet)
+        const groups: Record<string, BarcodeFromDB[]> = {};
+        barcodes.forEach((barcode) => {
+          if (!groups[barcode.design]) groups[barcode.design] = [];
           groups[barcode.design].push(barcode);
         });
 
-        // Convert to array and sort by createdAt (newest first)
-        const groupArray: DesignGroup[] = Object.entries(groups)
-          .map(([design, barcodes]) => ({
+        // Convert to array, sort, generate QR only for first 12 preview items
+        const groupArray: DesignGroup[] = [];
+        for (const [design, rawBarcodes] of Object.entries(groups)) {
+          const sorted = sortBarcodes(rawBarcodes);
+          // Generate QR only for the first 12 (preview)
+          const previewSlice = sorted.slice(0, 12);
+          const previewQRs: BarcodeWithQR[] = await Promise.all(
+            previewSlice.map(async (barcode) => {
+              const qr = await QRCode.toDataURL(barcode.barcodeData);
+              return { ...barcode, qr };
+            })
+          );
+          groupArray.push({
             design,
-            barcodes: barcodes.sort((a, b) => {
-              // Sort by size, then suitType, then unitNumber, then item
-              const sizeOrder = { S: 1, M: 2, L: 3 };
-              const suitOrder = { "1pc": 1, "2pc": 2, "3pc": 3 };
-              const itemOrder: Record<string, number> = { Qameez: 1, Shalwar: 2, Dupatta: 3 };
-              
-              if (sizeOrder[a.size] !== sizeOrder[b.size]) {
-                return sizeOrder[a.size] - sizeOrder[b.size];
-              }
-              if (suitOrder[a.suitType] !== suitOrder[b.suitType]) {
-                return suitOrder[a.suitType] - suitOrder[b.suitType];
-              }
-              if (a.unitNumber !== b.unitNumber) {
-                return a.unitNumber - b.unitNumber;
-              }
-              return (itemOrder[a.item] || 0) - (itemOrder[b.item] || 0);
-            }),
+            barcodes: sorted,
+            previewQRs,
             selected: false,
             expanded: false,
-          }))
-          .sort((a, b) => {
-            // Sort by newest created barcode in each group
-            const aDate = new Date(a.barcodes[0]?.createdAt || 0).getTime();
-            const bDate = new Date(b.barcodes[0]?.createdAt || 0).getTime();
-            return bDate - aDate;
           });
+        }
+
+        // Sort groups by newest
+        groupArray.sort((a, b) => {
+          const aDate = new Date(a.barcodes[0]?.createdAt || 0).getTime();
+          const bDate = new Date(b.barcodes[0]?.createdAt || 0).getTime();
+          return bDate - aDate;
+        });
 
         setDesignGroups(groupArray);
       } else {
@@ -184,26 +182,48 @@ export default function PrintBarcodesPage() {
     setDesignGroups((prev) => prev.map((group) => ({ ...group, selected: false })));
   };
 
-  // Get all selected barcodes
-  const getSelectedBarcodes = (): BarcodeWithQR[] => {
+  // Get all selected barcodes (raw, no QR)
+  const getSelectedBarcodes = (): BarcodeFromDB[] => {
     return designGroups
       .filter((group) => group.selected)
       .flatMap((group) => group.barcodes);
   };
 
-  // Print selected barcodes
-  const printSelected = () => {
+  // Print selected barcodes — generate QR only at print time
+  const [preparingPrint, setPreparingPrint] = useState(false);
+  const printSelected = async () => {
     const selectedBarcodes = getSelectedBarcodes();
     if (selectedBarcodes.length === 0) {
       alert("Please select at least one design to print");
       return;
     }
 
-    // Store selected barcodes in sessionStorage for the print page
-    sessionStorage.setItem("printBarcodes", JSON.stringify(selectedBarcodes));
-    
-    // Open print preview in new window
-    window.open("/print-barcodes/preview", "_blank");
+    setPreparingPrint(true);
+    try {
+      // Generate QR codes only now, in batches to avoid blocking UI
+      const BATCH_SIZE = 50;
+      const withQR: BarcodeWithQR[] = [];
+      for (let i = 0; i < selectedBarcodes.length; i += BATCH_SIZE) {
+        const batch = selectedBarcodes.slice(i, i + BATCH_SIZE);
+        const batchWithQR = await Promise.all(
+          batch.map(async (barcode) => {
+            const qr = await QRCode.toDataURL(barcode.barcodeData);
+            return { ...barcode, qr };
+          })
+        );
+        withQR.push(...batchWithQR);
+      }
+
+      // Store selected barcodes in sessionStorage for the print page
+      sessionStorage.setItem("printBarcodes", JSON.stringify(withQR));
+
+      // Open print preview in new window
+      window.open("/print-barcodes/preview", "_blank");
+    } catch (err) {
+      alert("Failed to prepare barcodes for printing");
+    } finally {
+      setPreparingPrint(false);
+    }
   };
 
   if (authLoading) {
@@ -260,13 +280,18 @@ export default function PrintBarcodesPage() {
             </div>
           )}
 
-          {loading || generatingQR ? (
+          {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">
-                  {generatingQR ? "Generating QR codes..." : "Loading barcodes..."}
-                </p>
+                <p className="text-gray-600">Loading barcodes...</p>
+              </div>
+            </div>
+          ) : preparingPrint ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Preparing barcodes for print...</p>
               </div>
             </div>
           ) : designGroups.length === 0 ? (
@@ -301,15 +326,24 @@ export default function PrintBarcodesPage() {
                   </div>
                   <button
                     onClick={printSelected}
-                    disabled={selectedCount === 0}
+                    disabled={selectedCount === 0 || preparingPrint}
                     className={`flex items-center gap-2 px-6 py-2 rounded-lg font-semibold transition ${
-                      selectedCount === 0
+                      selectedCount === 0 || preparingPrint
                         ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                         : "bg-green-600 text-white hover:bg-green-700"
                     }`}
                   >
-                    <Printer size={18} />
-                    Print Selected ({totalSelectedBarcodes})
+                    {preparingPrint ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500"></div>
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <Printer size={18} />
+                        Print Selected ({totalSelectedBarcodes})
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -367,7 +401,7 @@ export default function PrintBarcodesPage() {
                     {group.expanded && (
                       <div className="border-t p-4 bg-gray-50">
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                          {group.barcodes.slice(0, 12).map((barcode) => (
+                          {group.previewQRs.map((barcode) => (
                             <div
                               key={barcode._id}
                               className="bg-white rounded-lg p-2 border text-center"

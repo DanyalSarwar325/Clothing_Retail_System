@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Scissors, Plus, Minus, DollarSign, Check, Loader2 } from "lucide-react";
+import { Scissors, DollarSign, Check, Loader2 } from "lucide-react";
 
 // Departments that have item-based rates (all except Packing and Store)
 // Packing and Store rates are set when generating final stickers
@@ -330,28 +330,17 @@ export default function AdminBarcodeGenerator() {
                   </td>
                   {ITEMS.map((item) => (
                     <td key={item} className="border px-2 py-2">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => updateQuantity(size, item, -1)}
-                          className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded"
-                        >
-                          <Minus size={14} />
-                        </button>
+                      <div className="flex items-center justify-center">
                         <input
                           type="number"
                           min="0"
-                          value={quantities[size][item]}
+                          value={quantities[size][item] || ""}
                           onChange={(e) =>
                             setQuantityValue(size, item, parseInt(e.target.value) || 0)
                           }
-                          className="w-14 text-center border rounded px-1 py-1 text-sm"
+                          placeholder=""
+                          className="w-16 text-center border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
-                        <button
-                          onClick={() => updateQuantity(size, item, 1)}
-                          className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded"
-                        >
-                          <Plus size={14} />
-                        </button>
                       </div>
                     </td>
                   ))}

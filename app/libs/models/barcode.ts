@@ -206,6 +206,7 @@ const BarcodeSchema = new Schema<IBarcode>({
 // Create compound index for quick lookups
 BarcodeSchema.index({ design: 1, size: 1, suitType: 1, item: 1, unitNumber: 1 });
 BarcodeSchema.index({ barcodeData: 1 });
+BarcodeSchema.index({ status: 1 }); // For filtering by status (generated, scanned, etc.)
 BarcodeSchema.index({ currentDepartment: 1 });
 BarcodeSchema.index({ design: 1 }); // For fetching rates by design
 
