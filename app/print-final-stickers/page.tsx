@@ -162,11 +162,9 @@ function PrintFinalStickersContent() {
           .print\\:hidden {
             display: none !important;
           }
-          .sticker-card:not(:last-child) {
-            page-break-after: always;
-          }
           .sticker-card {
             page-break-inside: avoid;
+            /* No page-break-after, so stickers print continuously */
             page-break-before: auto;
             padding: 0.5mm !important;
             margin: 0 0 0 3mm !important;
