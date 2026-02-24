@@ -150,7 +150,7 @@ function PrintFinalStickersContent() {
         @media print {
           @page {
             size: 50mm 25mm;
-            margin: 0.5mm;
+            margin: 0;
           }
           body {
             margin: 0 !important;
@@ -164,21 +164,20 @@ function PrintFinalStickersContent() {
           }
           .sticker-card {
             page-break-inside: avoid;
-            /* No page-break-after, so stickers print continuously */
             page-break-before: auto;
-            padding: 0.5mm !important;
-            margin: 0 0 0 3mm !important;
+            padding: 0 !important;
+            margin: 0 !important;
             border: none !important;
-            width: 49mm;
-            height: 24mm;
-            max-height: 24mm;
+            width: 50mm;
+            height: 25mm;
+            max-height: 25mm;
             overflow: hidden;
             box-sizing: border-box;
             display: flex;
             flex-direction: row;
             align-items: center;
             justify-content: center;
-            gap: 1mm;
+            gap: 0;
           }
           .sticker-card .sticker-header {
             font-size: 4pt !important;
