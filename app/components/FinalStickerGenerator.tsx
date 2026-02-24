@@ -396,8 +396,12 @@ export function PrintFinalStickers({ design }: { design: string }) {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .sticker-card {
+          .sticker-card:not(:last-child) {
             page-break-after: always;
+          }
+          .sticker-card {
+            page-break-inside: avoid;
+            margin-left: 3mm !important;
           }
         }
       `}</style>

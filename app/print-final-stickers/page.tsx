@@ -162,12 +162,14 @@ function PrintFinalStickersContent() {
           .print\\:hidden {
             display: none !important;
           }
-          .sticker-card {
+          .sticker-card:not(:last-child) {
             page-break-after: always;
+          }
+          .sticker-card {
             page-break-inside: avoid;
             page-break-before: auto;
             padding: 0.5mm !important;
-            margin: 0 !important;
+            margin: 0 0 0 3mm !important;
             border: none !important;
             width: 49mm;
             height: 24mm;
