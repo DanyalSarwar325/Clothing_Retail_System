@@ -7,7 +7,7 @@ const JWT_SECRET = new TextEncoder().encode(
 );
 
 // Public routes that don't require authentication
-const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/seed"];
+const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/seed", "/api/shopify/order-created"];
 
 // Role-based access configuration
 const ROLE_ROUTES: Record<string, string[]> = {
