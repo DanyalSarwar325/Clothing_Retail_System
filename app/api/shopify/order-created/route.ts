@@ -13,16 +13,32 @@ function withCORS(response: NextResponse) {
 export async function POST(req: NextRequest) {
   try {
     await DbConnect();
-    const body = await req.json();
+
+    // Try to parse body as JSON; if that fails, try as text
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      const text = await req.text();
+      console.log("Raw body received:", text);
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { rawText: text };
+      }
+    }
+
     // Save the order data to MongoDB
     await ShopifyOrder.create({
       receivedAt: new Date().toISOString(),
       orderData: body,
     });
+
+    console.log("Shopify order saved successfully");
     return withCORS(NextResponse.json({ success: true }));
-  } catch (e) {
-    console.error("Shopify order-created POST error:", e);
-    return withCORS(NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 }));
+  } catch (e: any) {
+    console.error("Shopify order-created POST error:", e?.message || e);
+    return withCORS(NextResponse.json({ success: false, error: e?.message || "Server error" }, { status: 500 }));
   }
 }
 
