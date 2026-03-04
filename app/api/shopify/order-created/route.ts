@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import DbConnect from "@/app/libs/dbConnect";
 import ShopifyOrder from "@/app/libs/models/shopifyOrder";
 
+// Disable caching for this route
+export const dynamic = "force-dynamic";
+
 // Helper to add CORS headers
 function withCORS(response: NextResponse) {
   response.headers.set("Access-Control-Allow-Origin", "*");
