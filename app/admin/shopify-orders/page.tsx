@@ -34,7 +34,7 @@ export default function ShopifyOrdersPage() {
               <li key={idx} style={{ marginBottom: 24, border: "1px solid #ccc", borderRadius: 8, padding: 16 }}>
                 <div><b>Received At:</b> {order.receivedAt}</div>
                 <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", background: "#f8f8f8", padding: 8, borderRadius: 4 }}>
-                  {JSON.stringify(order, null, 2)}
+                  {JSON.stringify(order.orderData || order, null, 2)}
                 </pre>
               </li>
             ))}

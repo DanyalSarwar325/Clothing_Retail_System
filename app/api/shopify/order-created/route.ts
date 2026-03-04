@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// In-memory store for received orders (for demo; use DB in production)
-let orders: any[] = [];
+import DbConnect from "@/app/libs/dbConnect";
+import ShopifyOrder from "@/app/libs/models/shopifyOrder";
 
 // Helper to add CORS headers
 function withCORS(response: NextResponse) {
@@ -13,20 +12,30 @@ function withCORS(response: NextResponse) {
 
 export async function POST(req: NextRequest) {
   try {
+    await DbConnect();
     const body = await req.json();
-    // Save the order data (prepend for latest first)
-    orders.unshift({ receivedAt: new Date().toISOString(), ...body });
-    // Limit to last 20 orders
-    if (orders.length > 20) orders = orders.slice(0, 20);
+    // Save the order data to MongoDB
+    await ShopifyOrder.create({
+      receivedAt: new Date().toISOString(),
+      orderData: body,
+    });
     return withCORS(NextResponse.json({ success: true }));
   } catch (e) {
+    console.error("Shopify order-created POST error:", e);
     return withCORS(NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 }));
   }
 }
 
-// For demo: allow GET to fetch latest orders (not for production)
+// Fetch latest orders from MongoDB
 export async function GET() {
-  return withCORS(NextResponse.json({ orders }));
+  try {
+    await DbConnect();
+    const orders = await ShopifyOrder.find().sort({ createdAt: -1 }).limit(20).lean();
+    return withCORS(NextResponse.json({ orders }));
+  } catch (e) {
+    console.error("Shopify order-created GET error:", e);
+    return withCORS(NextResponse.json({ orders: [] }));
+  }
 }
 
 // Handle preflight OPTIONS request for CORS
