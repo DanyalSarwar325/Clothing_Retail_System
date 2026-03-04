@@ -41,6 +41,7 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/raw-materials",
     "/revenue",
     "/outpass",
+    "/admin/shopify-orders",
   ],
   cutting: ["/cutting"],
   sewing: ["/sewing"],

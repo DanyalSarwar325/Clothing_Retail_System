@@ -97,12 +97,23 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
+
         {user.role === "admin" && (
           <Link href="/reports" onClick={closeSidebar}>
             <SidebarItem
               icon={<FileText size={18} />}
               label="Reports"
               active={pathname === "/reports"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/admin/shopify-orders" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<FileText size={18} />}
+              label="Shopify Orders"
+              active={pathname === "/admin/shopify-orders"}
             />
           </Link>
         )}
