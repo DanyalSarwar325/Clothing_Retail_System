@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import DbConnect from "@/app/libs/dbConnect";
 import ShopifyOrder from "@/app/libs/models/shopifyOrder";
 
@@ -13,35 +14,76 @@ function withCORS(response: NextResponse) {
   return response;
 }
 
+// Verify Shopify HMAC signature
+function verifyShopifyHmac(rawBody: string, hmacHeader: string | null): boolean {
+  const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
+  if (!secret) {
+    console.warn("SHOPIFY_WEBHOOK_SECRET not set — skipping HMAC verification");
+    return true; // Allow in dev if secret not configured
+  }
+  if (!hmacHeader) return false;
+  const computed = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody, "utf8")
+    .digest("base64");
+  return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hmacHeader));
+}
+
 export async function POST(req: NextRequest) {
   try {
-    await DbConnect();
+    // Read raw body for HMAC verification
+    const rawBody = await req.text();
+    const hmacHeader = req.headers.get("x-shopify-hmac-sha256");
 
-    // Try to parse body as JSON; if that fails, try as text
-    let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      const text = await req.text();
-      console.log("Raw body received:", text);
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = { rawText: text };
-      }
+    // Verify webhook authenticity
+    if (!verifyShopifyHmac(rawBody, hmacHeader)) {
+      console.error("Shopify webhook HMAC verification failed");
+      return withCORS(NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }));
     }
 
-    // Save the order data to MongoDB
-    await ShopifyOrder.create({
-      receivedAt: new Date().toISOString(),
-      orderData: body,
-    });
+    // Parse body
+    let body: any;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      console.error("Failed to parse Shopify webhook body");
+      return withCORS(NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 }));
+    }
 
-    console.log("Shopify order saved successfully");
+    // Extract the Shopify order ID for deduplication
+    const shopifyOrderId = body.id;
+    if (!shopifyOrderId) {
+      console.error("No order ID found in webhook payload");
+      return withCORS(NextResponse.json({ success: false, error: "Missing order ID" }, { status: 400 }));
+    }
+
+    await DbConnect();
+
+    // Upsert: only insert if this order ID doesn't already exist
+    const result = await ShopifyOrder.findOneAndUpdate(
+      { shopifyOrderId },
+      {
+        $setOnInsert: {
+          shopifyOrderId,
+          receivedAt: new Date().toISOString(),
+          orderData: body,
+        },
+      },
+      { upsert: true, new: true, rawResult: true }
+    );
+
+    if (result.lastErrorObject?.updatedExisting) {
+      console.log(`Shopify order ${shopifyOrderId} already exists — skipped duplicate`);
+    } else {
+      console.log(`Shopify order ${shopifyOrderId} saved successfully`);
+    }
+
+    // Always return 200 quickly so Shopify doesn't retry
     return withCORS(NextResponse.json({ success: true }));
   } catch (e: any) {
     console.error("Shopify order-created POST error:", e?.message || e);
-    return withCORS(NextResponse.json({ success: false, error: e?.message || "Server error" }, { status: 500 }));
+    // Still return 200 to prevent Shopify retries even on internal errors
+    return withCORS(NextResponse.json({ success: true }));
   }
 }
 

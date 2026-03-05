@@ -22,7 +22,7 @@ export default function ShopifyOrdersPage() {
     // Poll every 3 seconds for new orders
     const interval = setInterval(() => {
       fetchOrders().then((o) => setOrders(o));
-    }, 3000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, []);
