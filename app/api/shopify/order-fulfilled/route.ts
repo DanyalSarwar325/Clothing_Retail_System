@@ -143,3 +143,32 @@ function formatAddress(addr: any): string {
 export async function OPTIONS() {
   return withCORS(new NextResponse(null, { status: 204 }));
 }
+
+// Delete a specific fulfillment by ID
+export async function DELETE(req: NextRequest) {
+  try {
+    console.log("=== DELETE FULFILLMENT REQUEST ===");
+    const url = new URL(req.url);
+    const fulfillmentId = url.searchParams.get("id");
+    
+    if (!fulfillmentId) {
+      return withCORS(NextResponse.json({ success: false, error: "Fulfillment ID required" }, { status: 400 }));
+    }
+
+    console.log("Attempting to delete fulfillment with _id:", fulfillmentId);
+    await DbConnect();
+    
+    const deletedFulfillment = await ShopifyFulfillment.findByIdAndDelete(fulfillmentId);
+    
+    if (!deletedFulfillment) {
+      console.log("Fulfillment not found for deletion:", fulfillmentId);
+      return withCORS(NextResponse.json({ success: false, error: "Fulfillment not found" }, { status: 404 }));
+    }
+
+    console.log("Fulfillment deleted successfully:", fulfillmentId);
+    return withCORS(NextResponse.json({ success: true, message: "Fulfillment deleted successfully" }));
+  } catch (e: any) {
+    console.error("Delete fulfillment error:", e?.message || e);
+    return withCORS(NextResponse.json({ success: false, error: e?.message }, { status: 500 }));
+  }
+}

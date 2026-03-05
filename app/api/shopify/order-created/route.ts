@@ -150,3 +150,32 @@ function formatAddress(addr: any): string {
 export async function OPTIONS() {
   return withCORS(new NextResponse(null, { status: 204 }));
 }
+
+// Delete a specific order by ID
+export async function DELETE(req: NextRequest) {
+  try {
+    console.log("=== DELETE ORDER REQUEST ===");
+    const url = new URL(req.url);
+    const orderId = url.searchParams.get("id");
+    
+    if (!orderId) {
+      return withCORS(NextResponse.json({ success: false, error: "Order ID required" }, { status: 400 }));
+    }
+
+    console.log("Attempting to delete order with _id:", orderId);
+    await DbConnect();
+    
+    const deletedOrder = await ShopifyOrder.findByIdAndDelete(orderId);
+    
+    if (!deletedOrder) {
+      console.log("Order not found for deletion:", orderId);
+      return withCORS(NextResponse.json({ success: false, error: "Order not found" }, { status: 404 }));
+    }
+
+    console.log("Order deleted successfully:", orderId);
+    return withCORS(NextResponse.json({ success: true, message: "Order deleted successfully" }));
+  } catch (e: any) {
+    console.error("Delete order error:", e?.message || e);
+    return withCORS(NextResponse.json({ success: false, error: e?.message }, { status: 500 }));
+  }
+}

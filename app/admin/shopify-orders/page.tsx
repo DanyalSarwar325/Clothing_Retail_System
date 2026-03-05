@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
-import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck } from "lucide-react";
+import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2 } from "lucide-react";
 
 type OrderTab = "creation" | "fulfillment";
 
@@ -30,6 +30,7 @@ export default function ShopifyOrdersPage() {
   const [loadingFulfillment, setLoadingFulfillment] = useState(true);
   const [refreshingCreation, setRefreshingCreation] = useState(false);
   const [refreshingFulfillment, setRefreshingFulfillment] = useState(false);
+  const [deletingOrders, setDeletingOrders] = useState<Set<string>>(new Set());
 
   const fetchCreationOrders = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshingCreation(true);
@@ -58,6 +59,44 @@ export default function ShopifyOrdersPage() {
     } finally {
       setLoadingFulfillment(false);
       setRefreshingFulfillment(false);
+    }
+  }, []);
+
+  const deleteOrder = useCallback(async (orderId: string, type: OrderTab) => {
+    if (!confirm("Are you sure you want to delete this order?")) return;
+    
+    setDeletingOrders(prev => new Set(prev.add(orderId)));
+    
+    try {
+      const endpoint = type === "creation" ? "/api/shopify/order-created" : "/api/shopify/order-fulfilled";
+      const res = await fetch(`${endpoint}?id=${orderId}`, {
+        method: "DELETE",
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        // Remove from local state
+        if (type === "creation") {
+          setCreationOrders(prev => prev.filter(o => o._id !== orderId));
+        } else {
+          setFulfillmentOrders(prev => prev.filter(o => o._id !== orderId));
+        }
+        
+        // Show success feedback (you can replace with toast notification)
+        alert("Order deleted successfully!");
+      } else {
+        throw new Error(data.error || "Failed to delete order");
+      }
+    } catch (e: any) {
+      console.error("Delete error:", e);
+      alert(`Failed to delete order: ${e.message}`);
+    } finally {
+      setDeletingOrders(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(orderId);
+        return newSet;
+      });
     }
   }, []);
 
@@ -169,7 +208,13 @@ export default function ShopifyOrdersPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {orders.map((order) => (
-                <OrderCard key={order._id} order={order} type={activeTab} />
+                <OrderCard 
+                  key={order._id} 
+                  order={order} 
+                  type={activeTab}
+                  onDelete={deleteOrder}
+                  isDeleting={deletingOrders.has(order._id)}
+                />
               ))}
             </div>
           )}
@@ -179,7 +224,17 @@ export default function ShopifyOrdersPage() {
   );
 }
 
-function OrderCard({ order, type }: { order: ParsedOrder; type: OrderTab }) {
+function OrderCard({ 
+  order, 
+  type,
+  onDelete,
+  isDeleting 
+}: { 
+  order: ParsedOrder; 
+  type: OrderTab;
+  onDelete: (orderId: string, type: OrderTab) => Promise<void>;
+  isDeleting: boolean;
+}) {
   const statusColor =
     type === "fulfillment"
       ? "bg-green-100 text-green-700"
@@ -200,9 +255,23 @@ function OrderCard({ order, type }: { order: ParsedOrder; type: OrderTab }) {
           <Hash size={14} className="text-gray-400" />
           <span className="font-semibold text-gray-900">{order.orderName}</span>
         </div>
-        <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${statusColor}`}>
-          {statusLabel}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${statusColor}`}>
+            {statusLabel}
+          </span>
+          <button
+            onClick={() => onDelete(order._id, type)}
+            disabled={isDeleting}
+            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete order"
+          >
+            {isDeleting ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Card Body */}
