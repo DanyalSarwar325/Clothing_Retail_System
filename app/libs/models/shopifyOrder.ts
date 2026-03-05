@@ -9,8 +9,6 @@ const ShopifyOrderSchema = new Schema(
   { timestamps: true }
 );
 
-ShopifyOrderSchema.index({ shopifyOrderId: 1 }, { unique: true });
-
 const ShopifyOrder =
   mongoose.models.ShopifyOrder ||
   mongoose.model("ShopifyOrder", ShopifyOrderSchema);
