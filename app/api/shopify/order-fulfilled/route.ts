@@ -43,10 +43,40 @@ export async function POST(req: NextRequest) {
     let body: any;
     try {
       body = JSON.parse(rawBody);
-      console.log("Parsed body keys:", Object.keys(body));
-      console.log("Body.order_id:", body.order_id);
-      console.log("Body.id:", body.id);
-      console.log("Body sample:", JSON.stringify(body, null, 2).substring(0, 1000));
+      console.log("\n=== COMPLETE SHOPIFY FULFILLMENT DATA ===");
+      console.log("📦 FULL OBJECT STRUCTURE:");
+      console.log(JSON.stringify(body, null, 2));
+      console.log("\n📝 FIELDS ANALYSIS:");
+      console.log("- Available top-level keys:", Object.keys(body));
+      console.log("- Data type:", typeof body);
+      console.log("- Object entries count:", Object.keys(body).length);
+      
+      // Log specific commonly used fields if they exist
+      if (body.id) console.log("- Fulfillment ID:", body.id);
+      if (body.order_id) console.log("- Order ID:", body.order_id);
+      if (body.status) console.log("- Status:", body.status);
+      if (body.tracking_number) console.log("- Tracking Number:", body.tracking_number);
+      if (body.tracking_company) console.log("- Tracking Company:", body.tracking_company);
+      if (body.created_at) console.log("- Created At:", body.created_at);
+      if (body.updated_at) console.log("- Updated At:", body.updated_at);
+      if (body.line_items) console.log("- Line Items Count:", body.line_items?.length);
+      if (body.receipt) console.log("- Receipt Data:", body.receipt);
+      if (body.service) console.log("- Service:", body.service);
+      
+      // Log nested objects structure
+      Object.keys(body).forEach(key => {
+        const value = body[key];
+        if (typeof value === 'object' && value !== null) {
+          if (Array.isArray(value)) {
+            console.log(`- ${key} (Array):`, `Length: ${value.length}`, value.length > 0 ? `First item keys: ${Object.keys(value[0] || {})}` : 'Empty array');
+          } else {
+            console.log(`- ${key} (Object):`, `Keys: ${Object.keys(value)}`);
+          }
+        } else {
+          console.log(`- ${key}:`, value);
+        }
+      });
+      console.log("=== END SHOPIFY FULFILLMENT DATA ===\n");
     } catch (parseError) {
       console.error("Failed to parse Shopify fulfillment webhook body:", parseError);
       console.error("Raw body that failed to parse:", rawBody);
@@ -65,27 +95,22 @@ export async function POST(req: NextRequest) {
     await DbConnect();
     console.log("Database connected successfully");
 
-    // Check if fulfillment already exists
-    console.log("Checking if fulfillment exists with order ID:", shopifyOrderId);
-    const existingFulfillment = await ShopifyFulfillment.findOne({ shopifyOrderId });
-    
-    if (existingFulfillment) {
-      console.log(`Shopify fulfillment ${shopifyOrderId} already exists — skipped duplicate`);
-      console.log("=== ORDER FULFILLED WEBHOOK COMPLETED (DUPLICATE SKIPPED) ===");
-      return withCORS(NextResponse.json({ success: true, message: "duplicate" }));
-    }
+    // Upsert by order ID so we always keep the latest complete Shopify payload.
+    console.log("Upserting fulfillment with order ID:", shopifyOrderId);
+    const savedFulfillment = await ShopifyFulfillment.findOneAndUpdate(
+      { shopifyOrderId },
+      {
+        shopifyOrderId,
+        receivedAt: new Date().toISOString(),
+        orderData: body,
+        rawPayload: body,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
 
-    // Create new fulfillment
-    console.log("Creating new fulfillment with order ID:", shopifyOrderId);
-    const newFulfillment = await ShopifyFulfillment.create({
-      shopifyOrderId,
-      receivedAt: new Date().toISOString(),
-      orderData: body,
-    });
-
-    console.log("Fulfillment created successfully with _id:", newFulfillment._id);
+    console.log("Fulfillment saved successfully with _id:", savedFulfillment._id);
     console.log("=== ORDER FULFILLED WEBHOOK COMPLETED SUCCESSFULLY ===");
-    return withCORS(NextResponse.json({ success: true, message: "created", fulfillmentId: newFulfillment._id }));
+    return withCORS(NextResponse.json({ success: true, message: "saved", fulfillmentId: savedFulfillment._id }));
   } catch (e: any) {
     console.error("=== ORDER FULFILLED WEBHOOK ERROR ===");
     console.error("Error details:", e?.message || e);

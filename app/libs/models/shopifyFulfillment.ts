@@ -5,6 +5,7 @@ const ShopifyFulfillmentSchema = new Schema(
     shopifyOrderId: { type: Number, required: true, unique: true },
     receivedAt: { type: String, required: true },
     orderData: { type: Schema.Types.Mixed, required: true },
+    rawPayload: { type: Schema.Types.Mixed, required: true },
   },
   { timestamps: true }
 );
