@@ -16,7 +16,8 @@ function withCORS(response: NextResponse) {
  * GET - Retrieve all fulfillment orders with optional filtering
  * Query params:
  * - orderId: filter by specific order ID
- * - status: filter by fulfillment status
+ * - status: filter by payment status (pending, paid, voided, etc.)
+ * - fulfillmentStatus: filter by fulfillment status
  * - startDate: filter by date range (ISO format)
  * - endDate: filter by date range (ISO format)
  * - limit: number of results (default: 50)
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const orderId = url.searchParams.get("orderId");
-    const status = url.searchParams.get("status");
+    const paymentStatus = url.searchParams.get("status");
+    const fulfillmentStatus = url.searchParams.get("fulfillmentStatus");
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100);
@@ -41,8 +43,12 @@ export async function GET(req: NextRequest) {
       filter.orderId = orderId;
     }
 
-    if (status) {
-      filter["fulfillment.status"] = status;
+    if (paymentStatus && paymentStatus !== "all") {
+      filter["payment.status"] = paymentStatus;
+    }
+
+    if (fulfillmentStatus) {
+      filter["fulfillment.status"] = fulfillmentStatus;
     }
 
     if (startDate || endDate) {
