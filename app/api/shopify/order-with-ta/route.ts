@@ -35,13 +35,14 @@ export async function POST(req: NextRequest) {
       return withCORS(NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 }));
     }
 
-    // Extract basic identifiers
-    const orderId = body.order_id || body.id;
-    const orderNumber = body.order_number || body.number;
-    const customerId = body.customer_id || body.customer?.id;
+    // Extract basic identifiers - try multiple possible field names
+    const orderId = body.order_id || body.id || body.shopify_order_id || body.fulfillment?.order_id;
+    const orderNumber = body.order_number || body.number || body.name || body.fulfillment?.order_number;
+    const customerId = body.customer_id || body.customer?.id || body.shopify_customer_id;
+    const fulfillmentId = body.fulfillment_id || body.fulfillment?.id || body.id;
     const webhookId = req.headers.get("x-shopify-webhook-id") || `webhook-${Date.now()}`;
 
-    console.log("Extracted: orderId:", orderId, "orderNumber:", orderNumber, "customerId:", customerId);
+    console.log("Extracted fields:", { orderId, orderNumber, customerId, fulfillmentId });
     
     if (!orderId) {
       console.error("No order ID found in webhook payload");
