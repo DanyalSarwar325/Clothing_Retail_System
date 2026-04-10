@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import DbConnect from "@/app/libs/dbConnect";
 import ShopifyFulfillment from "@/app/libs/models/shopifyFulfillment";
+import FulfillmentOrder from "@/app/libs/models/fulfillmentOrder";
+import { transformShopifyFulfillmentData } from "@/app/libs/utils/transformShopifyData";
 
 export const dynamic = "force-dynamic";
 // Specify runtime for Vercel
@@ -95,8 +97,17 @@ export async function POST(req: NextRequest) {
     await DbConnect();
     console.log("Database connected successfully");
 
-    // Upsert by order ID so we always keep the latest complete Shopify payload.
-    console.log("Upserting fulfillment with order ID:", shopifyOrderId);
+    // Transform Shopify data to structured format
+    console.log("Transforming Shopify fulfillment data...");
+    const transformedData = transformShopifyFulfillmentData(body);
+    console.log("Transformation successful:", {
+      orderId: transformedData.orderId,
+      orderNumber: transformedData.orderNumber,
+      total: transformedData.pricing.total,
+    });
+
+    // Save raw Shopify payload
+    console.log("Upserting raw fulfillment with order ID:", shopifyOrderId);
     const savedFulfillment = await ShopifyFulfillment.findOneAndUpdate(
       { shopifyOrderId },
       {
@@ -107,10 +118,30 @@ export async function POST(req: NextRequest) {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    console.log("Raw fulfillment saved successfully with _id:", savedFulfillment._id);
 
-    console.log("Fulfillment saved successfully with _id:", savedFulfillment._id);
+    // Save structured fulfillment data
+    console.log("Saving transformed fulfillment data with order ID:", transformedData.orderId);
+    const savedStructuredFulfillment = await FulfillmentOrder.findOneAndUpdate(
+      { orderId: transformedData.orderId },
+      {
+        ...transformedData,
+        shopifyOrderId: shopifyOrderId,
+        rawPayload: body,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    console.log("Structured fulfillment saved successfully with _id:", savedStructuredFulfillment._id);
+
     console.log("=== ORDER FULFILLED WEBHOOK COMPLETED SUCCESSFULLY ===");
-    return withCORS(NextResponse.json({ success: true, message: "saved", fulfillmentId: savedFulfillment._id }));
+    return withCORS(
+      NextResponse.json({
+        success: true,
+        message: "saved",
+        fulfillmentId: savedFulfillment._id,
+        structuredFulfillmentId: savedStructuredFulfillment._id,
+      })
+    );
   } catch (e: any) {
     console.error("=== ORDER FULFILLED WEBHOOK ERROR ===");
     console.error("Error details:", e?.message || e);
