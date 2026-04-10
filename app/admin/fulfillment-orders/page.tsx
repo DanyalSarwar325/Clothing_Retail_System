@@ -1,54 +1,70 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
-import { RefreshCw, Package, Eye, Trash2, ExternalLink } from "lucide-react";
+import { RefreshCw, Package, Eye, Trash2, ExternalLink, Link as LinkIcon } from "lucide-react";
 
-interface FulfillmentOrder {
+interface TransformedFulfillment {
   _id: string;
-  shopifyOrderId: string;
-  receivedAt: string;
-  orderName: string;
-  customerName: string;
-  totalPrice: string;
-  currency: string;
-  email: string;
-  phone: string;
-  address: string;
-  fulfillmentStatus: string;
-  trackingNumber: string;
-  trackingCompany: string;
-}
-
-interface RawFulfillment {
-  _id: string;
-  shopifyOrderId: string;
-  receivedAt: string;
-  orderData: any;
+  orderId: string;
+  orderNumber: string;
+  customer: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+  shippingAddress: {
+    city: string;
+    address: string;
+    province?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  product: {
+    name: string;
+    variant: string;
+    sku?: string;
+    quantity: number;
+    price: number;
+  };
+  payment: {
+    method: string;
+    status: string;
+  };
+  fulfillment: {
+    status: string;
+    trackingCompany: string;
+    trackingNumber: string;
+    trackingUrl: string;
+  };
+  pricing: {
+    subtotal: number;
+    tax: number;
+    shipping: number;
+    total: number;
+    currency: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  shopifyOrderId?: string;
+  rawPayload?: any;
 }
 
 export default function AdminFulfillmentPage() {
-  const [fulfillments, setFulfillments] = useState<FulfillmentOrder[]>([]);
-  const [rawFulfillments, setRawFulfillments] = useState<RawFulfillment[]>([]);
+  const [fulfillments, setFulfillments] = useState<TransformedFulfillment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingOrders, setDeletingOrders] = useState<Set<string>>(new Set());
-  const [selectedFulfillment, setSelectedFulfillment] = useState<RawFulfillment | null>(null);
+  const [selectedFulfillment, setSelectedFulfillment] = useState<TransformedFulfillment | null>(null);
   const [showRawData, setShowRawData] = useState(false);
 
   const fetchFulfillments = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const res = await fetch("/api/shopify/order-fulfilled");
+      // Fetch structured fulfillment data from new API
+      const res = await fetch("/api/fulfillments");
       if (!res.ok) return;
       const data = await res.json();
-      setFulfillments(data.orders || []);
-
-      // Fetch raw data for inspection
-      const rawRes = await fetch("/api/shopify/order-fulfilled/get-fulfillments");
-      if (rawRes.ok) {
-        const rawData = await rawRes.json();
-        setRawFulfillments(rawData.fulfillments || []);
-      }
+      setFulfillments(data.data || []);
     } catch (e) {
       console.error("Failed to fetch fulfillments:", e);
     } finally {
@@ -63,7 +79,7 @@ export default function AdminFulfillmentPage() {
     setDeletingOrders(prev => new Set(prev.add(fulfillmentId)));
     
     try {
-      const res = await fetch(`/api/shopify/order-fulfilled?id=${fulfillmentId}`, {
+      const res = await fetch(`/api/fulfillments?id=${fulfillmentId}`, {
         method: "DELETE",
       });
       
@@ -71,7 +87,6 @@ export default function AdminFulfillmentPage() {
       
       if (data.success) {
         setFulfillments(prev => prev.filter(o => o._id !== fulfillmentId));
-        setRawFulfillments(prev => prev.filter(o => o._id !== fulfillmentId));
         alert("Fulfillment deleted successfully!");
       } else {
         throw new Error(data.error || "Failed to delete fulfillment");
@@ -92,9 +107,25 @@ export default function AdminFulfillmentPage() {
     fetchFulfillments();
   }, [fetchFulfillments]);
 
-  const handleViewRawData = (fulfillment: RawFulfillment) => {
+  const handleViewRawData = (fulfillment: TransformedFulfillment) => {
     setSelectedFulfillment(fulfillment);
     setShowRawData(true);
+  };
+
+  const getPaymentStatusColor = (status: string) => {
+    const lowerStatus = status.toLowerCase();
+    if (lowerStatus === "pending") return "bg-yellow-100 text-yellow-800";
+    if (lowerStatus === "paid") return "bg-green-100 text-green-800";
+    if (lowerStatus === "failed") return "bg-red-100 text-red-800";
+    return "bg-gray-100 text-gray-800";
+  };
+
+  const getFulfillmentStatusColor = (status: string) => {
+    const lowerStatus = status.toLowerCase();
+    if (lowerStatus === "fulfilled") return "bg-green-100 text-green-800";
+    if (lowerStatus === "pending") return "bg-yellow-100 text-yellow-800";
+    if (lowerStatus === "cancelled") return "bg-red-100 text-red-800";
+    return "bg-blue-100 text-blue-800";
   };
 
   return (
@@ -149,22 +180,22 @@ export default function AdminFulfillmentPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Order
+                        Order ID
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Customer
+                        Customer Name
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Tracking Number
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Payment Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Fulfillment Status
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Total
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Tracking
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Received
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
@@ -172,79 +203,93 @@ export default function AdminFulfillmentPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {fulfillments.map((fulfillment) => {
-                      const rawFulfillment = rawFulfillments.find(r => r._id === fulfillment._id);
-                      return (
-                        <tr key={fulfillment._id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">
-                                  {fulfillment.orderName}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  ID: {fulfillment.shopifyOrderId}
-                                </div>
+                    {fulfillments.map((fulfillment) => (
+                      <tr key={fulfillment._id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                #{fulfillment.orderNumber}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {fulfillment.orderId}
                               </div>
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{fulfillment.customerName}</div>
-                            <div className="text-sm text-gray-500">{fulfillment.email}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {fulfillment.currency} {fulfillment.totalPrice}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                              {fulfillment.fulfillmentStatus}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {fulfillment.trackingNumber !== "N/A" ? (
-                                <>
-                                  <div>{fulfillment.trackingCompany}</div>
-                                  <div className="text-xs text-gray-500">{fulfillment.trackingNumber}</div>
-                                </>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {fulfillment.customer.name}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {fulfillment.customer.email}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-mono text-gray-900">
+                            {fulfillment.fulfillment.trackingNumber}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {fulfillment.fulfillment.trackingCompany}
+                          </div>
+                          {fulfillment.fulfillment.trackingUrl && (
+                            <a
+                              href={fulfillment.fulfillment.trackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1 text-xs mt-1"
+                            >
+                              <LinkIcon size={12} />
+                              Track
+                            </a>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getPaymentStatusColor(fulfillment.payment.status)}`}>
+                            {fulfillment.payment.status}
+                          </span>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {fulfillment.payment.method}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getFulfillmentStatusColor(fulfillment.fulfillment.status)}`}>
+                            {fulfillment.fulfillment.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {fulfillment.pricing.currency} {fulfillment.pricing.total.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Tax: {fulfillment.pricing.currency} {fulfillment.pricing.tax.toFixed(2)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleViewRawData(fulfillment)}
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="View details"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button
+                              onClick={() => deleteFulfillment(fulfillment._id)}
+                              disabled={deletingOrders.has(fulfillment._id)}
+                              className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                              title="Delete fulfillment"
+                            >
+                              {deletingOrders.has(fulfillment._id) ? (
+                                <RefreshCw size={16} className="animate-spin" />
                               ) : (
-                                "No tracking"
+                                <Trash2 size={16} />
                               )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(fulfillment.receivedAt).toLocaleString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex items-center gap-2">
-                              {rawFulfillment && (
-                                <button
-                                  onClick={() => handleViewRawData(rawFulfillment)}
-                                  className="text-indigo-600 hover:text-indigo-900"
-                                  title="View raw data"
-                                >
-                                  <Eye size={16} />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => deleteFulfillment(fulfillment._id)}
-                                disabled={deletingOrders.has(fulfillment._id)}
-                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
-                                title="Delete fulfillment"
-                              >
-                                {deletingOrders.has(fulfillment._id) ? (
-                                  <RefreshCw size={16} className="animate-spin" />
-                                ) : (
-                                  <Trash2 size={16} />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -253,25 +298,142 @@ export default function AdminFulfillmentPage() {
         </div>
       </div>
 
-      {/* Raw Data Modal */}
+      {/* Details Modal */}
       {showRawData && selectedFulfillment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b bg-gray-50">
               <h3 className="text-lg font-medium text-gray-900">
-                Raw Fulfillment Data - Order #{selectedFulfillment.shopifyOrderId}
+                Fulfillment Details - Order #{selectedFulfillment.orderNumber}
               </h3>
               <button
                 onClick={() => setShowRawData(false)}
-                className="text-gray-400 hover:text-gray-500"
+                className="text-gray-400 hover:text-gray-500 text-2xl"
               >
                 ✕
               </button>
             </div>
-            <div className="p-4 overflow-auto max-h-[60vh]">
-              <pre className="text-xs text-gray-800 bg-gray-50 p-4 rounded overflow-auto">
-                {JSON.stringify(selectedFulfillment.orderData, null, 2)}
-              </pre>
+            <div className="p-6 overflow-auto max-h-[calc(90vh-60px)]">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Order Info */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Order Information</h4>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-500">Order ID:</span> <span className="font-mono">{selectedFulfillment.orderId}</span></div>
+                    <div><span className="text-gray-500">Order Number:</span> <span className="font-medium">#{selectedFulfillment.orderNumber}</span></div>
+                    <div><span className="text-gray-500">Created:</span> <span>{new Date(selectedFulfillment.createdAt).toLocaleString()}</span></div>
+                  </div>
+                </div>
+
+                {/* Customer Info */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Customer Information</h4>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-500">Name:</span> <span className="font-medium">{selectedFulfillment.customer.name}</span></div>
+                    <div><span className="text-gray-500">Email:</span> <span>{selectedFulfillment.customer.email}</span></div>
+                    <div><span className="text-gray-500">Phone:</span> <span>{selectedFulfillment.customer.phone}</span></div>
+                  </div>
+                </div>
+
+                {/* Shipping Address */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Shipping Address</h4>
+                  <div className="space-y-2 text-sm">
+                    <div>{selectedFulfillment.shippingAddress.address}</div>
+                    <div>{selectedFulfillment.shippingAddress.city}, {selectedFulfillment.shippingAddress.province}</div>
+                    <div>{selectedFulfillment.shippingAddress.postalCode}</div>
+                    <div>{selectedFulfillment.shippingAddress.country}</div>
+                  </div>
+                </div>
+
+                {/* Product Info */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Product Information</h4>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-500">Name:</span> <span className="font-medium">{selectedFulfillment.product.name}</span></div>
+                    <div><span className="text-gray-500">Variant:</span> <span>{selectedFulfillment.product.variant}</span></div>
+                    <div><span className="text-gray-500">SKU:</span> <span className="font-mono text-xs">{selectedFulfillment.product.sku || 'N/A'}</span></div>
+                    <div><span className="text-gray-500">Quantity:</span> <span>{selectedFulfillment.product.quantity}</span></div>
+                  </div>
+                </div>
+
+                {/* Payment Info */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Payment Information</h4>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="text-gray-500">Method:</span> <span className="font-medium">{selectedFulfillment.payment.method}</span></div>
+                    <div>
+                      <span className="text-gray-500">Status:</span>
+                      <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getPaymentStatusColor(selectedFulfillment.payment.status)}`}>
+                        {selectedFulfillment.payment.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fulfillment Info */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3">Fulfillment Information</h4>
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="text-gray-500">Status:</span>
+                      <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getFulfillmentStatusColor(selectedFulfillment.fulfillment.status)}`}>
+                        {selectedFulfillment.fulfillment.status}
+                      </span>
+                    </div>
+                    <div><span className="text-gray-500">Tracking Company:</span> <span className="font-medium">{selectedFulfillment.fulfillment.trackingCompany}</span></div>
+                    <div><span className="text-gray-500">Tracking Number:</span> <span className="font-mono">{selectedFulfillment.fulfillment.trackingNumber}</span></div>
+                    {selectedFulfillment.fulfillment.trackingUrl && (
+                      <div>
+                        <a
+                          href={selectedFulfillment.fulfillment.trackingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 hover:text-indigo-900 flex items-center gap-2"
+                        >
+                          <LinkIcon size={14} />
+                          View Tracking
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pricing */}
+                <div className="col-span-2">
+                  <h4 className="font-semibold text-gray-900 mb-3">Pricing Breakdown</h4>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Subtotal:</span>
+                        <span>{selectedFulfillment.pricing.currency} {selectedFulfillment.pricing.subtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Tax:</span>
+                        <span>{selectedFulfillment.pricing.currency} {selectedFulfillment.pricing.tax.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Shipping:</span>
+                        <span>{selectedFulfillment.pricing.currency} {selectedFulfillment.pricing.shipping.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t pt-2">
+                        <span>Total:</span>
+                        <span>{selectedFulfillment.pricing.currency} {selectedFulfillment.pricing.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Raw Payload (if available) */}
+              {selectedFulfillment.rawPayload && (
+                <div className="mt-6 pt-6 border-t">
+                  <h4 className="font-semibold text-gray-900 mb-3">Raw Shopify Payload</h4>
+                  <pre className="text-xs text-gray-800 bg-gray-50 p-4 rounded overflow-auto max-h-64">
+                    {JSON.stringify(selectedFulfillment.rawPayload, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
         </div>
