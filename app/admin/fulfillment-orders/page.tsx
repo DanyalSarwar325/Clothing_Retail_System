@@ -128,7 +128,7 @@ export default function AdminFulfillmentPage() {
     fetchFulfillments(false, paymentStatusFilter);
   }, [fetchFulfillments, paymentStatusFilter]);
 
-  const handleViewRawData = (fulfillment: TransformedFulfillment) => {
+  const handleViewRawData = (fulfillment: TransformedFulfillment | OrderWithTA) => {
     setSelectedFulfillment(fulfillment);
     setShowRawData(true);
   };

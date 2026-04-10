@@ -122,8 +122,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Execute query
+    const sortObj: Record<string, 1 | -1> = {};
+    sortObj[sortBy] = (sortOrder === 1 ? 1 : -1);
+    
     const orders = await OrderWithTA.find(filter)
-      .sort({ [sortBy]: sortOrder })
+      .sort(sortObj)
       .limit(limit)
       .skip(skip)
       .lean();
