@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
 import { RefreshCw, Package, Eye, Trash2, ExternalLink, Link as LinkIcon } from "lucide-react";
 
@@ -51,7 +52,10 @@ interface TransformedFulfillment {
 
 
 
+
+
 export default function AdminFulfillmentPage() {
+  const router = useRouter();
   const [fulfillments, setFulfillments] = useState<TransformedFulfillment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -182,34 +186,42 @@ export default function AdminFulfillmentPage() {
         {/* Filter Section */}
         <div className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Filter by Payment Status:</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleFilterChange("all")}
-                  className={getFilterButtonClass("all")}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => handleFilterChange("pending")}
-                  className={getFilterButtonClass("pending")}
-                >
-                  Pending
-                </button>
-                <button
-                  onClick={() => handleFilterChange("paid")}
-                  className={getFilterButtonClass("paid")}
-                >
-                  Paid
-                </button>
-                <button
-                  onClick={() => handleFilterChange("voided")}
-                  className={getFilterButtonClass("voided")}
-                >
-                  Voided
-                </button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-700">Filter by Payment Status:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleFilterChange("all")}
+                    className={getFilterButtonClass("all")}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => handleFilterChange("pending")}
+                    className={getFilterButtonClass("pending")}
+                  >
+                    Pending
+                  </button>
+                  <button
+                    onClick={() => handleFilterChange("paid")}
+                    className={getFilterButtonClass("paid")}
+                  >
+                    Paid
+                  </button>
+                  <button
+                    onClick={() => handleFilterChange("voided")}
+                    className={getFilterButtonClass("voided")}
+                  >
+                    Voided
+                  </button>
+                </div>
               </div>
+              <button
+                onClick={() => router.push('/invoices')}
+                className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+              >
+                + Add Invoice
+              </button>
             </div>
           </div>
         </div>
@@ -488,6 +500,7 @@ export default function AdminFulfillmentPage() {
           </div>
         </div>
       )}
+
     </ProtectedRoute>
   );
 }

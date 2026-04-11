@@ -40,6 +40,7 @@ const ROLE_ROUTES: Record<string, string[]> = {
       "/api",
       "/admin/shopify-orders",
       "/admin/fulfillment-orders",
+      "/invoices",
     ],
   cutting: ["/cutting", "/orders", "/api"],
   sewing: ["/sewing", "/orders", "/api"],
