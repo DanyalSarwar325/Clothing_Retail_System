@@ -4,9 +4,10 @@ const OrderWithTASchema = new mongoose.Schema(
   {
     shopifyWebhookId: String,
     rawPayload: mongoose.Schema.Types.Mixed,
-    orderId: String,
+    orderId: { type: Number, required: true, unique: true },
     orderNumber: String,
-    customerId: String,
+    customerId: Number,
+    receivedAt: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
     processedAt: Date,
     status: { type: String, default: "received" },

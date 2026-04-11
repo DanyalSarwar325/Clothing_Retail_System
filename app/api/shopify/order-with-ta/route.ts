@@ -15,70 +15,80 @@ function withCORS(response: NextResponse) {
 
 /**
  * POST - Receive order with tracking address (TA) webhook
- * Stores the raw Shopify webhook payload as-is for later visualization
+ * Stores the Shopify webhook payload with tracking address info
  */
 export async function POST(req: NextRequest) {
   try {
     console.log("=== ORDER WITH TRACKING ADDRESS WEBHOOK RECEIVED ===");
     console.log("Headers:", Object.fromEntries(req.headers.entries()));
+    console.log("URL:", req.url);
+    console.log("Method:", req.method);
 
     const rawBody = await req.text();
     console.log("Raw body length:", rawBody.length);
+    console.log("Raw body (first 500 chars):", rawBody.substring(0, 500));
     
     let body: any;
     try {
       body = JSON.parse(rawBody);
-      console.log("\n=== RAW SHOPIFY WEBHOOK DATA ===");
-      console.log(JSON.stringify(body, null, 2));
+      console.log("Parsed body keys:", Object.keys(body));
+      console.log("Body.id:", body.id);
+      console.log("Body sample:", JSON.stringify(body, null, 2).substring(0, 1000));
     } catch (parseError) {
       console.error("Failed to parse webhook body:", parseError);
+      console.error("Raw body that failed to parse:", rawBody);
       return withCORS(NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 }));
     }
 
-    // Extract basic identifiers - try multiple possible field names
-    const orderId = body.order_id || body.id || body.shopify_order_id || body.fulfillment?.order_id;
-    const orderNumber = body.order_number || body.number || body.name || body.fulfillment?.order_number;
-    const customerId = body.customer_id || body.customer?.id || body.shopify_customer_id;
-    const fulfillmentId = body.fulfillment_id || body.fulfillment?.id || body.id;
+    // Extract the Shopify order ID (matches order-created logic)
+    const orderId = body.id;
     const webhookId = req.headers.get("x-shopify-webhook-id") || `webhook-${Date.now()}`;
 
-    console.log("Extracted fields:", { orderId, orderNumber, customerId, fulfillmentId });
+    console.log("Extracted orderId:", orderId);
     
     if (!orderId) {
       console.error("No order ID found in webhook payload");
-      return withCORS(NextResponse.json({ success: false, error: "Missing order ID in payload" }, { status: 400 }));
+      console.error("Available keys in body:", Object.keys(body));
+      return withCORS(NextResponse.json({ success: false, error: "Missing order ID" }, { status: 400 }));
     }
 
     console.log("Connecting to database...");
     await DbConnect();
     console.log("Database connected successfully");
 
-    // Store raw payload as-is
-    console.log("Storing raw order data...");
-    const savedOrder = await OrderWithTA.findOneAndUpdate(
-      { orderId: orderId },
-      {
-        shopifyWebhookId: webhookId,
-        orderId: orderId,
-        orderNumber: orderNumber,
-        customerId: customerId,
-        rawPayload: body,
-        processedAt: new Date(),
-        status: "received",
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    // Check if order already exists (prevent duplicates)
+    console.log("Checking if order exists with ID:", orderId);
+    const existingOrder = await OrderWithTA.findOne({ orderId });
     
-    console.log("Order with TA saved successfully with _id:", savedOrder._id);
+    if (existingOrder) {
+      console.log(`Order ${orderId} already exists — skipped duplicate`);
+      console.log("=== ORDER WITH TRACKING ADDRESS WEBHOOK COMPLETED (DUPLICATE SKIPPED) ===");
+      return withCORS(NextResponse.json({ success: true, message: "duplicate" }));
+    }
+
+    // Create new order with transformed data
+    console.log("Creating new order with ID:", orderId);
+    const newOrder = await OrderWithTA.create({
+      shopifyWebhookId: webhookId,
+      orderId: orderId,
+      orderNumber: body.name || body.order_number || `#${orderId}`,
+      customerId: body.customer?.id,
+      rawPayload: body,
+      receivedAt: new Date().toISOString(),
+      processedAt: new Date(),
+      status: "received",
+    });
+    
+    console.log("Order with TA saved successfully with _id:", newOrder._id);
     console.log("=== ORDER WITH TRACKING ADDRESS WEBHOOK COMPLETED SUCCESSFULLY ===");
 
     return withCORS(
       NextResponse.json({
         success: true,
-        message: "Raw order data stored successfully",
+        message: "created",
         orderId: orderId,
-        orderNumber: orderNumber,
-        dbId: savedOrder._id,
+        orderNumber: newOrder.orderNumber,
+        dbId: newOrder._id,
       })
     );
   } catch (e: any) {
@@ -87,8 +97,8 @@ export async function POST(req: NextRequest) {
     console.error("Stack trace:", e?.stack);
     return withCORS(
       NextResponse.json(
-        { success: false, error: e?.message || "Webhook processing failed" },
-        { status: 500 }
+        { success: true },
+        { status: 200 }
       )
     );
   }
@@ -96,67 +106,56 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET - Retrieve all orders with tracking address data
- * Query params:
- * - orderId: filter by specific order ID
- * - limit: number of results (default: 50, max: 100)
- * - skip: pagination offset (default: 0)
- * - sortBy: field to sort by (default: createdAt)
- * - sortOrder: 1 for ascending, -1 for descending (default: -1)
+ * Returns formatted data similar to order-created route for consistency
  */
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     console.log("=== ORDER WITH TA GET REQUEST ===");
     await DbConnect();
 
-    const url = new URL(req.url);
-    const orderId = url.searchParams.get("orderId");
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100);
-    const skip = parseInt(url.searchParams.get("skip") || "0");
-    const sortBy = url.searchParams.get("sortBy") || "createdAt";
-    const sortOrder = parseInt(url.searchParams.get("sortOrder") || "-1");
+    const rawOrders = await OrderWithTA.find().sort({ createdAt: -1 }).lean();
 
-    // Build filter
-    const filter: any = {};
-    if (orderId) {
-      filter.orderId = orderId;
-    }
+    const orders = rawOrders.map((o: any) => {
+      const d = o.rawPayload || {};
+      const customer = d.customer || {};
+      const shippingAddr = d.shipping_address || {};
+      return {
+        _id: o._id,
+        shopifyOrderId: o.orderId,
+        receivedAt: o.receivedAt,
+        orderName: d.name || d.order_number || `#${o.orderId}`,
+        customerName: shippingAddr.name || `${customer.first_name || ""} ${customer.last_name || ""}`.trim() || "N/A",
+        totalPrice: d.total_price || "0.00",
+        currency: d.currency || "",
+        email: d.email || d.contact_email || customer.email || "N/A",
+        phone: shippingAddr.phone || d.phone || customer.phone || "N/A",
+        address: formatAddress(shippingAddr),
+        financialStatus: d.financial_status || "N/A",
+        fulfillmentStatus: d.fulfillment_status || "unfulfilled",
+        orderData: d,
+      };
+    });
 
-    // Execute query
-    const sortObj: Record<string, 1 | -1> = {};
-    sortObj[sortBy] = (sortOrder === 1 ? 1 : -1);
-    
-    const orders = await OrderWithTA.find(filter)
-      .sort(sortObj)
-      .limit(limit)
-      .skip(skip)
-      .lean();
+    console.log(`Retrieved ${orders.length} orders with TA`);
 
-    const total = await OrderWithTA.countDocuments(filter);
-
-    console.log(`Retrieved ${orders.length} orders with TA (total: ${total})`);
-
-    return withCORS(
-      NextResponse.json({
-        success: true,
-        data: orders,
-        pagination: {
-          total,
-          limit,
-          skip,
-          hasMore: skip + limit < total,
-        },
-      })
-    );
+    return withCORS(NextResponse.json({ orders }));
   } catch (e: any) {
-    console.error("=== ORDER WITH TA GET ERROR ===");
-    console.error("Error:", e?.message || e);
-    return withCORS(
-      NextResponse.json(
-        { success: false, error: e?.message || "Failed to retrieve orders" },
-        { status: 500 }
-      )
-    );
+    console.error("Order with TA GET error:", e);
+    return withCORS(NextResponse.json({ orders: [] }));
   }
+}
+
+function formatAddress(addr: any): string {
+  if (!addr) return "N/A";
+  const parts = [
+    addr.address1,
+    addr.address2,
+    addr.city,
+    addr.province,
+    addr.zip,
+    addr.country,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "N/A";
 }
 
 export async function OPTIONS() {
