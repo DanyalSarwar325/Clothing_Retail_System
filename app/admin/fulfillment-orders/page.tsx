@@ -63,6 +63,7 @@ export default function AdminFulfillmentPage() {
   const [selectedFulfillment, setSelectedFulfillment] = useState<TransformedFulfillment | null>(null);
   const [showRawData, setShowRawData] = useState(false);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<"details" | "raw-json">("details");
 
   const fetchFulfillments = useCallback(async (showRefresh = false, status: string = "all") => {
     if (showRefresh) setRefreshing(true);
@@ -384,8 +385,36 @@ export default function AdminFulfillmentPage() {
                 ✕
               </button>
             </div>
-            <div className="p-6 overflow-auto max-h-[calc(90vh-60px)]">
-              {/* Fulfillment Details */}
+
+            {/* Tab Navigation */}
+            <div className="flex border-b bg-gray-50 px-4">
+              <button
+                onClick={() => setActiveTab("details")}
+                className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+                  activeTab === "details"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Structured Data
+              </button>
+              <button
+                onClick={() => setActiveTab("raw-json")}
+                className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+                  activeTab === "raw-json"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Shopify Raw Response
+              </button>
+            </div>
+
+            {/* Content */}
+            {/* Content */}
+            <div className="p-6 overflow-auto max-h-[calc(90vh-120px)]">
+              {/* STRUCTURED DATA TAB */}
+              {activeTab === "details" && (
               <div className="grid grid-cols-2 gap-6">
                 {/* Order Info */}
                 <div>
@@ -496,6 +525,47 @@ export default function AdminFulfillmentPage() {
                   </div>
                 </div>
               </div>
+              )}
+
+              {/* RAW JSON TAB */}
+              {activeTab === "raw-json" && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-blue-900 mb-2">Raw Shopify Webhook Response</h4>
+                    <p className="text-sm text-blue-800 mb-4">
+                      This is the complete JSON payload received from Shopify. Use this to debug data structure issues.
+                    </p>
+                  </div>
+
+                  {selectedFulfillment.rawPayload ? (
+                    <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                      <pre className="text-gray-100 font-mono text-xs whitespace-pre-wrap break-words max-h-96 overflow-auto">
+                        {JSON.stringify(selectedFulfillment.rawPayload, null, 2)}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <p className="text-sm text-yellow-800">
+                        ⚠️ Raw payload not available. This order may have been created before the logging feature was added.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Copy Button */}
+                  {selectedFulfillment.rawPayload && (
+                    <button
+                      onClick={() => {
+                        const text = JSON.stringify(selectedFulfillment.rawPayload, null, 2);
+                        navigator.clipboard.writeText(text);
+                        alert("Raw JSON copied to clipboard!");
+                      }}
+                      className="w-full px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      Copy JSON to Clipboard
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
