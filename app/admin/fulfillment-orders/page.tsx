@@ -76,6 +76,15 @@ export default function AdminFulfillmentPage() {
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
+      console.log("📦 Fetched fulfillments:", data);
+      if (data.data && data.data.length > 0) {
+        console.log("🔍 First fulfillment tracking:", {
+          orderNumber: data.data[0].orderNumber,
+          trackingNumber: data.data[0].fulfillment?.trackingNumber,
+          trackingCompany: data.data[0].fulfillment?.trackingCompany,
+          trackingUrl: data.data[0].fulfillment?.trackingUrl,
+        });
+      }
       setFulfillments(data.data || []);
     } catch (e) {
       console.error("Failed to fetch fulfillments:", e);

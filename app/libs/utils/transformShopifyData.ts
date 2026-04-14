@@ -53,10 +53,34 @@ export function transformShopifyFulfillmentData(
   shopifyData: any
 ): TransformedFulfillment {
   console.log("Starting transformation of Shopify data...");
+  console.log("🔍 Checking webhook data structure...");
+  console.log("- Has order property:", !!shopifyData.order);
+  console.log("- Has fulfillment property:", !!shopifyData.fulfillment);
+  console.log("- Has fulfillments array:", Array.isArray(shopifyData.fulfillments));
+  if (Array.isArray(shopifyData.fulfillments)) {
+    console.log("- Fulfillments array length:", shopifyData.fulfillments.length);
+  }
 
   // Extract order information
   const order = shopifyData.order || shopifyData;
-  const fulfillment = shopifyData.fulfillment || shopifyData;
+  
+  // Extract fulfillment data - handle multiple sources
+  // Priority: webhookData.fulfillment > webhookData.fulfillments[0] > webhookData
+  let fulfillment = shopifyData.fulfillment || {};
+  
+  if ((!fulfillment || Object.keys(fulfillment).length === 0) && 
+      Array.isArray(shopifyData.fulfillments) && 
+      shopifyData.fulfillments.length > 0) {
+    console.log("📦 Extracting fulfillment from fulfillments array (index 0)");
+    fulfillment = shopifyData.fulfillments[0];
+  }
+  
+  // Final fallback to webhookData itself
+  if (!fulfillment || Object.keys(fulfillment).length === 0) {
+    console.log("⚠️ No dedicated fulfillment object found, using order data");
+    fulfillment = shopifyData;
+  }
+  
   const lineItems = order.line_items || [];
   const firstLineItem = lineItems[0] || {};
 
@@ -123,7 +147,15 @@ export function transformShopifyFulfillmentData(
   // Normalize company name
   trackingCompany = String(trackingCompany).trim() || "Unknown";
   
-  const trackingUrl = trackingInfo.url || "";
+  // Try multiple sources for tracking URL (in order of preference)
+  let trackingUrl = "";
+  if (fulfillment.tracking_url) {
+    trackingUrl = fulfillment.tracking_url;
+  } else if (trackingInfo.url) {
+    trackingUrl = trackingInfo.url;
+  } else if (fulfillment.tracking_urls && Array.isArray(fulfillment.tracking_urls) && fulfillment.tracking_urls.length > 0) {
+    trackingUrl = fulfillment.tracking_urls[0];
+  }
 
   // Build tracking URL if not provided
   let finalTrackingUrl = trackingUrl;

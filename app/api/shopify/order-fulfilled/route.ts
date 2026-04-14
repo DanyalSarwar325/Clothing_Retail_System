@@ -72,7 +72,22 @@ export async function POST(req: NextRequest) {
           url: body.tracking_info.url
         });
       }
-      if (!body.tracking_number && !body.tracking_company && (!body.tracking_numbers || body.tracking_numbers.length === 0)) {
+      
+      // Check in fulfillments array
+      if (Array.isArray(body.fulfillments) && body.fulfillments.length > 0) {
+        console.log(`\n  📦 Found ${body.fulfillments.length} fulfillment(s) in array:`);
+        body.fulfillments.forEach((f: any, idx: number) => {
+          console.log(`  [${idx}] Fulfillment ID: ${f.id}`);
+          console.log(`      - tracking_number: ${f.tracking_number || "N/A"}`);
+          console.log(`      - tracking_company: ${f.tracking_company || "N/A"}`);
+          console.log(`      - tracking_numbers: ${JSON.stringify(f.tracking_numbers) || "N/A"}`);
+          console.log(`      - tracking_url: ${f.tracking_url || "N/A"}`);
+          console.log(`      - status: ${f.status || "N/A"}`);
+        });
+      }
+      
+      if (!body.tracking_number && !body.tracking_company && (!body.tracking_numbers || body.tracking_numbers.length === 0) &&
+          (!Array.isArray(body.fulfillments) || body.fulfillments.length === 0 || !body.fulfillments[0].tracking_number)) {
         console.log("  ⚠️ WARNING: No tracking data found in any expected field!");
       }
       
@@ -122,6 +137,11 @@ export async function POST(req: NextRequest) {
       orderNumber: transformedData.orderNumber,
       total: transformedData.pricing.total,
     });
+    console.log("📊 TRACKING DATA IN TRANSFORMED OBJECT:", {
+      trackingNumber: transformedData.fulfillment.trackingNumber,
+      trackingCompany: transformedData.fulfillment.trackingCompany,
+      trackingUrl: transformedData.fulfillment.trackingUrl,
+    });
 
     // Save raw Shopify payload
     console.log("Upserting raw fulfillment with order ID:", shopifyOrderId);
@@ -149,6 +169,11 @@ export async function POST(req: NextRequest) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     console.log("Structured fulfillment saved successfully with _id:", savedStructuredFulfillment._id);
+    console.log("💾 SAVED FULFILLMENT TRACKING DATA:", {
+      trackingNumber: savedStructuredFulfillment.fulfillment?.trackingNumber,
+      trackingCompany: savedStructuredFulfillment.fulfillment?.trackingCompany,
+      trackingUrl: savedStructuredFulfillment.fulfillment?.trackingUrl,
+    });
 
     console.log("=== ORDER FULFILLED WEBHOOK COMPLETED SUCCESSFULLY ===");
     return withCORS(
@@ -167,13 +192,52 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await DbConnect();
-    const fulfillments = await ShopifyFulfillment.find().sort({ createdAt: -1 }).lean();
+    
+    // Get pagination parameters
+    const url = new URL(req.url);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "25"), 100);
+    const skip = parseInt(url.searchParams.get("skip") || "0");
+    
+    // Get total count and paginated records
+    const [fulfillments, total] = await Promise.all([
+      ShopifyFulfillment.find()
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .skip(skip)
+        .lean(),
+      ShopifyFulfillment.countDocuments(),
+    ]);
 
     const orders = fulfillments.map((f: any) => {
       const d = f.orderData || {};
+      
+      // Extract tracking from fulfillments array if available
+      let trackingNumber = "N/A";
+      let trackingCompany = "N/A";
+      
+      // Priority: direct properties > fulfillments array > fallback
+      if (d.tracking_number) {
+        trackingNumber = d.tracking_number;
+      } else if (d.tracking_numbers && Array.isArray(d.tracking_numbers) && d.tracking_numbers.length > 0) {
+        trackingNumber = d.tracking_numbers[0];
+      } else if (Array.isArray(d.fulfillments) && d.fulfillments.length > 0) {
+        const firstFulfillment = d.fulfillments[0];
+        if (firstFulfillment.tracking_number) {
+          trackingNumber = firstFulfillment.tracking_number;
+        } else if (firstFulfillment.tracking_numbers && Array.isArray(firstFulfillment.tracking_numbers) && firstFulfillment.tracking_numbers.length > 0) {
+          trackingNumber = firstFulfillment.tracking_numbers[0];
+        }
+        trackingCompany = firstFulfillment.tracking_company || "N/A";
+      }
+      
+      // If still no company, check direct property
+      if (trackingCompany === "N/A" && d.tracking_company) {
+        trackingCompany = d.tracking_company;
+      }
+      
       return {
         _id: f._id,
         shopifyOrderId: f.shopifyOrderId,
@@ -188,15 +252,15 @@ export async function GET() {
         phone: d.destination?.phone || d.shipping_address?.phone || d.customer?.phone || d.order?.phone || "N/A",
         address: formatAddress(d.destination || d.shipping_address || d.order?.shipping_address),
         fulfillmentStatus: d.status || d.shipment_status || "fulfilled",
-        trackingNumber: d.tracking_number || (d.tracking_numbers && d.tracking_numbers[0]) || "N/A",
-        trackingCompany: d.tracking_company || "N/A",
+        trackingNumber,
+        trackingCompany,
       };
     });
 
-    return withCORS(NextResponse.json({ orders }));
+    return withCORS(NextResponse.json({ orders, total }));
   } catch (e) {
     console.error("Shopify order-fulfilled GET error:", e);
-    return withCORS(NextResponse.json({ orders: [] }));
+    return withCORS(NextResponse.json({ orders: [], total: 0 }));
   }
 }
 
