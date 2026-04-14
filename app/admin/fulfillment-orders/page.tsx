@@ -539,7 +539,7 @@ export default function AdminFulfillmentPage() {
 
                   {selectedFulfillment.rawPayload ? (
                     <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
-                      <pre className="text-gray-100 font-mono text-xs whitespace-pre-wrap break-words max-h-96 overflow-auto">
+                      <pre className="text-gray-100 font-mono text-xs whitespace-pre-wrap max-h-96 overflow-auto">
                         {JSON.stringify(selectedFulfillment.rawPayload, null, 2)}
                       </pre>
                     </div>

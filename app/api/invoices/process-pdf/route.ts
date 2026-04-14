@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         const pdfParse = require('pdf-parse');
         const pdfData = await pdfParse(fileBuffer);
         extractedText = pdfData.text;
-        parseSuccess = extractedText && extractedText.length > 0;
+        parseSuccess = !!(extractedText && extractedText.length > 0);
         console.log('PDF parse success (pdf-parse):', parseSuccess);
       } catch (err) {
         console.log('pdf-parse failed, trying alternative...');
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         }
         
         extractedText = text;
-        parseSuccess = extractedText && extractedText.length > 0;
+        parseSuccess = !!(extractedText && extractedText.length > 0);
         console.log('PDF parse success (pdfjs-dist):', parseSuccess);
       } catch (err) {
         console.log('pdfjs-dist failed:', err);
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
           .replace(/[^\x20-\x7E\n\r]/g, ' ')
           .trim();
         
-        parseSuccess = extractedText && extractedText.length > 50;
+        parseSuccess = !!(extractedText && extractedText.length > 50);
         console.log('PDF parse success (raw extraction):', parseSuccess);
       } catch (err) {
         console.log('Raw extraction failed:', err);

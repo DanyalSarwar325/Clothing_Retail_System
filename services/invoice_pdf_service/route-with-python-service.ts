@@ -67,11 +67,16 @@ export async function POST(request: NextRequest) {
 
     let pdfResponse: Response;
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       pdfResponse = await fetch(`${PDF_SERVICE_URL}/extract-tracking-ids`, {
         method: 'POST',
         body: pdfFormData,
-        timeout: 30000, // 30 second timeout
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
     } catch (fetchError: any) {
       console.error('[PDF Processing] Failed to connect to PDF service:', fetchError.message);
       return NextResponse.json(
