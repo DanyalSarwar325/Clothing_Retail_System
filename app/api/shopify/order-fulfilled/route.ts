@@ -57,8 +57,25 @@ export async function POST(req: NextRequest) {
       if (body.id) console.log("- Fulfillment ID:", body.id);
       if (body.order_id) console.log("- Order ID:", body.order_id);
       if (body.status) console.log("- Status:", body.status);
-      if (body.tracking_number) console.log("- Tracking Number:", body.tracking_number);
-      if (body.tracking_company) console.log("- Tracking Company:", body.tracking_company);
+      
+      // Enhanced tracking information logging
+      console.log("\n📍 TRACKING INFORMATION ANALYSIS:");
+      if (body.tracking_number) console.log("  ✓ tracking_number:", body.tracking_number);
+      if (body.tracking_company) console.log("  ✓ tracking_company:", body.tracking_company);
+      if (body.tracking_numbers && body.tracking_numbers.length > 0) {
+        console.log("  ✓ tracking_numbers array:", body.tracking_numbers);
+      }
+      if (body.tracking_info) {
+        console.log("  ✓ tracking_info object:", {
+          number: body.tracking_info.number,
+          company: body.tracking_info.company,
+          url: body.tracking_info.url
+        });
+      }
+      if (!body.tracking_number && !body.tracking_company && (!body.tracking_numbers || body.tracking_numbers.length === 0)) {
+        console.log("  ⚠️ WARNING: No tracking data found in any expected field!");
+      }
+      
       if (body.created_at) console.log("- Created At:", body.created_at);
       if (body.updated_at) console.log("- Updated At:", body.updated_at);
       if (body.line_items) console.log("- Line Items Count:", body.line_items?.length);

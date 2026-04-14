@@ -94,30 +94,64 @@ export function transformShopifyFulfillmentData(
   }
 
   // Extract fulfillment information
+  // Shopify provides tracking data in multiple possible locations
   const trackingInfo = fulfillment.tracking_info || {};
-  const trackingNumber =
-    fulfillment.tracking_number ||
-    trackingInfo.number ||
-    (fulfillment.tracking_numbers && fulfillment.tracking_numbers[0]) ||
-    "";
-  const trackingCompany =
-    fulfillment.tracking_company ||
-    trackingInfo.company ||
-    "N/A";
+  
+  // Try multiple sources for tracking number (in order of preference)
+  let trackingNumber = "";
+  if (fulfillment.tracking_number) {
+    trackingNumber = fulfillment.tracking_number;
+  } else if (trackingInfo.number) {
+    trackingNumber = trackingInfo.number;
+  } else if (fulfillment.tracking_numbers && Array.isArray(fulfillment.tracking_numbers) && fulfillment.tracking_numbers.length > 0) {
+    trackingNumber = fulfillment.tracking_numbers[0];
+  }
+  
+  // Normalize tracking number (remove spaces and special chars if needed)
+  trackingNumber = trackingNumber ? String(trackingNumber).trim() : "";
+
+  // Try multiple sources for tracking company
+  let trackingCompany = "";
+  if (fulfillment.tracking_company) {
+    trackingCompany = fulfillment.tracking_company;
+  } else if (trackingInfo.company) {
+    trackingCompany = trackingInfo.company;
+  } else {
+    trackingCompany = "Unknown";
+  }
+  
+  // Normalize company name
+  trackingCompany = String(trackingCompany).trim() || "Unknown";
+  
   const trackingUrl = trackingInfo.url || "";
 
   // Build tracking URL if not provided
   let finalTrackingUrl = trackingUrl;
   if (!finalTrackingUrl && trackingNumber) {
-    // Create tracking URL based on common carriers
-    if (trackingCompany.toLowerCase().includes("postex")) {
+    // Create tracking URL based on common carriers (Pakistan couriers)
+    const companyLower = trackingCompany.toLowerCase();
+    
+    if (companyLower.includes("postex")) {
       finalTrackingUrl = `https://postex.pk/tracking?cn=${trackingNumber}`;
-    } else if (trackingCompany.toLowerCase().includes("tcs")) {
+    } else if (companyLower.includes("tcs")) {
       finalTrackingUrl = `https://www.tcscourier.com/tracking/`;
-    } else if (trackingCompany.toLowerCase().includes("leopards")) {
+    } else if (companyLower.includes("leopards")) {
       finalTrackingUrl = `https://www.leopardscourier.com/tracking`;
+    } else if (companyLower.includes("sendco") || companyLower.includes("sendcube")) {
+      finalTrackingUrl = `https://sendcube.com/tracking/${trackingNumber}`;
+    } else if (companyLower.includes("service") || companyLower.includes("m_shipping")) {
+      // Generic tracking URL placeholder
+      finalTrackingUrl = `#`; // Will need to add company-specific logic later
     }
   }
+  
+  // Log tracking info for debugging
+  console.log("✅ TRACKING EXTRACTION:", {
+    trackingNumber,
+    trackingCompany,
+    trackingUrl: finalTrackingUrl,
+    fromSource: "Shopify fulfillment webhook"
+  });
 
   // Extract pricing information
   const subtotal = parseNumber(order.subtotal_price);
@@ -200,6 +234,11 @@ export function transformShopifyFulfillmentData(
     orderNumber: transformedData.orderNumber,
     customerName: transformedData.customer.name,
     total: transformedData.pricing.total,
+    tracking: {
+      number: transformedData.fulfillment.trackingNumber || "N/A",
+      company: transformedData.fulfillment.trackingCompany || "N/A",
+      url: transformedData.fulfillment.trackingUrl || "N/A"
+    }
   });
 
   return transformedData;

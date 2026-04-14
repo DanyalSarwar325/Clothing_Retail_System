@@ -298,22 +298,30 @@ export default function AdminFulfillmentPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-mono text-gray-900">
-                            {fulfillment.fulfillment.trackingNumber}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {fulfillment.fulfillment.trackingCompany}
-                          </div>
-                          {fulfillment.fulfillment.trackingUrl && (
-                            <a
-                              href={fulfillment.fulfillment.trackingUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1 text-xs mt-1"
-                            >
-                              <LinkIcon size={12} />
-                              Track
-                            </a>
+                          {fulfillment.fulfillment.trackingNumber ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm font-mono bg-gray-100 px-2 py-1 rounded text-gray-900">
+                                  {fulfillment.fulfillment.trackingNumber}
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-500 font-medium">
+                                {fulfillment.fulfillment.trackingCompany}
+                              </div>
+                              {fulfillment.fulfillment.trackingUrl && fulfillment.fulfillment.trackingUrl !== "#" && (
+                                <a
+                                  href={fulfillment.fulfillment.trackingUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1 text-xs mt-1 font-medium"
+                                >
+                                  <LinkIcon size={12} />
+                                  Track Package
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm italic">No tracking info</span>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -474,27 +482,50 @@ export default function AdminFulfillmentPage() {
 
                 {/* Fulfillment Info */}
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-3">Fulfillment Information</h4>
-                  <div className="space-y-2 text-sm">
+                  <h4 className="font-semibold text-gray-900 mb-3">Fulfillment & Tracking</h4>
+                  <div className="space-y-3 text-sm">
                     <div>
                       <span className="text-gray-500">Status:</span>
                       <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getFulfillmentStatusColor(selectedFulfillment.fulfillment.status)}`}>
                         {selectedFulfillment.fulfillment.status}
                       </span>
                     </div>
-                    <div><span className="text-gray-500">Tracking Company:</span> <span className="font-medium">{selectedFulfillment.fulfillment.trackingCompany}</span></div>
-                    <div><span className="text-gray-500">Tracking Number:</span> <span className="font-mono">{selectedFulfillment.fulfillment.trackingNumber}</span></div>
-                    {selectedFulfillment.fulfillment.trackingUrl && (
-                      <div>
-                        <a
-                          href={selectedFulfillment.fulfillment.trackingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-600 hover:text-indigo-900 flex items-center gap-2"
-                        >
-                          <LinkIcon size={14} />
-                          View Tracking
-                        </a>
+                    
+                    {selectedFulfillment.fulfillment.trackingNumber ? (
+                      <>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <div className="text-gray-700 font-medium mb-2">📍 Tracking Information</div>
+                          <div className="space-y-2">
+                            <div>
+                              <span className="text-gray-600 text-xs uppercase tracking-wider">Tracking Number:</span>
+                              <div className="text-lg font-mono font-bold text-indigo-600 mt-1">
+                                {selectedFulfillment.fulfillment.trackingNumber}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600 text-xs uppercase tracking-wider">Courier:</span>
+                              <div className="text-sm font-medium text-gray-900 mt-1">
+                                {selectedFulfillment.fulfillment.trackingCompany}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {selectedFulfillment.fulfillment.trackingUrl && selectedFulfillment.fulfillment.trackingUrl !== "#" && (
+                          <a
+                            href={selectedFulfillment.fulfillment.trackingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
+                          >
+                            <LinkIcon size={16} />
+                            Track Package
+                          </a>
+                        )}
+                      </>
+                    ) : (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <span className="text-yellow-800 text-sm">⚠️ No tracking information available yet</span>
                       </div>
                     )}
                   </div>
