@@ -1,7 +1,8 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
-import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X } from "lucide-react";
+import Link from "next/link";
+import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X, Upload } from "lucide-react";
 
 type OrderTab = "creation" | "fulfillment";
 
@@ -158,6 +159,14 @@ export default function ShopifyOrdersPage() {
                 <span className="text-sm text-gray-500">
                   {orders.length} order{orders.length !== 1 ? "s" : ""}
                 </span>
+                <Link
+                  href="/invoices/upload"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  title="Upload invoice PDF to update multiple orders"
+                >
+                  <Upload size={16} />
+                  Upload Invoice
+                </Link>
                 <button
                   onClick={handleRefresh}
                   disabled={isRefreshing}

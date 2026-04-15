@@ -48,9 +48,20 @@ app.add_middleware(
 
 
 # Pydantic models
+class TrackingDetail(BaseModel):
+    """Detailed information about a single tracking ID"""
+    id: str
+    sequence: int
+    line_number: int
+    status: str
+    context: str
+    pattern_type: str
+
+
 class TrackingIDResponse(BaseModel):
     success: bool
     tracking_ids: List[str]
+    tracking_details: List[TrackingDetail] = []  # NEW: Detailed info
     tracking_ids_count: int = 0
     extracted_text: str = ""
     text_length: int
@@ -116,6 +127,7 @@ async def extract_tracking_ids(file: UploadFile = File(...)):
         return TrackingIDResponse(
             success=result['success'],
             tracking_ids=result['tracking_ids'],
+            tracking_details=result.get('tracking_details', []),  # NEW: Include detailed info
             tracking_ids_count=len(result['tracking_ids']),
             extracted_text=result['extracted_text'],
             text_length=result['text_length'],

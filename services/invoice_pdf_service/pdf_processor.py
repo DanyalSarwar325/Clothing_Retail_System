@@ -79,6 +79,136 @@ class PDFProcessor:
             return "", False, error_msg
     
     @staticmethod
+    def extract_tracking_ids_with_details(text: str) -> Tuple[List[Dict], Dict]:
+        """
+        Extract tracking IDs with their position and status details.
+        Optimized for PostEx Cash Payment Receipt format.
+        
+        Args:
+            text: Extracted PDF text
+            
+        Returns:
+            Tuple of (tracking_details_list, debug_info)
+            where tracking_details = [{id, line_number, status, context}, ...]
+        """
+        tracking_details = []
+        debug_info = {
+            'pattern_matches': {},
+            'column_extraction': False,
+            'validation_filters': 0,
+            'extraction_methods': []
+        }
+        
+        lines = text.split('\n')
+        tracking_ids_found = {}  # To avoid duplicates while tracking position
+        sequence_number = 0
+        
+        # Build a context window - combine 3 consecutive lines for status detection
+        # This helps capture status info that may be on adjacent lines
+        for i, line in enumerate(lines):
+            trimmed = line.strip()
+            
+            if not trimmed or len(trimmed) < 2:
+                continue
+            
+            # Look for tracking ID pattern (11-14 digits at start of line, with kg weight on next line)
+            # PostEx format: "22101030038062\n0.99 kg"
+            match = re.match(r'^(\d{11,14})\s*$', trimmed)
+            if match:
+                candidate = match.group(1)
+                
+                # Check if next line contains weight (kg) - confirms it's a tracking number
+                next_line = (lines[i + 1].strip() if i + 1 < len(lines) else "").lower()
+                has_weight = 'kg' in next_line
+                
+                if PDFProcessor._is_valid_tracking_id(candidate, has_weight) and candidate not in tracking_ids_found:
+                    sequence_number += 1
+                    
+                    # Build context: current line + next 2 lines for status detection
+                    context_lines = [lines[i].strip()]
+                    if i + 1 < len(lines):
+                        context_lines.append(lines[i + 1].strip())
+                    if i + 2 < len(lines):
+                        context_lines.append(lines[i + 2].strip())
+                    
+                    full_context = ' '.join(context_lines)
+                    
+                    # Detect status from context window
+                    status = PDFProcessor._detect_tracking_status(full_context)
+                    
+                    tracking_ids_found[candidate] = {
+                        'id': candidate,
+                        'sequence': sequence_number,
+                        'line_number': i + 1,
+                        'status': status,
+                        'context': full_context[:100],  # First 100 chars of context
+                        'pattern_type': 'numeric_table',
+                    }
+                    debug_info['extraction_methods'].append(f'numeric_table_line_{i + 1}')
+                    continue
+            
+            # Fallback: Try general numeric patterns if not found as pure numeric
+            numeric_matches = re.findall(r'(\d{11,14})', trimmed)
+            for candidate in numeric_matches:
+                if PDFProcessor._is_valid_tracking_id(candidate, False) and candidate not in tracking_ids_found:
+                    sequence_number += 1
+                    
+                    # Build context for status detection
+                    context_lines = [trimmed]
+                    if i + 1 < len(lines):
+                        context_lines.append(lines[i + 1].strip())
+                    
+                    full_context = ' '.join(context_lines)
+                    status = PDFProcessor._detect_tracking_status(full_context)
+                    
+                    tracking_ids_found[candidate] = {
+                        'id': candidate,
+                        'sequence': sequence_number,
+                        'line_number': i + 1,
+                        'status': status,
+                        'context': full_context[:100],
+                        'pattern_type': 'numeric_fallback',
+                    }
+        
+        # Convert to list and sort by sequence
+        tracking_details = sorted(list(tracking_ids_found.values()), key=lambda x: x['sequence'])
+        
+        return tracking_details, debug_info
+    
+    @staticmethod
+    def _detect_tracking_status(line: str) -> str:
+        """
+        Detect delivery status from line context
+        PostEx format: "Delivered" or "Return" appears with tracking info
+        
+        Args:
+            line: Line of text containing the tracking ID or surrounding context
+            
+        Returns:
+            Status string (Delivered, In Transit, Pending, Failed, Unknown)
+        """
+        line_upper = line.upper()
+        
+        # Check for delivery status keywords (PostEx format)
+        if 'DELIVERED' in line_upper or 'DELIVERY' in line_upper:
+            return 'Delivered'
+        
+        if 'RETURN' in line_upper:
+            return 'Return'
+        
+        # Additional status keywords
+        if any(keyword in line_upper for keyword in ['DELIVERED', 'COMPLETED', 'ARRIVED', 'DONE']):
+            return 'Delivered'
+        elif any(keyword in line_upper for keyword in ['IN TRANSIT', 'SHIPPING', 'DISPATCHED', 'SENT']):
+            return 'In Transit'
+        elif any(keyword in line_upper for keyword in ['PENDING', 'AWAITING', 'PROCESSING', 'PENDING PICKUP']):
+            return 'Pending'
+        elif any(keyword in line_upper for keyword in ['FAILED', 'EXCEPTION', 'LOST']):
+            return 'Failed'
+        else:
+            return 'Unknown'
+    
+    @staticmethod
     def extract_tracking_ids(text: str) -> Tuple[Set[str], List[str], Dict]:
         """
         Extract tracking IDs from text using pattern matching
@@ -104,7 +234,7 @@ class PDFProcessor:
         table_matches = re.finditer(table_row_pattern, text, re.MULTILINE)
         for match in table_matches:
             candidate = match.group(1)
-            if PDFProcessor._is_valid_tracking_id(candidate):
+            if PDFProcessor._is_valid_tracking_id(candidate, has_weight=True):
                 tracking_ids.add(candidate)
                 all_candidates.append(candidate)
                 debug_info['extraction_methods'].append('table_row_pattern')
@@ -146,7 +276,7 @@ class PDFProcessor:
                     # Try to extract numeric tracking numbers (8-15 digits)
                     numeric_matches = re.findall(r'(\d{8,15})', trimmed)
                     for candidate in numeric_matches:
-                        if PDFProcessor._is_valid_tracking_id(candidate):
+                        if PDFProcessor._is_valid_tracking_id(candidate, has_weight=False):
                             tracking_ids.add(candidate)
                             all_candidates.append(candidate)
                             logger.debug(f"Added from column: {candidate}")
@@ -154,7 +284,7 @@ class PDFProcessor:
                     # Also try alphanumeric patterns
                     alphanumeric_matches = re.findall(r'([A-Z0-9\-\.]{8,30})', trimmed.upper())
                     for candidate in alphanumeric_matches:
-                        if PDFProcessor._is_valid_tracking_id(candidate):
+                        if PDFProcessor._is_valid_tracking_id(candidate, has_weight=False):
                             tracking_ids.add(candidate)
                             all_candidates.append(candidate)
                             logger.debug(f"Added alphanumeric from column: {candidate}")
@@ -170,7 +300,7 @@ class PDFProcessor:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
                 candidate = (match.group(1) or match.group(0)).upper().strip()
-                if PDFProcessor._is_valid_tracking_id(candidate):
+                if PDFProcessor._is_valid_tracking_id(candidate, has_weight=False):
                     tracking_ids.add(candidate)
                     all_candidates.append(candidate)
                     pattern_key = f'pattern_{pattern_idx}'
@@ -182,12 +312,13 @@ class PDFProcessor:
         return tracking_ids, all_candidates, debug_info
     
     @staticmethod
-    def _is_valid_tracking_id(candidate: str) -> bool:
+    def _is_valid_tracking_id(candidate: str, has_weight: bool = False) -> bool:
         """
         Validate if a candidate string is a real tracking ID
         
         Args:
             candidate: Candidate string to validate
+            has_weight: Whether the next line contains "kg" (PostEx format confirmation)
             
         Returns:
             True if valid tracking ID, False otherwise
@@ -198,6 +329,13 @@ class PDFProcessor:
         # Length check
         if len(candidate) < 8 or len(candidate) > 30:
             return False
+        
+        # Common false positives - phone numbers typically start with 0-3 and are 10-11 digits
+        # Check if it looks like a Pakistani phone number (0xxx format)
+        if candidate.startswith('0') and len(candidate) == 11 and candidate.isdigit():
+            # If has_weight, it's likely a tracking number (PostEx format)
+            if not has_weight:
+                return False  # Otherwise it's likely a phone number
         
         # Check for false positives - must be exact word match (not substring)
         for fp in PDFProcessor.FALSE_POSITIVES:
@@ -239,6 +377,7 @@ class PDFProcessor:
         result = {
             'success': False,
             'tracking_ids': [],
+            'tracking_details': [],  # NEW: Detailed tracking information
             'extracted_text': '',
             'text_length': 0,
             'error': None,
@@ -261,16 +400,20 @@ class PDFProcessor:
             result['text_length'] = len(text)
             result['debug']['page_count'] = text.count('\n')
             
-            # Extract tracking IDs
-            tracking_ids, candidates, pattern_info = PDFProcessor.extract_tracking_ids(text)
+            # Extract tracking IDs with detailed information
+            tracking_details, pattern_info = PDFProcessor.extract_tracking_ids_with_details(text)
+            
+            # Also get simple list for backward compatibility
+            tracking_ids, candidates, simple_pattern_info = PDFProcessor.extract_tracking_ids(text)
             
             result['tracking_ids'] = sorted(list(tracking_ids))
+            result['tracking_details'] = tracking_details  # NEW: Include detailed info
             result['success'] = len(tracking_ids) > 0
             result['debug']['pattern_analysis'] = pattern_info
             result['debug']['total_candidates'] = len(candidates)
             result['debug']['filtered_count'] = len(candidates) - len(tracking_ids)
             
-            logger.info(f"Successfully extracted {len(tracking_ids)} tracking IDs from PDF")
+            logger.info(f"Successfully extracted {len(tracking_ids)} tracking IDs from PDF with details")
             
         except Exception as e:
             result['error'] = f"Critical error during PDF processing: {str(e)}"
