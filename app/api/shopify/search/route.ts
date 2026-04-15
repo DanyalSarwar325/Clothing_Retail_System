@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const searchQuery = query.toLowerCase();
 
     // Build MongoDB search filter
-    const filter = {
+    const filter: any = {
       $or: [
         { orderName: { $regex: searchQuery, $options: "i" } },
         { shopifyOrderId: { $regex: searchQuery, $options: "i" } },
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     // If searching for creation orders, filter by financialStatus
     if (type === "creation") {
-      filter.financialStatus = { $ne: "refunded" };
+      filter["payment.status"] = { $ne: "refunded" };
     }
 
     // Get total count for pagination
