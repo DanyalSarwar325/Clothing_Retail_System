@@ -19,6 +19,7 @@ interface Order {
   email: string;
   phone: string;
   financialStatus?: string;
+  trackingNumber?: string;
 }
 
 type FilterType = "all" | "unfulfilled" | "unpaid" | "open" | "archived" | "fulfilled";
@@ -77,10 +78,26 @@ const mockOrders: Order[] = [
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>(mockOrders);
+  const [searchResults, setSearchResults] = useState<Order[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [searchPaginationInfo, setSearchPaginationInfo] = useState<{ page: number; pages: number; total: number } | null>(null);
+
+  // Shows search results if searching, otherwise filtered orders
+  const displayOrders = searchQuery.trim() ? searchResults : filteredOrders;
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 25;
+  const totalPages = searchQuery.trim() 
+    ? (searchPaginationInfo?.pages || 0)
+    : Math.ceil(filteredOrders.length / pageSize);
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = startIdx + pageSize;
+  const paginatedOrders = displayOrders.slice(startIdx, endIdx);
 
   const filters = [
     { key: "all", label: "All", count: orders.length },
@@ -90,6 +107,55 @@ export default function OrdersPage() {
     { key: "archived", label: "Archived", count: 0 },
     { key: "fulfilled", label: "Fulfilled", count: orders.filter(o => o.fulfillmentStatus === "fulfilled").length }
   ] as const;
+
+  // Search orders from database by tracking ID or order number
+  const handleDatabaseSearch = async (query: string, page = 1) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearchPaginationInfo(null);
+      return;
+    }
+
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/orders/search?q=${encodeURIComponent(query)}&page=${page}&limit=25`);
+      if (res.ok) {
+        const data = await res.json();
+        console.log(`[Orders Search] Found ${data.pagination.total} results`);
+        
+        // Transform API results to Order format
+        const results = data.results.map((r: any) => ({
+          _id: r._id,
+          orderName: r.orderNumber || `#${r._id}`,
+          shopifyOrderId: 0,
+          customerName: r.customerName || "Unknown",
+          channel: "Online Store",
+          totalPrice: r.total?.toString() || "0",
+          currency: r.currency || "Rs",
+          paymentStatus: r.paymentStatus || "pending",
+          fulfillmentStatus: r.fulfillmentStatus || "unfulfilled",
+          itemCount: 1,
+          tags: [],
+          createdAt: r.createdAt,
+          email: r.customerEmail || "",
+          phone: r.customerPhone || "",
+          trackingNumber: r.trackingNumber,
+        }));
+
+        setSearchResults(results);
+        setSearchPaginationInfo({
+          page: data.pagination.page,
+          pages: data.pagination.pages,
+          total: data.pagination.total,
+        });
+        setCurrentPage(page);
+      }
+    } catch (error) {
+      console.error("[Orders Search] Error:", error);
+    } finally {
+      setSearching(false);
+    }
+  };
 
   useEffect(() => {
     let filtered = [...orders];
@@ -113,21 +179,27 @@ export default function OrdersPage() {
         break;
     }
 
-    // Apply search
+    // Apply search - searches across ALL orders, including tracking number and order number
     if (searchQuery) {
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(order =>
-        order.orderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        order.email.toLowerCase().includes(searchQuery.toLowerCase())
+        order.orderName.toLowerCase().includes(query) ||
+        order.customerName.toLowerCase().includes(query) ||
+        order.email.toLowerCase().includes(query) ||
+        order.phone.toLowerCase().includes(query) ||
+        order.shopifyOrderId.toString().includes(query)
       );
     }
 
     setFilteredOrders(filtered);
+    // Reset to page 1 when filter or search changes
+    setCurrentPage(1);
   }, [orders, activeFilter, searchQuery]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedOrders(new Set(filteredOrders.map(o => o._id)));
+      // Select only items on current page
+      setSelectedOrders(new Set(paginatedOrders.map(o => o._id)));
     } else {
       setSelectedOrders(new Set());
     }
@@ -193,6 +265,21 @@ export default function OrdersPage() {
       setLoading(false);
     }
   };
+
+  // Debounced search
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (searchQuery.trim()) {
+        handleDatabaseSearch(searchQuery, 1);
+      } else {
+        setSearchResults([]);
+        setSearchPaginationInfo(null);
+        setCurrentPage(1);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery]);
 
   useEffect(() => {
     fetchOrders();
@@ -269,11 +356,18 @@ export default function OrdersPage() {
                 </div>
                 <input
                   type="text"
-                  placeholder="Search orders"
+                  placeholder="Search by order #, tracking ID, customer name, or email"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="block w-64 pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  disabled={searching}
+                  className="block w-64 pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm disabled:opacity-50"
                 />
+                {searching && (
+                  <RefreshCw size={16} className="absolute right-3 top-2 text-gray-400 animate-spin" />
+                )}
               </div>
               <button className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                 <Filter size={16} className="mr-2" />
@@ -307,7 +401,7 @@ export default function OrdersPage() {
                           <input
                             type="checkbox"
                             className="absolute left-4 top-1/2 -mt-2 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-                            checked={selectedOrders.size === filteredOrders.length && filteredOrders.length > 0}
+                            checked={paginatedOrders.length > 0 && paginatedOrders.every(o => selectedOrders.has(o._id))}
                             onChange={(e) => handleSelectAll(e.target.checked)}
                           />
                         </th>
@@ -358,7 +452,7 @@ export default function OrdersPage() {
                           </td>
                         </tr>
                       ) : (
-                        filteredOrders.map((order) => (
+                        paginatedOrders.map((order) => (
                           <tr key={order._id} className="hover:bg-gray-50">
                             <td className="relative px-7 sm:w-12 sm:px-6">
                               <input
@@ -435,33 +529,123 @@ export default function OrdersPage() {
         </div>
 
         {/* Pagination */}
-        {filteredOrders.length > 0 && (
+        {displayOrders.length > 0 && (
           <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
             <div className="flex-1 flex justify-between sm:hidden">
-              <button className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+              <button
+                onClick={() => {
+                  const newPage = Math.max(1, currentPage - 1);
+                  if (searchQuery.trim()) {
+                    handleDatabaseSearch(searchQuery, newPage);
+                  } else {
+                    setCurrentPage(newPage);
+                  }
+                }}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 Previous
               </button>
-              <button className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+              <button
+                onClick={() => {
+                  const newPage = Math.min(totalPages, currentPage + 1);
+                  if (searchQuery.trim()) {
+                    handleDatabaseSearch(searchQuery, newPage);
+                  } else {
+                    setCurrentPage(newPage);
+                  }
+                }}
+                disabled={currentPage === totalPages}
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 Next
               </button>
             </div>
             <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">1</span> to{' '}
-                  <span className="font-medium">{filteredOrders.length}</span> of{' '}
-                  <span className="font-medium">{filteredOrders.length}</span> results
+                  Showing <span className="font-medium">{displayOrders.length === 0 ? 0 : startIdx + 1}</span> to{' '}
+                  <span className="font-medium">{Math.min(endIdx, displayOrders.length)}</span> of{' '}
+                  <span className="font-medium">{searchQuery.trim() ? (searchPaginationInfo?.total || 0) : displayOrders.length}</span> results
+                  {searchQuery.trim() && <span className="ml-1 text-gray-500">(searching database)</span>}
                 </p>
               </div>
               <div>
                 <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                  <button className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                  <button
+                    onClick={() => {
+                      const newPage = Math.max(1, currentPage - 1);
+                      if (searchQuery.trim()) {
+                        handleDatabaseSearch(searchQuery, newPage);
+                      } else {
+                        setCurrentPage(newPage);
+                      }
+                    }}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     Previous
                   </button>
-                  <button className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-indigo-50 text-sm font-medium text-indigo-600">
-                    1
-                  </button>
-                  <button className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                  
+                  {/* Page numbers */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => {
+                    // Show first page, last page, current page, and pages around current
+                    const isVisible = pageNum === 1 || pageNum === totalPages || 
+                                     Math.abs(pageNum - currentPage) <= 1;
+                    
+                    if (!isVisible && pageNum !== 2 && pageNum !== totalPages - 1) {
+                      return null;
+                    }
+                    
+                    if (pageNum === 2 && currentPage > 3) {
+                      return (
+                        <span key="ellipsis-start" className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                          ...
+                        </span>
+                      );
+                    }
+                    
+                    if (pageNum === totalPages - 1 && currentPage < totalPages - 2) {
+                      return (
+                        <span key="ellipsis-end" className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                          ...
+                        </span>
+                      );
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => {
+                          if (searchQuery.trim()) {
+                            handleDatabaseSearch(searchQuery, pageNum);
+                          } else {
+                            setCurrentPage(pageNum);
+                          }
+                        }}
+                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                          currentPage === pageNum
+                            ? "bg-indigo-50 text-indigo-600 border-indigo-300"
+                            : "bg-white text-gray-500 border-gray-300 hover:bg-gray-50"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                  
+                  <button
+                    onClick={() => {
+                      const newPage = Math.min(totalPages, currentPage + 1);
+                      if (searchQuery.trim()) {
+                        handleDatabaseSearch(searchQuery, newPage);
+                      } else {
+                        setCurrentPage(newPage);
+                      }
+                    }}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     Next
                   </button>
                 </nav>

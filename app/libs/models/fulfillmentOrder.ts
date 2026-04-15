@@ -3,7 +3,7 @@ import mongoose, { Schema } from "mongoose";
 const FulfillmentOrderSchema = new Schema(
   {
     orderId: { type: String, required: true, unique: true, sparse: true },
-    orderNumber: { type: String, sparse: true },
+    orderNumber: { type: String, sparse: true, index: true },
     customer: {
       name: { type: String },
       email: { type: String },
@@ -30,7 +30,7 @@ const FulfillmentOrderSchema = new Schema(
     fulfillment: {
       status: { type: String },
       trackingCompany: { type: String },
-      trackingNumber: { type: String },
+      trackingNumber: { type: String, index: true },
       trackingUrl: { type: String },
     },
     pricing: {
@@ -47,6 +47,12 @@ const FulfillmentOrderSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Add indexes for fast lookup by tracking number and order number
+FulfillmentOrderSchema.index({ "fulfillment.trackingNumber": 1 });
+FulfillmentOrderSchema.index({ orderNumber: 1 });
+FulfillmentOrderSchema.index({ "customer.name": 1 });
+FulfillmentOrderSchema.index({ "customer.email": 1 });
 
 const FulfillmentOrder =
   mongoose.models.FulfillmentOrder ||

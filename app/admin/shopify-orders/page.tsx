@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
 import Link from "next/link";
-import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X, Upload } from "lucide-react";
+import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X, Upload, Search } from "lucide-react";
 
 type OrderTab = "creation" | "fulfillment";
 
@@ -33,11 +33,20 @@ export default function ShopifyOrdersPage() {
   const [refreshingFulfillment, setRefreshingFulfillment] = useState(false);
   const [deletingOrders, setDeletingOrders] = useState<Set<string>>(new Set());
   
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ParsedOrder[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchPageSize] = useState(25);
+  
   // Pagination state for fulfillment orders
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(25);
   const [totalFulfillmentRecords, setTotalFulfillmentRecords] = useState(0);
   const totalPages = Math.ceil(totalFulfillmentRecords / pageSize);
+  const searchTotalPages = Math.ceil(searchTotal / searchPageSize);
   
   // Modal state for order details
   const [selectedOrder, setSelectedOrder] = useState<ParsedOrder | null>(null);
@@ -130,6 +139,45 @@ export default function ShopifyOrdersPage() {
     }
   }, []);
 
+  const performSearch = useCallback(async (query: string, page = 1) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearchQuery("");
+      setSearchTotal(0);
+      setSearchPage(1);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const type = activeTab === "creation" ? "creation" : "fulfillment";
+      const res = await fetch(
+        `/api/shopify/search?q=${encodeURIComponent(query)}&type=${type}&page=${page}&limit=${searchPageSize}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data.orders || []);
+        setSearchTotal(data.pagination.total);
+        setSearchPage(data.pagination.page);
+      }
+    } catch (e) {
+      console.error("Search failed:", e);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [activeTab, searchPageSize]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (value.trim()) {
+      performSearch(value, 1);
+    } else {
+      setSearchResults([]);
+      setSearchTotal(0);
+      setSearchPage(1);
+    }
+  };
+
   useEffect(() => {
     fetchCreationOrders();
     fetchFulfillmentOrders(false, 1);
@@ -141,8 +189,13 @@ export default function ShopifyOrdersPage() {
     else fetchFulfillmentOrders(true, currentPage);
   };
 
-  const orders = activeTab === "creation" ? creationOrders : fulfillmentOrders;
-  const isLoading = activeTab === "creation" ? loadingCreation : loadingFulfillment;
+  const allOrders = activeTab === "creation" ? creationOrders : fulfillmentOrders;
+  
+  // Use search results if searching, otherwise use paginated orders
+  const orders = searchQuery.trim() ? searchResults : allOrders;
+  const isLoading = searchQuery.trim() ? isSearching : (activeTab === "creation" ? loadingCreation : loadingFulfillment);
+  const currentPageNum = searchQuery.trim() ? searchPage : currentPage;
+  const totalPages_ = searchQuery.trim() ? searchTotalPages : totalPages;
 
   return (
     <ProtectedRoute allowedRoles={["admin"]}>
@@ -222,6 +275,27 @@ export default function ShopifyOrdersPage() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4">
+          <div className="relative flex items-center max-w-md">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-indigo-500" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search by order #, customer, email, phone, or tracking..."
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="block w-full pl-10 pr-4 py-2.5 border-2 border-indigo-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm transition-all"
+            />
+          </div>
+          {searchQuery && (
+            <p className="mt-2 text-sm text-gray-600">
+              Found <span className="font-semibold text-indigo-600">{searchTotal}</span> result{searchTotal !== 1 ? "s" : ""} {searchTotalPages > 1 && `(Page ${searchPage} of ${searchTotalPages})`}
+            </p>
+          )}
         </div>
 
         {/* Content */}
@@ -392,7 +466,7 @@ export default function ShopifyOrdersPage() {
               {/* Horizontal scroll indicator */}
               <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 flex items-center justify-between">
                 <p className="text-xs text-gray-500">💡 Scroll right to see all columns</p>
-                {activeTab === "fulfillment" && totalFulfillmentRecords > 0 && (
+                {activeTab === "fulfillment" && !searchQuery && totalFulfillmentRecords > 0 && (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-600">
                       Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages}</span> 
@@ -403,7 +477,48 @@ export default function ShopifyOrdersPage() {
               </div>
               
               {/* Pagination Controls */}
-              {activeTab === "fulfillment" && totalFulfillmentRecords > pageSize && (
+              {searchQuery && searchTotalPages > 1 && (
+                <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between">
+                  <button
+                    onClick={() => performSearch(searchQuery, searchPage - 1)}
+                    disabled={searchPage === 1 || isSearching}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    ← Previous
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(searchTotalPages, 5) }, (_, i) => {
+                      const pageNum = searchPage <= 3 ? i + 1 : searchPage - 2 + i;
+                      if (pageNum > searchTotalPages) return null;
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => performSearch(searchQuery, pageNum)}
+                          disabled={isSearching}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            pageNum === searchPage
+                              ? "bg-indigo-600 text-white"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => performSearch(searchQuery, searchPage + 1)}
+                    disabled={searchPage === searchTotalPages || isSearching}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+              
+              {activeTab === "fulfillment" && !searchQuery && totalFulfillmentRecords > pageSize && (
                 <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between">
                   <button
                     onClick={() => fetchFulfillmentOrders(false, currentPage - 1)}
