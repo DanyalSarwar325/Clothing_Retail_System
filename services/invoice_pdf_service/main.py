@@ -31,40 +31,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS for Next.js integration
-# Build allowed origins from environment variables and defaults
-allowed_origins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-]
-
-# Add Vercel/deployment URL if provided
-next_app_url = os.getenv("NEXT_APP_URL")
-if next_app_url:
-    allowed_origins.append(next_app_url)
-
-# Add any additional origins from environment variable
-additional_origins = os.getenv("ALLOWED_ORIGINS", "")
-if additional_origins:
-    allowed_origins.extend([origin.strip() for origin in additional_origins.split(",")])
-
-# Add HTTPS versions for production
-next_app_url_https = os.getenv("NEXT_APP_URL_HTTPS")
-if next_app_url_https:
-    allowed_origins.append(next_app_url_https)
-
-# Allow all origins in development mode
-if os.getenv("ENVIRONMENT") == "development":
-    allowed_origins = ["*"]
-
-logger.info(f"CORS allowed origins: {allowed_origins}")
-
+# Configure CORS - Allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow requests from any URL
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

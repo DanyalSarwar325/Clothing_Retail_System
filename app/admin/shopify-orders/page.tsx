@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/app/components/ProtectedRoute";
 import Link from "next/link";
-import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X, Upload, Search } from "lucide-react";
+import { RefreshCw, Package, ShoppingCart, Phone, Mail, MapPin, DollarSign, Hash, User, Truck, Trash2, Eye, X, Upload, Search, Edit2 } from "lucide-react";
 
 type OrderTab = "creation" | "fulfillment";
 
@@ -47,6 +47,10 @@ export default function ShopifyOrdersPage() {
   const [totalFulfillmentRecords, setTotalFulfillmentRecords] = useState(0);
   const totalPages = Math.ceil(totalFulfillmentRecords / pageSize);
   const searchTotalPages = Math.ceil(searchTotal / searchPageSize);
+  
+  // Edit payment status modal state
+  const [editingOrder, setEditingOrder] = useState<ParsedOrder | null>(null);
+  const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState(false);
   
   // Modal state for order details
   const [selectedOrder, setSelectedOrder] = useState<ParsedOrder | null>(null);
@@ -136,6 +140,48 @@ export default function ShopifyOrdersPage() {
         newSet.delete(orderId);
         return newSet;
       });
+    }
+  }, []);
+
+  const updatePaymentStatus = useCallback(async (orderId: string, newStatus: string) => {
+    setUpdatingPaymentStatus(true);
+    try {
+      // Update in database
+      const res = await fetch(`/api/shopify/order-fulfilled?id=${orderId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          financialStatus: newStatus,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to update payment status");
+      }
+
+      // Update in local state
+      setFulfillmentOrders(prev =>
+        prev.map(order =>
+          order._id === orderId ? { ...order, financialStatus: newStatus } : order
+        )
+      );
+
+      setSearchResults(prev =>
+        prev.map(order =>
+          order._id === orderId ? { ...order, financialStatus: newStatus } : order
+        )
+      );
+
+      alert("Payment status updated successfully!");
+      setEditingOrder(null);
+    } catch (e: any) {
+      console.error("Update error:", e);
+      alert(`Failed to update payment status: ${e.message}`);
+    } finally {
+      setUpdatingPaymentStatus(false);
     }
   }, []);
 
@@ -437,6 +483,13 @@ export default function ShopifyOrdersPage() {
                           <td className="px-2 py-2 whitespace-nowrap text-center">
                             <div className="flex gap-2 justify-center">
                               <button
+                                onClick={() => setEditingOrder(order)}
+                                className="text-purple-600 hover:text-purple-900 hover:bg-purple-50 p-1 rounded transition-colors"
+                                title="Edit payment status"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
                                 onClick={() => openOrderDetails(order, activeTab)}
                                 className="text-blue-600 hover:text-blue-900 hover:bg-blue-50 p-1 rounded transition-colors"
                                 title="View details"
@@ -722,6 +775,88 @@ export default function ShopifyOrdersPage() {
                     </pre>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Payment Status Modal */}
+        {editingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-gray-200 p-6">
+                <h2 className="text-lg font-bold text-gray-900">
+                  Update Payment Status
+                </h2>
+                <button
+                  onClick={() => setEditingOrder(null)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={updatingPaymentStatus}
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-6">
+                {/* Order Info */}
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div>
+                    <p className="text-xs text-gray-500">Order Number</p>
+                    <p className="text-sm font-semibold text-gray-900">#{editingOrder.orderName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Customer</p>
+                    <p className="text-sm text-gray-900">{editingOrder.customerName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Current Status</p>
+                    <p className="text-sm">
+                      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                        editingOrder.financialStatus?.toLowerCase() === "paid"
+                          ? "bg-green-100 text-green-700"
+                          : editingOrder.financialStatus?.toLowerCase() === "pending"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-gray-100 text-gray-700"
+                      }`}>
+                        {editingOrder.financialStatus || "Pending"}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Status Options */}
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-gray-900">Select New Status:</p>
+                  <button
+                    onClick={() => updatePaymentStatus(editingOrder._id, "paid")}
+                    disabled={updatingPaymentStatus}
+                    className="w-full px-4 py-3 bg-green-50 border-2 border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+                  >
+                    <p className="font-semibold text-green-900">Paid</p>
+                    <p className="text-xs text-green-700">Mark this order as paid</p>
+                  </button>
+                </div>
+
+                {/* Loading State */}
+                {updatingPaymentStatus && (
+                  <div className="flex items-center justify-center gap-2 text-sm text-indigo-600">
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Updating...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex gap-3 border-t border-gray-200 p-6">
+                <button
+                  onClick={() => setEditingOrder(null)}
+                  disabled={updatingPaymentStatus}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>

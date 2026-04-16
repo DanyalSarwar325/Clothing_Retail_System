@@ -13,7 +13,7 @@ export const maxDuration = 30;
 
 function withCORS(response: NextResponse) {
   response.headers.set("Access-Control-Allow-Origin", "*");
-  response.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return response;
 }
@@ -307,5 +307,69 @@ export async function DELETE(req: NextRequest) {
   } catch (e: any) {
     console.error("Delete fulfillment error:", e?.message || e);
     return withCORS(NextResponse.json({ success: false, error: e?.message }, { status: 500 }));
+  }
+}
+
+// Update financial status of an order
+export async function PATCH(req: NextRequest) {
+  try {
+    console.log("=== UPDATE FULFILLMENT REQUEST ===");
+    const url = new URL(req.url);
+    const fulfillmentId = url.searchParams.get("id");
+    
+    if (!fulfillmentId) {
+      return withCORS(NextResponse.json({ success: false, error: "Fulfillment ID required" }, { status: 400 }));
+    }
+
+    const body = await req.json();
+    const { financialStatus } = body;
+
+    if (!financialStatus) {
+      return withCORS(NextResponse.json({ success: false, error: "Financial status required" }, { status: 400 }));
+    }
+
+    console.log(`Updating fulfillment ${fulfillmentId} financial status to: ${financialStatus}`);
+    await DbConnect();
+    
+    // Update the ShopifyFulfillment record
+    const updatedFulfillment = await ShopifyFulfillment.findByIdAndUpdate(
+      fulfillmentId,
+      {
+        $set: {
+          "orderData.financial_status": financialStatus,
+          updatedAt: new Date(),
+        }
+      },
+      { new: true }
+    );
+    
+    if (!updatedFulfillment) {
+      console.log("Fulfillment not found:", fulfillmentId);
+      return withCORS(NextResponse.json({ success: false, error: "Order not found" }, { status: 404 }));
+    }
+
+    // Also update the corresponding FulfillmentOrder if it exists
+    if (updatedFulfillment.shopifyOrderId) {
+      await FulfillmentOrder.findOneAndUpdate(
+        { shopifyOrderId: updatedFulfillment.shopifyOrderId.toString() },
+        {
+          $set: {
+            "payment.status": financialStatus,
+            financialStatus: financialStatus,
+            updatedAt: new Date(),
+          }
+        }
+      );
+    }
+
+    console.log("Order updated successfully:", fulfillmentId);
+    return withCORS(NextResponse.json({ 
+      success: true, 
+      message: "Financial status updated successfully",
+      financialStatus: updatedFulfillment.orderData?.financial_status || financialStatus
+    }));
+  } catch (e: any) {
+    console.error("Update fulfillment error:", e?.message || e);
+    return withCORS(NextResponse.json({ success: false, error: "Failed to update financial status" }, { status: 500 }));
   }
 }
