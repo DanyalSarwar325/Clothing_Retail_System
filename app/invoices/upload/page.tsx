@@ -93,8 +93,9 @@ export default function InvoiceUploadPage() {
       const formData = new FormData();
       formData.append("file", invoiceFile);
 
-      const fastApiUrl = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
-
+      const fastApiUrl = process.env.NEXT_PUBLIC_FASTAPI_URL;
+console.log("fastApi Url", fastApiUrl);
+console.log("form Data", formData.get("file"));
       console.log("[Invoice Upload] Extracting tracking IDs...");
       const res = await fetch(`${fastApiUrl}/extract-tracking-ids`, {
         method: "POST",
