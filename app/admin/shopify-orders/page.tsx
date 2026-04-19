@@ -52,6 +52,9 @@ export default function ShopifyOrdersPage() {
   const [editingOrder, setEditingOrder] = useState<ParsedOrder | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState(false);
   
+  // Payment status filter state
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<"all" | "paid" | "pending">("all");
+  
   // Modal state for order details
   const [selectedOrder, setSelectedOrder] = useState<ParsedOrder | null>(null);
   const [selectedOrderRawData, setSelectedOrderRawData] = useState<any>(null);
@@ -237,8 +240,24 @@ export default function ShopifyOrdersPage() {
 
   const allOrders = activeTab === "creation" ? creationOrders : fulfillmentOrders;
   
-  // Use search results if searching, otherwise use paginated orders
-  const orders = searchQuery.trim() ? searchResults : allOrders;
+  // Filter orders based on payment status
+  const getFilteredOrders = (ordersToFilter: ParsedOrder[]) => {
+    if (activeTab === "creation") return ordersToFilter;
+    
+    return ordersToFilter.filter(order => {
+      const paymentStatus = order.financialStatus?.toLowerCase() || "pending";
+      
+      // Check payment status filter
+      if (paymentStatusFilter === "all") return true;
+      if (paymentStatusFilter === "paid") return paymentStatus === "paid";
+      if (paymentStatusFilter === "pending") return paymentStatus === "pending" || paymentStatus === "unpaid";
+      
+      return true;
+    });
+  };
+  
+  // Use search results if searching, otherwise use paginated orders with status filter
+  const orders = searchQuery.trim() ? searchResults : getFilteredOrders(allOrders);
   const isLoading = searchQuery.trim() ? isSearching : (activeTab === "creation" ? loadingCreation : loadingFulfillment);
   const currentPageNum = searchQuery.trim() ? searchPage : currentPage;
   const totalPages_ = searchQuery.trim() ? searchTotalPages : totalPages;
@@ -343,6 +362,46 @@ export default function ShopifyOrdersPage() {
             </p>
           )}
         </div>
+
+        {/* Payment Status Filter Buttons - Only show for fulfillment tab */}
+        {activeTab === "fulfillment" && (
+          <div className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-3">
+            {/* Payment Status Filter */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">Payment Status:</span>
+              <button
+                onClick={() => setPaymentStatusFilter("all")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  paymentStatusFilter === "all"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setPaymentStatusFilter("paid")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  paymentStatusFilter === "paid"
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Paid
+              </button>
+              <button
+                onClick={() => setPaymentStatusFilter("pending")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  paymentStatusFilter === "pending"
+                    ? "bg-orange-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Pending
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="mx-2 lg:mx-4 py-6">
