@@ -75,11 +75,13 @@ export default function ShopifyOrdersPage() {
     }
   }, []);
 
-  const fetchFulfillmentOrders = useCallback(async (showRefresh = false, page = 1) => {
+  const fetchFulfillmentOrders = useCallback(async (showRefresh = false, page = 1, status = paymentStatusFilter) => {
     if (showRefresh) setRefreshingFulfillment(true);
     try {
       const skip = (page - 1) * pageSize;
-      const res = await fetch(`/api/shopify/order-fulfilled?limit=${pageSize}&skip=${skip}`);
+      const res = await fetch(
+        `/api/shopify/order-fulfilled?limit=${pageSize}&skip=${skip}&status=${encodeURIComponent(status)}`
+      );
       if (!res.ok) return;
       const data = await res.json();
       setFulfillmentOrders(data.orders || []);
@@ -91,7 +93,7 @@ export default function ShopifyOrdersPage() {
       setLoadingFulfillment(false);
       setRefreshingFulfillment(false);
     }
-  }, [pageSize]);
+  }, [pageSize, paymentStatusFilter]);
 
   const openOrderDetails = useCallback(async (order: ParsedOrder, type: OrderTab) => {
     setSelectedOrder(order);
@@ -232,32 +234,21 @@ export default function ShopifyOrdersPage() {
     fetchFulfillmentOrders(false, 1);
   }, []);
 
+  useEffect(() => {
+    if (activeTab === "fulfillment") {
+      fetchFulfillmentOrders(false, 1, paymentStatusFilter);
+    }
+  }, [activeTab, paymentStatusFilter, fetchFulfillmentOrders]);
+
   const isRefreshing = activeTab === "creation" ? refreshingCreation : refreshingFulfillment;
   const handleRefresh = () => {
     if (activeTab === "creation") fetchCreationOrders(true);
-    else fetchFulfillmentOrders(true, currentPage);
+    else fetchFulfillmentOrders(true, currentPage, paymentStatusFilter);
   };
 
   const allOrders = activeTab === "creation" ? creationOrders : fulfillmentOrders;
   
-  // Filter orders based on payment status
-  const getFilteredOrders = (ordersToFilter: ParsedOrder[]) => {
-    if (activeTab === "creation") return ordersToFilter;
-    
-    return ordersToFilter.filter(order => {
-      const paymentStatus = order.financialStatus?.toLowerCase() || "pending";
-      
-      // Check payment status filter
-      if (paymentStatusFilter === "all") return true;
-      if (paymentStatusFilter === "paid") return paymentStatus === "paid";
-      if (paymentStatusFilter === "pending") return paymentStatus === "pending" || paymentStatus === "unpaid";
-      
-      return true;
-    });
-  };
-  
-  // Use search results if searching, otherwise use paginated orders with status filter
-  const orders = searchQuery.trim() ? searchResults : getFilteredOrders(allOrders);
+  const orders = searchQuery.trim() ? searchResults : allOrders;
   const isLoading = searchQuery.trim() ? isSearching : (activeTab === "creation" ? loadingCreation : loadingFulfillment);
   const currentPageNum = searchQuery.trim() ? searchPage : currentPage;
   const totalPages_ = searchQuery.trim() ? searchTotalPages : totalPages;
@@ -370,7 +361,10 @@ export default function ShopifyOrdersPage() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Payment Status:</span>
               <button
-                onClick={() => setPaymentStatusFilter("all")}
+                onClick={() => {
+                  setPaymentStatusFilter("all");
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                   paymentStatusFilter === "all"
                     ? "bg-blue-600 text-white"
@@ -380,7 +374,10 @@ export default function ShopifyOrdersPage() {
                 All
               </button>
               <button
-                onClick={() => setPaymentStatusFilter("paid")}
+                onClick={() => {
+                  setPaymentStatusFilter("paid");
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                   paymentStatusFilter === "paid"
                     ? "bg-green-600 text-white"
@@ -390,7 +387,10 @@ export default function ShopifyOrdersPage() {
                 Paid
               </button>
               <button
-                onClick={() => setPaymentStatusFilter("pending")}
+                onClick={() => {
+                  setPaymentStatusFilter("pending");
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                   paymentStatusFilter === "pending"
                     ? "bg-orange-600 text-white"
@@ -633,7 +633,7 @@ export default function ShopifyOrdersPage() {
               {activeTab === "fulfillment" && !searchQuery && totalFulfillmentRecords > pageSize && (
                 <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between">
                   <button
-                    onClick={() => fetchFulfillmentOrders(false, currentPage - 1)}
+                    onClick={() => fetchFulfillmentOrders(false, currentPage - 1, paymentStatusFilter)}
                     disabled={currentPage === 1 || loadingFulfillment}
                     className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
@@ -647,7 +647,7 @@ export default function ShopifyOrdersPage() {
                       return (
                         <button
                           key={pageNum}
-                          onClick={() => fetchFulfillmentOrders(false, pageNum)}
+                          onClick={() => fetchFulfillmentOrders(false, pageNum, paymentStatusFilter)}
                           disabled={loadingFulfillment}
                           className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
                             pageNum === currentPage
@@ -662,7 +662,7 @@ export default function ShopifyOrdersPage() {
                   </div>
                   
                   <button
-                    onClick={() => fetchFulfillmentOrders(false, currentPage + 1)}
+                    onClick={() => fetchFulfillmentOrders(false, currentPage + 1, paymentStatusFilter)}
                     disabled={currentPage === totalPages || loadingFulfillment}
                     className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >

@@ -200,19 +200,26 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "25"), 100);
     const skip = parseInt(url.searchParams.get("skip") || "0");
+    const paymentStatus = url.searchParams.get("status");
+
+    const filter: any = {};
+    if (paymentStatus && paymentStatus !== "all") {
+      filter["orderData.financial_status"] = paymentStatus;
+    }
     
     // Get total count and paginated records
     const [fulfillments, total] = await Promise.all([
-      ShopifyFulfillment.find()
+      ShopifyFulfillment.find(filter)
         .sort({ createdAt: -1 })
         .limit(limit)
         .skip(skip)
         .lean(),
-      ShopifyFulfillment.countDocuments(),
+      ShopifyFulfillment.countDocuments(filter),
     ]);
 
     const orders = fulfillments.map((f: any) => {
       const d = f.orderData || {};
+      const financialStatus = d.financial_status || d.payment?.status || "pending";
       
       // Extract tracking from fulfillments array if available
       let trackingNumber = "N/A";
@@ -251,6 +258,7 @@ export async function GET(req: NextRequest) {
         email: d.email || d.order?.email || d.customer?.email || "N/A",
         phone: d.destination?.phone || d.shipping_address?.phone || d.customer?.phone || d.order?.phone || "N/A",
         address: formatAddress(d.destination || d.shipping_address || d.order?.shipping_address),
+        financialStatus,
         fulfillmentStatus: d.status || d.shipment_status || "fulfilled",
         trackingNumber,
         trackingCompany,
