@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 
 interface BarcodeWithQR {
   _id: string;
@@ -19,13 +20,37 @@ export default function PrintPreviewPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get barcodes from sessionStorage
-    const storedBarcodes = sessionStorage.getItem("printBarcodes");
+    // Get barcodes from localStorage
+    const storedBarcodes = localStorage.getItem("printBarcodes");
     if (storedBarcodes) {
-      setBarcodes(JSON.parse(storedBarcodes));
+      const parsed = JSON.parse(storedBarcodes);
+      
+      const generateQRs = async () => {
+        try {
+          const withQR: BarcodeWithQR[] = [];
+          const BATCH_SIZE = 50;
+          for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
+            const batch = parsed.slice(i, i + BATCH_SIZE);
+            const batchWithQR = await Promise.all(
+              batch.map(async (barcode: any) => {
+                const qr = await QRCode.toDataURL(barcode.barcodeData || "error");
+                return { ...barcode, qr };
+              })
+            );
+            withQR.push(...batchWithQR);
+          }
+          setBarcodes(withQR);
+        } catch (err) {
+          console.error("Error generating QR codes", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      generateQRs();
+    } else {
+      setLoading(false);
     }
-    
-    setLoading(false);
   }, []);
 
   if (loading) {

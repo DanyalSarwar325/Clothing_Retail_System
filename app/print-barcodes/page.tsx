@@ -35,12 +35,45 @@ interface BarcodeWithQR extends BarcodeFromDB {
 interface DesignGroup {
   design: string;
   barcodes: BarcodeFromDB[];
-  previewQRs: BarcodeWithQR[]; // Only first 12 with QR generated
   selected: boolean;
   expanded: boolean;
 }
 
 const SIZE_LABELS = { S: "Small", M: "Medium", L: "Large" };
+
+function BarcodePreviewItem({ barcode }: { barcode: BarcodeFromDB }) {
+  const [qr, setQr] = useState<string>("");
+
+  useEffect(() => {
+    let isMounted = true;
+    QRCode.toDataURL(barcode.barcodeData)
+      .then((url) => {
+        if (isMounted) setQr(url);
+      })
+      .catch(console.error);
+    return () => {
+      isMounted = false;
+    };
+  }, [barcode.barcodeData]);
+
+  return (
+    <div className="bg-white rounded-lg p-2 border text-center">
+      {qr ? (
+        <img src={qr} alt="QR Code" className="w-20 h-20 mx-auto" />
+      ) : (
+        <div className="w-20 h-20 mx-auto bg-gray-100 animate-pulse rounded mb-1"></div>
+      )}
+      <p className="text-xs font-medium text-gray-700 mt-1">
+        {barcode.item} | {barcode.size}
+      </p>
+      <p className="text-xs text-gray-500">
+        {barcode.totalUnitsInBatch
+          ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}`
+          : `#${barcode.sequenceNumber || barcode.unitNumber}`}
+      </p>
+    </div>
+  );
+}
 
 export default function PrintBarcodesPage() {
   const { user, loading: authLoading } = useAuth();
@@ -70,6 +103,7 @@ export default function PrintBarcodesPage() {
     try {
       const response = await fetch("/api/barcodes?status=generated");
       const result = await response.json();
+      console.log(result)
 
       if (result.success) {
         const barcodes: BarcodeFromDB[] = result.barcodes;
@@ -81,22 +115,13 @@ export default function PrintBarcodesPage() {
           groups[barcode.design].push(barcode);
         });
 
-        // Convert to array, sort, generate QR only for first 12 preview items
+        // Convert to array, sort
         const groupArray: DesignGroup[] = [];
         for (const [design, rawBarcodes] of Object.entries(groups)) {
           const sorted = sortBarcodes(rawBarcodes);
-          // Generate QR only for the first 12 (preview)
-          const previewSlice = sorted.slice(0, 12);
-          const previewQRs: BarcodeWithQR[] = await Promise.all(
-            previewSlice.map(async (barcode) => {
-              const qr = await QRCode.toDataURL(barcode.barcodeData);
-              return { ...barcode, qr };
-            })
-          );
           groupArray.push({
             design,
             barcodes: sorted,
-            previewQRs,
             selected: false,
             expanded: false,
           });
@@ -189,7 +214,7 @@ export default function PrintBarcodesPage() {
       .flatMap((group) => group.barcodes);
   };
 
-  // Print selected barcodes — generate QR only at print time
+  // Print selected barcodes
   const [preparingPrint, setPreparingPrint] = useState(false);
   const printSelected = async () => {
     const selectedBarcodes = getSelectedBarcodes();
@@ -200,27 +225,14 @@ export default function PrintBarcodesPage() {
 
     setPreparingPrint(true);
     try {
-      // Generate QR codes only now, in batches to avoid blocking UI
-      const BATCH_SIZE = 50;
-      const withQR: BarcodeWithQR[] = [];
-      for (let i = 0; i < selectedBarcodes.length; i += BATCH_SIZE) {
-        const batch = selectedBarcodes.slice(i, i + BATCH_SIZE);
-        const batchWithQR = await Promise.all(
-          batch.map(async (barcode) => {
-            const qr = await QRCode.toDataURL(barcode.barcodeData);
-            return { ...barcode, qr };
-          })
-        );
-        withQR.push(...batchWithQR);
-      }
-
-      // Store selected barcodes in sessionStorage for the print page
-      sessionStorage.setItem("printBarcodes", JSON.stringify(withQR));
+      // Store selected barcodes in localStorage without QR codes to avoid QuotaExceededError
+      localStorage.setItem("printBarcodes", JSON.stringify(selectedBarcodes));
 
       // Open print preview in new window
       window.open("/print-barcodes/preview", "_blank");
-    } catch (err) {
-      alert("Failed to prepare barcodes for printing");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to prepare barcodes for printing: " + (err.message || err));
     } finally {
       setPreparingPrint(false);
     }
@@ -401,23 +413,8 @@ export default function PrintBarcodesPage() {
                     {group.expanded && (
                       <div className="border-t p-4 bg-gray-50">
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                          {group.previewQRs.map((barcode) => (
-                            <div
-                              key={barcode._id}
-                              className="bg-white rounded-lg p-2 border text-center"
-                            >
-                              <img
-                                src={barcode.qr}
-                                alt="QR Code"
-                                className="w-20 h-20 mx-auto"
-                              />
-                              <p className="text-xs font-medium text-gray-700 mt-1">
-                                {barcode.item} | {barcode.size}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {barcode.totalUnitsInBatch ? `${barcode.sequenceNumber || barcode.unitNumber}/${barcode.totalUnitsInBatch}` : `#${barcode.sequenceNumber || barcode.unitNumber}`}
-                              </p>
-                            </div>
+                          {group.barcodes.slice(0, 12).map((barcode) => (
+                            <BarcodePreviewItem key={barcode._id} barcode={barcode} />
                           ))}
                           {group.barcodes.length > 12 && (
                             <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-center border">
