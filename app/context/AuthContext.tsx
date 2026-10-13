@@ -12,6 +12,8 @@ type UserRole =
   | "adda_work" 
   | "patching" 
   | "press" 
+  | "overlock"
+  | "clipping"
   | "packing" 
   | "store";
 
@@ -20,6 +22,8 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
   admin: [
     "/",
     "/generate-barcodes",
+    "/purchase-orders",
+    "/po-receipts",
     "/reports",
     "/add-user",
     "/cutting",
@@ -53,6 +57,8 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
   adda_work: ["/adda-work", "/orders"],
   patching: ["/patching", "/orders"],
   press: ["/press", "/orders"],
+  overlock: ["/orders"],
+  clipping: ["/orders"],
   packing: ["/packing", "/orders"],
   store: ["/store", "/print-barcodes", "/product", "/orders"],
 };
@@ -67,6 +73,8 @@ const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   adda_work: "/adda-work",
   patching: "/patching",
   press: "/press",
+  overlock: "/",
+  clipping: "/",
   packing: "/packing",
   store: "/store",
 };

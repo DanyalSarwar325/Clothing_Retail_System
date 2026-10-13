@@ -12,12 +12,14 @@ const DEPARTMENTS = [
   "Adda Work",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Packing",
   "Store",
 ];
 
 // Departments that have item-based rates (Qameez, Shalwar, Dupatta)
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press", "Overlock", "Clipping"];
 
 // Departments that use FinalSticker instead of Barcode
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

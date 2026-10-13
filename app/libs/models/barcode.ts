@@ -10,6 +10,8 @@ export const DEPARTMENTS = [
   "Adda Work",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Packing",
   "Store",
   "Outpass",
@@ -101,6 +103,8 @@ export interface IBarcode extends Document {
   qualityCheckInfo?: IQualityCheckInfo; // Info when quality checked
   paidDepartments?: IDepartmentPayment[]; // Tracks which departments have paid for this piece
   productId?: mongoose.Types.ObjectId; // Optional link to product
+  poId?: mongoose.Types.ObjectId; // Optional link to purchase order
+  poNumber?: string; // Optional PO Number
   createdAt: Date;
   scannedAt?: Date;
   soldAt?: Date;
@@ -198,6 +202,8 @@ const BarcodeSchema = new Schema<IBarcode>({
   qualityCheckInfo: QualityCheckInfoSchema,
   paidDepartments: [DepartmentPaymentSchema],
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
+  poId: { type: Schema.Types.ObjectId, ref: "PurchaseOrder" },
+  poNumber: { type: String },
   createdAt: { type: Date, default: Date.now },
   scannedAt: { type: Date },
   soldAt: { type: Date },

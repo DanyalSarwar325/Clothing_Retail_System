@@ -19,7 +19,8 @@ import {
   FileText,
   UserPlus,
   Layers,
-  FileOutput
+  FileOutput,
+  Receipt
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -93,6 +94,26 @@ export default function Sidebar({ active, setActive }: any) {
               icon={<QrCode size={18} />}
               label="Generate Barcodes"
               active={pathname === "/generate-barcodes"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/purchase-orders" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<FileText size={18} />}
+              label="Purchase Orders (POs)"
+              active={pathname === "/purchase-orders"}
+            />
+          </Link>
+        )}
+
+        {user.role === "admin" && (
+          <Link href="/po-receipts" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<Receipt size={18} />}
+              label="PO Receipts"
+              active={pathname.startsWith("/po-receipts")}
             />
           </Link>
         )}

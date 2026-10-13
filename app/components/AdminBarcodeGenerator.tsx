@@ -1,29 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { Scissors, DollarSign, Check, Loader2 } from "lucide-react";
+import { DollarSign, Check, Loader2, FileText, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 // Departments that have item-based rates (all except Packing and Store)
 // Packing and Store rates are set when generating final stickers
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Quality", "Handmade", "Adda Work", "Patching", "Press"];
+const ITEM_BASED_DEPARTMENTS = [
+  "Cutting",
+  "Sewing",
+  "Quality",
+  "Handmade",
+  "Adda Work",
+  "Patching",
+  "Press",
+  "Overlock",
+  "Clipping",
+];
 
-// No single rate departments for initial barcode generation
-// Packing and Store are handled in Final Sticker generation
-const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
-
-const ALL_DEPARTMENTS = [...ITEM_BASED_DEPARTMENTS];
-
-const SUIT_TYPES = ["1pc", "2pc", "3pc"] as const;
 const SIZES = ["S", "M", "L"] as const;
 const SIZE_LABELS = { S: "Small", M: "Medium", L: "Large" };
 const ITEMS = ["Qameez", "Shalwar", "Dupatta"] as const;
-
-// Items based on suit type
-const SUIT_ITEMS: Record<string, string[]> = {
-  "1pc": ["Qameez"],
-  "2pc": ["Qameez", "Shalwar"],
-  "3pc": ["Qameez", "Shalwar", "Dupatta"],
-};
 
 interface ItemQuantity {
   Qameez: number;
@@ -51,13 +48,15 @@ interface DepartmentRate {
 
 export default function AdminBarcodeGenerator() {
   const [design, setDesign] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [notes, setNotes] = useState("");
   const [quantities, setQuantities] = useState<SizeQuantities>({
     S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     M: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
   });
-  
-  // Item-based rates for all departments (except Packing and Store)
+
+  // Item-based rates for all departments (including Overlock & Clipping)
   const [itemRates, setItemRates] = useState<Record<string, ItemRate>>({
     Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
@@ -66,27 +65,15 @@ export default function AdminBarcodeGenerator() {
     "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
   });
-  
+
   const [error, setError] = useState("");
   const [showRates, setShowRates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
-
-  const updateQuantity = (
-    size: keyof SizeQuantities,
-    item: keyof ItemQuantity,
-    delta: number
-  ) => {
-    setQuantities((prev) => ({
-      ...prev,
-      [size]: {
-        ...prev[size],
-        [item]: Math.max(0, prev[size][item] + delta),
-      },
-    }));
-  };
+  const [createdPO, setCreatedPO] = useState<any>(null);
 
   const setQuantityValue = (
     size: keyof SizeQuantities,
@@ -124,7 +111,7 @@ export default function AdminBarcodeGenerator() {
   };
 
   // Calculate totals
-  const getTotalBarcodes = () => {
+  const getTotalPlannedUnits = () => {
     let total = 0;
     for (const size of SIZES) {
       for (const item of ITEMS) {
@@ -134,12 +121,7 @@ export default function AdminBarcodeGenerator() {
     return total;
   };
 
-  const getTotalUnits = () => {
-    return getTotalBarcodes();
-  };
-
-  // Get total count for a specific item across all sizes
-  const getItemTotal = (item: typeof ITEMS[number]) => {
+  const getItemTotal = (item: (typeof ITEMS)[number]) => {
     let total = 0;
     for (const size of SIZES) {
       total += quantities[size][item];
@@ -147,22 +129,45 @@ export default function AdminBarcodeGenerator() {
     return total;
   };
 
-  const generateBarcodes = async () => {
+  // Reset all fields
+  const resetForm = () => {
+    setDesign("");
+    setPoNumber("");
+    setNotes("");
+    setQuantities({
+      S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      M: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    });
+    setItemRates({
+      Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    });
+  };
+
+  // Handle PO Creation
+  const handleCreatePO = async () => {
     if (!design.trim()) {
       setError("Please enter a design name");
       return;
     }
 
-    const totalUnits = getTotalUnits();
+    const totalUnits = getTotalPlannedUnits();
     if (totalUnits === 0) {
-      setError("Please enter at least one quantity");
+      setError("Please enter at least one planned quantity");
       return;
     }
 
     const requiredItems = getRequiredItems();
 
-    // Validate item-based rates for all departments (except Packing and Store)
-    // 0 is a valid rate - only reject negative, undefined, null, or NaN
+    // Validate rates for all departments (including Overlock & Clipping)
     for (const dept of ITEM_BASED_DEPARTMENTS) {
       for (const item of requiredItems) {
         const rate = itemRates[dept][item as keyof ItemRate];
@@ -176,176 +181,135 @@ export default function AdminBarcodeGenerator() {
     setError("");
     setSaving(true);
     setSuccess(false);
+    setCreatedPO(null);
+
+    // Build rates array
+    const rates: DepartmentRate[] = [];
+    for (const dept of ITEM_BASED_DEPARTMENTS) {
+      for (const item of requiredItems) {
+        rates.push({
+          department: dept,
+          ratePerPiece: itemRates[dept][item as keyof ItemRate],
+          item: item,
+        });
+      }
+    }
 
     try {
-      // Build rates array
-      const rates: DepartmentRate[] = [];
-      
-      // Add item-based rates for all departments (except Packing and Store)
-      for (const dept of ITEM_BASED_DEPARTMENTS) {
-        for (const item of requiredItems) {
-          rates.push({
-            department: dept,
-            ratePerPiece: itemRates[dept][item as keyof ItemRate],
-            item: item,
-          });
-        }
-      }
-
-      // Generate barcode data per item type with per-item sequence numbering
-      const barcodesToSave: any[] = [];
-      
-      // Map item to suitType for backward compatibility
-      const ITEM_TO_SUIT_TYPE: Record<string, string> = {
-        Qameez: "1pc",
-        Shalwar: "2pc",
-        Dupatta: "3pc",
-      };
-      
-      // For each item type, generate barcodes with per-item sequence numbering
-      // e.g., 10 Small Qameez + 3 Medium Qameez + 4 Large Qameez = 17 total Qameez
-      // Sequence: 1/17, 2/17, ..., 17/17 (across all sizes for that item)
-      for (const item of ITEMS) {
-        const totalForItem = getItemTotal(item);
-        if (totalForItem === 0) continue;
-        
-        let itemSequence = 0;
-        
-        for (const size of SIZES) {
-          const qty = quantities[size][item];
-          if (qty === 0) continue;
-          
-          for (let unit = 1; unit <= qty; unit++) {
-            itemSequence++;
-            const suitType = ITEM_TO_SUIT_TYPE[item];
-            // QR payload includes size so it's printed on the QR code
-            const payload = { design, size, item, seq: itemSequence, totalItems: totalForItem };
-            const barcodeDataStr = JSON.stringify(payload);
-            
-            barcodesToSave.push({
-              design: design,
-              size: size,
-              suitType: suitType,
-              item: item,
-              unitNumber: unit,
-              sequenceNumber: itemSequence, // Per-item sequential number
-              totalUnitsInBatch: totalForItem, // Total for this item type
-              barcodeData: barcodeDataStr,
-              status: "generated",
-              currentDepartment: "Admin",
-              departmentHistory: [{
-                department: "Admin",
-                scannedAt: new Date().toISOString(),
-                scannedBy: "Admin",
-              }],
-              departmentRates: rates,
-            });
-          }
-        }
-      }
-
-      // Save barcodes to database
-      const response = await fetch("/api/barcodes", {
+      const response = await fetch("/api/purchase-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ barcodes: barcodesToSave }),
+        body: JSON.stringify({
+          design: design.trim(),
+          poNumber: poNumber.trim() || undefined,
+          plannedQuantities: quantities,
+          departmentRates: rates,
+          notes,
+        }),
       });
 
       const result = await response.json();
-
       if (result.success) {
         setSuccess(true);
-        setSavedCount(result.count || barcodesToSave.length);
-        
-        // Reset form after successful save
-        setDesign("");
-        setQuantities({
-          S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          M: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-        });
-        setItemRates({
-          Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-          Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-        });
+        setCreatedPO(result.purchaseOrder);
+        resetForm();
       } else {
-        setError(result.message || "Failed to save barcodes");
+        setError(result.message || "Failed to create Purchase Order");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to generate barcodes");
+      setError(err.message || "Failed to create Purchase Order");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-          <Scissors className="text-red-600" size={20} />
+    <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
+      {/* Card Header */}
+      <div className="flex items-center gap-3 pb-5 border-b mb-6">
+        <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+          <FileText className="text-indigo-600" size={20} />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Cutting - Generate Barcodes</h2>
-          <p className="text-sm text-gray-500">Create barcodes for new designs</p>
+          <h2 className="text-lg font-bold text-gray-900">
+            Create Cutting Purchase Order (PO)
+          </h2>
+          <p className="text-xs text-gray-500">
+            Enter design, planned sizes & department rates once. Barcodes will be generated based on cut pieces received from the master.
+          </p>
         </div>
       </div>
 
-      {/* Design Name */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Design Name</label>
-        <input
-          type="text"
-          placeholder="e.g. Wedding Collection 2026"
-          value={design}
-          onChange={(e) => setDesign(e.target.value)}
-          className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+      {/* Design Name and PO Number */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Design Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. Wedding Collection 2026, Summer Lawn Vol 1"
+            value={design}
+            onChange={(e) => setDesign(e.target.value)}
+            className="w-full border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            PO Number <span className="text-xs text-gray-400 font-normal">(Leave blank to auto-generate)</span>
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. PO-2026-0001"
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
+            className="w-full border rounded-lg px-4 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* Quantity Grid */}
       <div className="mb-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Quantities by Size & Suit Type</h3>
-        
-        <div className="overflow-x-auto">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">
+          Planned Quantities by Size & Item
+        </h3>
+
+        <div className="overflow-x-auto border rounded-xl">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-gray-50">
-                <th className="border px-4 py-2 text-left text-sm font-medium text-gray-600">Size</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Qameez</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Shalwar</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Dupatta</th>
-                <th className="border px-4 py-2 text-center text-sm font-medium text-gray-600">Total</th>
+              <tr className="bg-gray-50 text-xs font-semibold text-gray-600">
+                <th className="border-b px-4 py-2.5 text-left">Size</th>
+                <th className="border-b px-4 py-2.5 text-center">Qameez</th>
+                <th className="border-b px-4 py-2.5 text-center">Shalwar</th>
+                <th className="border-b px-4 py-2.5 text-center">Dupatta</th>
+                <th className="border-b px-4 py-2.5 text-center">Total</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-200">
               {SIZES.map((size) => (
-                <tr key={size}>
-                  <td className="border px-4 py-3 font-medium text-gray-900">
+                <tr key={size} className="hover:bg-gray-50/50">
+                  <td className="px-4 py-3 font-medium text-gray-900 text-sm">
                     {SIZE_LABELS[size]}
                   </td>
                   {ITEMS.map((item) => (
-                    <td key={item} className="border px-2 py-2">
-                      <div className="flex items-center justify-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={quantities[size][item] || ""}
-                          onChange={(e) =>
-                            setQuantityValue(size, item, parseInt(e.target.value) || 0)
-                          }
-                          placeholder=""
-                          className="w-16 text-center border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
+                    <td key={item} className="px-2 py-2 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={quantities[size][item] || ""}
+                        onChange={(e) =>
+                          setQuantityValue(size, item, parseInt(e.target.value) || 0)
+                        }
+                        placeholder="0"
+                        className="w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </td>
                   ))}
-                  <td className="border px-4 py-2 text-center font-semibold text-gray-700">
-                    {quantities[size]["Qameez"] + quantities[size]["Shalwar"] + quantities[size]["Dupatta"]}
+                  <td className="px-4 py-2 text-center font-bold text-gray-700 text-sm">
+                    {quantities[size]["Qameez"] +
+                      quantities[size]["Shalwar"] +
+                      quantities[size]["Dupatta"]}
                   </td>
                 </tr>
               ))}
@@ -354,104 +318,100 @@ export default function AdminBarcodeGenerator() {
         </div>
       </div>
 
-      {/* Department Rates Section */}
+      {/* Department Rates Section (including Overlock & Clipping) */}
       <div className="mb-6">
         <button
+          type="button"
           onClick={() => setShowRates(!showRates)}
           className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700"
         >
           <DollarSign size={16} />
-          {showRates ? "Hide Department Rates" : "Set Department Rates (Per Piece)"}
+          {showRates
+            ? "Hide Department Rates"
+            : "Set Department Rates Per Piece (Cutting, Sewing, Overlock, Clipping, etc.)"}
         </button>
 
         {showRates && (
-          <div className="mt-4 space-y-6">
-            {/* Item-Based Rates for All Departments (except Packing, Store) */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">
-                Item-Based Rates (Per Department)
-              </h4>
-              <p className="text-xs text-gray-500 mb-2">Packing & Store rates are set when generating final stickers</p>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border px-3 py-2 text-left font-medium text-gray-600">Department</th>
-                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Qameez (Rs.)</th>
-                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Shalwar (Rs.)</th>
-                      <th className="border px-3 py-2 text-center font-medium text-gray-600">Dupatta (Rs.)</th>
+          <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-800 mb-1">
+              Department Piece Rates (Rs. Per Piece)
+            </h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Rates will be attached once in this PO. When barcodes are generated later from received cut pieces, they will automatically inherit these rates without asking again.
+            </p>
+
+            <div className="overflow-x-auto border rounded-xl bg-white">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-100/70 border-b text-xs font-semibold text-gray-600">
+                    <th className="py-2.5 px-3 text-left">Department</th>
+                    <th className="py-2.5 px-3 text-center">Qameez (Rs.)</th>
+                    <th className="py-2.5 px-3 text-center">Shalwar (Rs.)</th>
+                    <th className="py-2.5 px-3 text-center">Dupatta (Rs.)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {ITEM_BASED_DEPARTMENTS.map((dept) => (
+                    <tr key={dept} className="hover:bg-gray-50/50">
+                      <td className="py-2.5 px-3 font-medium text-gray-900">
+                        {dept}
+                        {(dept === "Overlock" || dept === "Clipping") && (
+                          <span className="ml-1.5 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded">
+                            New
+                          </span>
+                        )}
+                      </td>
+                      {ITEMS.map((item) => {
+                        const requiredItems = getRequiredItems();
+                        const isNeeded = requiredItems.includes(item);
+                        const rateValue = itemRates[dept][item];
+                        return (
+                          <td key={item} className="py-2 px-2 text-center">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={rateValue}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                                  updateItemRate(dept, item, parseFloat(val) || 0);
+                                }
+                              }}
+                              placeholder="0"
+                              disabled={!isNeeded}
+                              className={`w-24 text-center border rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                                !isNeeded ? "bg-gray-100 text-gray-400" : ""
+                              }`}
+                            />
+                          </td>
+                        );
+                      })}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {ITEM_BASED_DEPARTMENTS.map((dept) => (
-                      <tr key={dept}>
-                        <td className="border px-3 py-2 font-medium text-gray-900">{dept}</td>
-                        {ITEMS.map((item) => {
-                          const requiredItems = getRequiredItems();
-                          const isNeeded = requiredItems.includes(item);
-                          const rateValue = itemRates[dept][item];
-                          return (
-                            <td key={item} className="border px-2 py-2">
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={rateValue}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
-                                    updateItemRate(dept, item, parseFloat(val) || 0);
-                                  }
-                                }}
-                                placeholder="0"
-                                disabled={!isNeeded}
-                                className={`w-full text-center border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                                  !isNeeded ? "bg-gray-100 text-gray-400" : ""
-                                }`}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                * Only items required by your selected suit types are enabled
-              </p>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            <p className="text-xs text-gray-500 mt-2">
+              * Only items with entered quantities are enabled for rates
+            </p>
           </div>
         )}
       </div>
 
-      {/* Preview */}
-      {getTotalUnits() > 0 && (
-        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <h3 className="text-sm font-semibold text-blue-800 mb-3">Preview Summary</h3>
-          <div className="space-y-2 text-sm text-blue-700">
-            {ITEMS.map((item) => {
-              const itemTotal = getItemTotal(item);
-              if (itemTotal === 0) return null;
-              return (
-                <div key={item}>
-                  <strong>{item}:</strong> {itemTotal} pieces (Sequence: 1/{itemTotal} → {itemTotal}/{itemTotal})
-                  <ul className="ml-4">
-                    {SIZES.map((size) => {
-                      const qty = quantities[size][item];
-                      if (qty === 0) return null;
-                      return (
-                        <li key={size}>
-                          • {SIZE_LABELS[size]}: {qty}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
-            <div className="pt-2 border-t border-blue-300 font-bold">
-              Total: {getTotalBarcodes()} barcodes
-            </div>
+      {/* Summary Box */}
+      {getTotalPlannedUnits() > 0 && (
+        <div className="mb-6 p-4 bg-indigo-50/70 border border-indigo-200 rounded-xl text-sm text-indigo-900">
+          <div className="flex justify-between items-center font-bold mb-2">
+            <span>Summary of Planned Pieces:</span>
+            <span className="text-base text-indigo-700">{getTotalPlannedUnits()} pieces planned</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs text-indigo-700">
+            {ITEMS.map((item) => (
+              <div key={item} className="bg-white p-2 rounded-lg border border-indigo-100">
+                <span className="font-semibold block">{item}:</span>
+                <span>{getItemTotal(item)} pieces total</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -463,42 +423,59 @@ export default function AdminBarcodeGenerator() {
         </div>
       )}
 
-      {/* Success Message */}
-      {success && (
-        <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
-          <div className="flex items-center gap-2">
+      {/* Success Message for PO Creation */}
+      {success && createdPO && (
+        <div className="mb-6 p-5 bg-green-50 border border-green-200 text-green-900 rounded-xl">
+          <div className="flex items-center gap-2 font-bold text-base text-green-800">
             <Check size={20} className="text-green-600" />
-            <span className="font-semibold">Barcodes Generated Successfully!</span>
+            Purchase Order {createdPO.poNumber} Created Successfully!
           </div>
-          <p className="text-sm mt-1">
-            {savedCount} barcodes have been saved. Go to <strong>"Print Barcodes"</strong> page to view and print them.
+          <p className="text-sm text-green-700 mt-1">
+            Planned for Design <strong>"{createdPO.design}"</strong> with all department rates saved.
           </p>
+          <div className="mt-4 flex items-center gap-3">
+            <Link
+              href="/purchase-orders"
+              className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-xs transition"
+            >
+              Open Purchase Orders
+              <ArrowRight size={16} />
+            </Link>
+            <button
+              onClick={() => {
+                setSuccess(false);
+                setCreatedPO(null);
+              }}
+              className="px-4 py-2 bg-white border border-green-300 text-green-800 hover:bg-green-100 rounded-lg text-sm font-medium transition"
+            >
+              Create Another PO
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Generate Button */}
+      {/* Submit Button */}
       <button
-        onClick={generateBarcodes}
+        onClick={handleCreatePO}
         disabled={saving}
-        className={`w-full py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
-          saving 
-            ? "bg-gray-400 text-gray-200 cursor-not-allowed" 
-            : "bg-blue-600 text-white hover:bg-blue-700"
+        className={`w-full py-3.5 rounded-xl font-bold transition flex items-center justify-center gap-2 shadow-xs ${
+          saving
+            ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+            : "bg-indigo-600 hover:bg-indigo-700 text-white"
         }`}
       >
         {saving ? (
           <>
             <Loader2 size={18} className="animate-spin" />
-            Generating & Saving...
+            Creating Purchase Order...
           </>
         ) : (
           <>
-            <Scissors size={18} />
-            Generate Barcodes
+            <FileText size={18} />
+            Create Purchase Order (PO)
           </>
         )}
       </button>
     </div>
   );
 }
-

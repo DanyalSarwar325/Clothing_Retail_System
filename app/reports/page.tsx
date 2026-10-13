@@ -30,6 +30,8 @@ const DEPARTMENTS = [
   "Adda Work",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Packing",
   "Store",
 ];
@@ -42,6 +44,8 @@ const DEPT_COLORS: Record<string, { bg: string; text: string; light: string }> =
   "Adda Work": { bg: "bg-pink-500", text: "text-pink-600", light: "bg-pink-50" },
   Patching: { bg: "bg-orange-500", text: "text-orange-600", light: "bg-orange-50" },
   Press: { bg: "bg-cyan-500", text: "text-cyan-600", light: "bg-cyan-50" },
+  Overlock: { bg: "bg-violet-500", text: "text-violet-600", light: "bg-violet-50" },
+  Clipping: { bg: "bg-emerald-500", text: "text-emerald-600", light: "bg-emerald-50" },
   Packing: { bg: "bg-amber-500", text: "text-amber-600", light: "bg-amber-50" },
   Store: { bg: "bg-indigo-500", text: "text-indigo-600", light: "bg-indigo-50" },
 };

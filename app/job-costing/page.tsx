@@ -62,6 +62,8 @@ const DEPARTMENTS = [
   "Adda Work",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Packing",
   "Store",
 ];

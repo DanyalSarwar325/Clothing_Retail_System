@@ -6,6 +6,8 @@ export const DEPARTMENTS = [
   "Handmade",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Adda Work",
   "Quality",
   "Packing",

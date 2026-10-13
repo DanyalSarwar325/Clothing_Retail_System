@@ -21,6 +21,8 @@ const RateSchema = new Schema<IRate>(
         "Adda Work",
         "Patching",
         "Press",
+        "Overlock",
+        "Clipping",
         "Packing",
         "Store",
       ],

@@ -36,8 +36,8 @@ export default function GenerateBarcodesPage() {
         {/* Header */}
         <header className="bg-white border-b px-4 sm:px-8 py-6 pt-16 lg:pt-6 flex items-center justify-between">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Generate Barcodes</h1>
-            <p className="text-gray-600 text-sm sm:text-base">Create barcodes for new designs</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Create Cutting PO</h1>
+            <p className="text-gray-600 text-sm sm:text-base">Set up design, planned pieces & department rates</p>
           </div>
           <button
             onClick={logout}

@@ -50,6 +50,8 @@ export const ROLE_ROUTES: Record<UserRole, string[]> = {
   adda_work: ["/adda-work"],
   patching: ["/patching"],
   press: ["/press"],
+  overlock: ["/orders"],
+  clipping: ["/orders"],
   packing: ["/packing"],
   store: ["/store", "/print-barcodes", "/product"],
 };
@@ -64,6 +66,8 @@ export const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   adda_work: "/adda-work",
   patching: "/patching",
   press: "/press",
+  overlock: "/",
+  clipping: "/",
   packing: "/packing",
   store: "/store",
 };

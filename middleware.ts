@@ -15,6 +15,8 @@ const ROLE_ROUTES: Record<string, string[]> = {
     admin: [
       "/",
       "/generate-barcodes",
+      "/purchase-orders",
+      "/po-receipts",
       "/reports",
       "/add-user",
       "/cutting",

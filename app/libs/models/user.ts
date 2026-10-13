@@ -9,6 +9,8 @@ export type UserRole =
   | "adda_work" 
   | "patching" 
   | "press" 
+  | "overlock"
+  | "clipping"
   | "packing" 
   | "store";
 
@@ -54,6 +56,8 @@ const UserSchema = new Schema<IUser>(
         "adda_work",
         "patching",
         "press",
+        "overlock",
+        "clipping",
         "packing",
         "store",
       ],
