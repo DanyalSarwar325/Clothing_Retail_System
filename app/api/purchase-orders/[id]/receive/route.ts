@@ -45,6 +45,40 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Aggregate requested quantities to handle potential duplicate items in the payload
+    const requestedTotals: Record<string, number> = {};
+    for (const it of validItems) {
+      const key = `${it.size}_${it.item}`;
+      requestedTotals[key] = (requestedTotals[key] || 0) + it.quantity;
+    }
+
+    // STRICT VALIDATION: Ensure received pieces do not exceed remaining planned pieces
+    for (const [key, qty] of Object.entries(requestedTotals)) {
+      const [size, item] = key.split("_") as ["S" | "M" | "L", "Qameez" | "Shalwar" | "Dupatta"];
+      const planned = po.plannedQuantities?.[size]?.[item] || 0;
+      const currentReceived = po.receivedQuantities?.[size]?.[item] || 0;
+      const remainingAllowed = Math.max(0, planned - currentReceived);
+
+      if (qty > remainingAllowed) {
+        if (remainingAllowed === 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Cannot receive ${item} (${size}). All ${planned} planned pieces have already been received.`,
+            },
+            { status: 400 }
+          );
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Cannot receive ${qty} pieces of ${item} (${size}). Only ${remainingAllowed} remaining planned pieces can be received (${currentReceived}/${planned} already received).`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Increment received quantities on the PO
     validItems.forEach((it: any) => {
       const size = it.size as "S" | "M" | "L";

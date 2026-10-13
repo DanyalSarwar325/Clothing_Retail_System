@@ -182,12 +182,23 @@ export default function PurchaseOrdersPage() {
     e.preventDefault();
     if (!selectedPO) return;
 
-    // Build array of items with qty > 0
+    // Build array of items with qty > 0 and validate against remaining planned
     const itemsToReceive: Array<{ size: "S" | "M" | "L"; item: "Qameez" | "Shalwar" | "Dupatta"; quantity: number }> = [];
     for (const s of SIZES) {
       for (const it of ITEMS) {
         const qty = receiveQuantities[s][it];
         if (qty > 0) {
+          const planned = selectedPO.plannedQuantities[s]?.[it] || 0;
+          const rec = selectedPO.receivedQuantities[s]?.[it] || 0;
+          const remaining = Math.max(0, planned - rec);
+
+          if (qty > remaining) {
+            toast.error(
+              `Cannot receive ${qty} pieces of ${it} (${SIZE_LABELS[s]}). Only ${remaining} remaining planned pieces can be received (${rec}/${planned} already received).`
+            );
+            return;
+          }
+
           itemsToReceive.push({ size: s, item: it, quantity: qty });
         }
       }
@@ -489,11 +500,19 @@ export default function PurchaseOrdersPage() {
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => openReceiveModal(po)}
-                              title="Record cut pieces received from cutting master"
-                              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-medium flex items-center gap-1 transition"
+                              title={
+                                po.totalReceived >= po.totalPlanned
+                                  ? "All planned pieces received"
+                                  : "Record cut pieces received from cutting master"
+                              }
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition ${
+                                po.totalReceived >= po.totalPlanned
+                                  ? "bg-gray-100 text-gray-500 border border-gray-200"
+                                  : "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200"
+                              }`}
                             >
                               <Scissors size={14} />
-                              Receive
+                              {po.totalReceived >= po.totalPlanned ? "Received" : "Receive"}
                             </button>
                             <button
                               onClick={() => openBarcodeModal(po)}
@@ -589,11 +608,40 @@ export default function PurchaseOrdersPage() {
                   </div>
                 </div>
 
+                {/* Check if all planned pieces have already been received */}
+                {(() => {
+                  const totalRemaining = SIZES.reduce((sumS, s) => {
+                    return (
+                      sumS +
+                      ITEMS.reduce((sumI, it) => {
+                        const planned = selectedPO.plannedQuantities[s]?.[it] || 0;
+                        const rec = selectedPO.receivedQuantities[s]?.[it] || 0;
+                        return sumI + Math.max(0, planned - rec);
+                      }, 0)
+                    );
+                  }, 0);
+
+                  if (totalRemaining === 0) {
+                    return (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-xl mb-4 text-xs text-green-800 flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                        <div>
+                          <strong>All Planned Cut Pieces Received!</strong>
+                          <p>
+                            All planned pieces ({selectedPO.totalPlanned || 0} pcs) for this PO have already been received from the cutting department. No extra pieces can be received.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* Quantities Grid */}
                 <div className="mb-6">
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Cut Pieces Received in this Delivery
+                      Cut Pieces Received in this Delivery (Max: Remaining Planned)
                     </label>
                     <button
                       type="button"
@@ -632,35 +680,65 @@ export default function PurchaseOrdersPage() {
                       <tbody className="divide-y divide-gray-200">
                         {SIZES.map((size) => (
                           <tr key={size} className="hover:bg-gray-50">
-                            <td className="py-3 px-3 text-left font-medium text-gray-900">
-                              {SIZE_LABELS[size]}
-                              <span className="block text-[11px] text-gray-400">
-                                Planned: Q: {selectedPO.plannedQuantities[size]?.Qameez || 0} | S:{" "}
-                                {selectedPO.plannedQuantities[size]?.Shalwar || 0} | D:{" "}
-                                {selectedPO.plannedQuantities[size]?.Dupatta || 0}
-                              </span>
+                            <td className="py-3 px-3 text-left font-bold text-gray-900">
+                              {SIZE_LABELS[size]} ({size})
                             </td>
-                            {ITEMS.map((item) => (
-                              <td key={item} className="py-3 px-2">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={receiveQuantities[size][item] || ""}
-                                  onChange={(e) => {
-                                    const val = parseInt(e.target.value) || 0;
-                                    setReceiveQuantities((prev) => ({
-                                      ...prev,
-                                      [size]: {
-                                        ...prev[size],
-                                        [item]: Math.max(0, val),
-                                      },
-                                    }));
-                                  }}
-                                  placeholder="0"
-                                  className="w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:ring-2 focus:ring-blue-500"
-                                />
-                              </td>
-                            ))}
+                            {ITEMS.map((item) => {
+                              const planned = selectedPO.plannedQuantities[size]?.[item] || 0;
+                              const alreadyRec = selectedPO.receivedQuantities[size]?.[item] || 0;
+                              const remaining = Math.max(0, planned - alreadyRec);
+                              const isComplete = remaining === 0;
+
+                              return (
+                                <td key={item} className="py-3 px-2">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={remaining}
+                                      disabled={isComplete}
+                                      value={receiveQuantities[size][item] || ""}
+                                      onChange={(e) => {
+                                        let val = parseInt(e.target.value) || 0;
+                                        if (val < 0) val = 0;
+                                        if (val > remaining) {
+                                          val = remaining;
+                                          toast.error(
+                                            `Cannot exceed planned quantity! Max allowed for ${SIZE_LABELS[size]} ${item} is ${remaining} (${alreadyRec}/${planned} already received).`
+                                          );
+                                        }
+                                        setReceiveQuantities((prev) => ({
+                                          ...prev,
+                                          [size]: {
+                                            ...prev[size],
+                                            [item]: val,
+                                          },
+                                        }));
+                                      }}
+                                      placeholder="0"
+                                      className={`w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:ring-2 focus:ring-blue-500 ${
+                                        isComplete
+                                          ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                                          : "border-gray-300"
+                                      }`}
+                                    />
+                                    <span
+                                      className={`text-[10px] font-medium ${
+                                        isComplete
+                                          ? "text-green-600 font-semibold"
+                                          : alreadyRec > 0
+                                          ? "text-amber-600 font-semibold"
+                                          : "text-gray-500"
+                                      }`}
+                                    >
+                                      {isComplete
+                                        ? `All ${planned} Received`
+                                        : `${remaining} left (${alreadyRec}/${planned})`}
+                                    </span>
+                                  </div>
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -677,23 +755,42 @@ export default function PurchaseOrdersPage() {
                   >
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    disabled={submittingReceive}
-                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium shadow-xs flex items-center gap-2"
-                  >
-                    {submittingReceive ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" />
-                        Saving Receipt...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={16} />
-                        Confirm & Add Cut Pieces
-                      </>
-                    )}
-                  </button>
+                  {(() => {
+                    const totalRemaining = SIZES.reduce((sumS, s) => {
+                      return (
+                        sumS +
+                        ITEMS.reduce((sumI, it) => {
+                          const planned = selectedPO.plannedQuantities[s]?.[it] || 0;
+                          const rec = selectedPO.receivedQuantities[s]?.[it] || 0;
+                          return sumI + Math.max(0, planned - rec);
+                        }, 0)
+                      );
+                    }, 0);
+
+                    return (
+                      <button
+                        type="submit"
+                        disabled={submittingReceive || totalRemaining === 0}
+                        className={`px-5 py-2 rounded-lg text-sm font-medium shadow-xs flex items-center gap-2 ${
+                          submittingReceive || totalRemaining === 0
+                            ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-amber-600 hover:bg-amber-700 text-white"
+                        }`}
+                      >
+                        {submittingReceive ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            Saving Receipt...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={16} />
+                            Confirm & Add Cut Pieces
+                          </>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
               </form>
             </div>
