@@ -61,7 +61,6 @@ interface DepartmentData {
 }
 
 const DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",
@@ -75,7 +74,6 @@ const DEPARTMENTS = [
 ];
 
 const DEPT_COLORS: Record<string, { bg: string; text: string; border: string; light: string }> = {
-  Cutting: { bg: "bg-rose-600", text: "text-rose-600", border: "border-rose-200", light: "bg-rose-50" },
   Sewing: { bg: "bg-blue-600", text: "text-blue-600", border: "border-blue-200", light: "bg-blue-50" },
   Quality: { bg: "bg-emerald-600", text: "text-emerald-600", border: "border-emerald-200", light: "bg-emerald-50" },
   Handmade: { bg: "bg-purple-600", text: "text-purple-600", border: "border-purple-200", light: "bg-purple-50" },
@@ -95,13 +93,13 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("Cutting");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("Sewing");
   const [departmentData, setDepartmentData] = useState<DepartmentData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
   const [payingPiece, setPayingPiece] = useState<string | null>(null);
 
-  const colors = DEPT_COLORS[selectedDepartment] || DEPT_COLORS.Cutting;
+  const colors = DEPT_COLORS[selectedDepartment] || DEPT_COLORS.Sewing;
 
   // Fetch data when department changes
   useEffect(() => {

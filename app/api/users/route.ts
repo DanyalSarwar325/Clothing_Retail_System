@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
     // Determine role based on department
     const departmentToRole: Record<string, string> = {
       "Admin": "admin",
-      "Cutting": "cutting",
       "Sewing": "sewing",
       "Quality": "quality",
       "Handmade": "handmade",

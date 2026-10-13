@@ -19,7 +19,6 @@ const ROLE_ROUTES: Record<string, string[]> = {
       "/po-receipts",
       "/reports",
       "/add-user",
-      "/cutting",
       "/print-barcodes",
       "/print-final-stickers",
       "/create-product",
@@ -44,7 +43,6 @@ const ROLE_ROUTES: Record<string, string[]> = {
       "/admin/fulfillment-orders",
       "/invoices",
     ],
-  cutting: ["/cutting", "/orders", "/api"],
   sewing: ["/sewing", "/orders", "/api"],
   quality: ["/quality", "/orders", "/api"],
   handmade: ["/handmade", "/orders", "/api"],
@@ -58,7 +56,6 @@ const ROLE_ROUTES: Record<string, string[]> = {
 // Default redirect route for each role
 const ROLE_DEFAULT_ROUTE: Record<string, string> = {
   admin: "/",
-  cutting: "/cutting",
   sewing: "/sewing",
   quality: "/quality",
   handmade: "/handmade",

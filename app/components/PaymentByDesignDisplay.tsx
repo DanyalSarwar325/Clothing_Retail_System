@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Layers, DollarSign } from "lucide-react";
 
 // Departments that have item-based rates
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+const ITEM_BASED_DEPARTMENTS = ["Sewing", "Press"];
 
 // Departments that use FinalSticker model (show rate per scan)
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

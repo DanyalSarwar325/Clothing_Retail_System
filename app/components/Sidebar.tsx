@@ -177,15 +177,6 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/cutting") && user.role !== "admin" && (
-          <Link href="/cutting" onClick={closeSidebar}>
-            <SidebarItem
-              icon={<Scissors size={18} />}
-              label="Cutting (Scan)"
-              active={pathname === "/cutting"}
-            />
-          </Link>
-        )}
 
         {canAccess("/print-barcodes") && user.role === "admin" && (
           <Link href="/print-barcodes" onClick={closeSidebar}>

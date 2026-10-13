@@ -82,7 +82,6 @@ interface FinalStickerCard {
 }
 
 const DEPARTMENTS = [
-  { key: "cutting", label: "Cutting", color: "bg-red-500" },
   { key: "sewing", label: "Sewing", color: "bg-orange-500" },
   { key: "quality", label: "Quality", color: "bg-yellow-500" },
   { key: "handmade", label: "Handmade", color: "bg-green-500" },
@@ -253,7 +252,6 @@ export default function AdminDashboard() {
               icon={<Scissors className="text-orange-600" size={24} />}
               title="In Production"
               value={
-                (stats?.byDepartment.cutting || 0) +
                 (stats?.byDepartment.sewing || 0) +
                 (stats?.byDepartment.quality || 0)
               }

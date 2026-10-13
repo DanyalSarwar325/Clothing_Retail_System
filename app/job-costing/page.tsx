@@ -55,7 +55,6 @@ interface JobCostingData {
 }
 
 const DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",

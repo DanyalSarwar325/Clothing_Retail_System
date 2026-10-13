@@ -62,9 +62,9 @@ export async function POST(request: NextRequest) {
         scannedBy: scannedBy || undefined,
       });
 
-      // For Cutting or Sewing department: if barcode was in 'generated' status, mark it as 'scanned'
-      // This means the barcode is now confirmed and counted for payment
-      if ((department === "Cutting" || department === "Sewing") && barcode.status === "generated") {
+      // For Sewing department: if barcode was in 'generated' status, mark it as 'scanned'
+      // This means the barcode received from master is now confirmed and in work
+      if (department === "Sewing" && barcode.status === "generated") {
         barcode.status = "scanned";
       }
     }

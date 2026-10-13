@@ -286,7 +286,7 @@ export default function OrdersPage() {
   }, []);
 
   return (
-    <ProtectedRoute allowedRoles={["admin", "manager", "user", "cutting", "sewing", "packing", "pressing", "handmade", "patching", "quality"]}>
+    <ProtectedRoute allowedRoles={["admin", "manager", "user", "sewing", "packing", "pressing", "handmade", "patching", "quality"]}>
       <div className="min-h-screen bg-gray-50">
         {/* Header */}
         <div className="bg-white border-b border-gray-200">

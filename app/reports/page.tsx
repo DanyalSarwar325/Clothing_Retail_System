@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 
 const DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",
@@ -37,7 +36,6 @@ const DEPARTMENTS = [
 ];
 
 const DEPT_COLORS: Record<string, { bg: string; text: string; light: string }> = {
-  Cutting: { bg: "bg-red-500", text: "text-red-600", light: "bg-red-50" },
   Sewing: { bg: "bg-blue-500", text: "text-blue-600", light: "bg-blue-50" },
   Quality: { bg: "bg-green-500", text: "text-green-600", light: "bg-green-50" },
   Handmade: { bg: "bg-purple-500", text: "text-purple-600", light: "bg-purple-50" },

@@ -6,7 +6,6 @@ import Payment from "@/app/libs/models/payment";
 import User from "@/app/libs/models/user";
 
 const DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",

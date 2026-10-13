@@ -5,7 +5,7 @@ import FinalSticker from "@/app/libs/models/finalSticker";
 import Rate from "@/app/libs/models/rate";
 
 // Departments that have item-based rates
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+const ITEM_BASED_DEPARTMENTS = ["Sewing", "Press"];
 
 // Departments that use FinalSticker model
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

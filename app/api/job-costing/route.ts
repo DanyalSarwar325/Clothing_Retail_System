@@ -5,7 +5,6 @@ import FinalSticker from "@/app/libs/models/finalSticker";
 import RawMaterial from "@/app/libs/models/rawMaterial";
 
 const DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",
@@ -19,7 +18,7 @@ const DEPARTMENTS = [
 ];
 
 // Departments that have item-based rates (Qameez, Shalwar, Dupatta)
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press", "Overlock", "Clipping"];
+const ITEM_BASED_DEPARTMENTS = ["Sewing", "Press", "Overlock", "Clipping"];
 
 // Departments that use FinalSticker instead of Barcode
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

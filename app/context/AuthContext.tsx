@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 
 type UserRole = 
   | "admin" 
-  | "cutting" 
   | "sewing" 
   | "quality" 
   | "handmade" 
@@ -26,7 +25,6 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/po-receipts",
     "/reports",
     "/add-user",
-    "/cutting",
     "/print-barcodes",
     "/print-final-stickers",
     "/create-product",
@@ -50,7 +48,6 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/admin/fulfillment-orders",
     "/invoices",
   ],
-  cutting: ["/cutting", "/orders"],
   sewing: ["/sewing", "/orders"],
   quality: ["/quality", "/orders"],
   handmade: ["/handmade", "/orders"],
@@ -66,7 +63,6 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
 // Default redirect route for each role after login
 const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   admin: "/",
-  cutting: "/cutting",
   sewing: "/sewing",
   quality: "/quality",
   handmade: "/handmade",

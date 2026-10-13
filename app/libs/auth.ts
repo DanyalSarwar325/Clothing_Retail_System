@@ -42,8 +42,7 @@ export async function getSession(): Promise<UserPayload | null> {
 
 // Role-based access configuration
 export const ROLE_ROUTES: Record<UserRole, string[]> = {
-  admin: ["/", "/cutting", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates"],
-  cutting: ["/cutting", "/print-barcodes"],
+  admin: ["/", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates"],
   sewing: ["/sewing"],
   quality: ["/quality"],
   handmade: ["/handmade"],
@@ -59,7 +58,6 @@ export const ROLE_ROUTES: Record<UserRole, string[]> = {
 // Default redirect route for each role after login
 export const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   admin: "/",
-  cutting: "/cutting",
   sewing: "/sewing",
   quality: "/quality",
   handmade: "/handmade",

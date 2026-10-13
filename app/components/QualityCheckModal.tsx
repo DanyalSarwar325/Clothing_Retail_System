@@ -5,7 +5,7 @@ import { ShieldCheck, X, Save, User } from "lucide-react";
 import toast from "react-hot-toast";
 
 const QUALITY_STATUS = ["Ok", "Damaged"] as const;
-const DEPARTMENTS = ["Cutting", "Sewing", "Quality", "Handmade", "Adda Work", "Patching", "Press", "Packing", "Store"] as const;
+const DEPARTMENTS = ["Sewing", "Quality", "Handmade", "Adda Work", "Patching", "Press", "Packing", "Store"] as const;
 
 interface DepartmentScan {
   department: string;

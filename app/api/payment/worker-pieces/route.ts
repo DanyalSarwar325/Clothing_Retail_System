@@ -5,7 +5,7 @@ import FinalSticker from "@/app/libs/models/finalSticker";
 import Rate from "@/app/libs/models/rate";
 
 // Departments that use item-based rates (different rate per Qameez, Shalwar, Dupatta)
-const ITEM_BASED_DEPARTMENTS = ["Cutting", "Sewing", "Press"];
+const ITEM_BASED_DEPARTMENTS = ["Sewing", "Press"];
 
 // Departments that use final stickers
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

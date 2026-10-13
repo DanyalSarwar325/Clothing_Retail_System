@@ -7,7 +7,6 @@ import Link from "next/link";
 // Departments that have item-based rates (all except Packing and Store)
 // Packing and Store rates are set when generating final stickers
 const ITEM_BASED_DEPARTMENTS = [
-  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",
