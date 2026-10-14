@@ -6,18 +6,31 @@ import Rate from "@/app/libs/models/rate";
 import Payment from "@/app/libs/models/payment";
 
 const DEPARTMENTS = [
+  "Cutting",
   "Sewing",
   "Quality",
   "Handmade",
   "Adda Work",
   "Patching",
   "Press",
+  "Overlock",
+  "Clipping",
   "Packing",
   "Store",
 ];
 
 // Departments that have item-based rates (Qameez, Shalwar, Dupatta)
-const ITEM_BASED_DEPARTMENTS = ["Sewing", "Press"];
+const ITEM_BASED_DEPARTMENTS = [
+  "Cutting",
+  "Sewing",
+  "Quality",
+  "Handmade",
+  "Adda Work",
+  "Patching",
+  "Press",
+  "Overlock",
+  "Clipping",
+];
 
 // Departments that use FinalSticker model
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];

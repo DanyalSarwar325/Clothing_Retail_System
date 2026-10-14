@@ -8,7 +8,16 @@ export async function POST(request: NextRequest) {
     await DbConnect();
 
     const body = await request.json();
-    const { barcodeId, department, markedBy, reason, notes } = body;
+    const { 
+      barcodeId, 
+      department, 
+      markedBy, 
+      reason, 
+      notes,
+      isCompanionDefect,
+      defectiveReferenceBarcode,
+      companionReason,
+    } = body;
 
     if (!barcodeId) {
       return NextResponse.json(
@@ -27,14 +36,21 @@ export async function POST(request: NextRequest) {
 
     if (!markedBy) {
       return NextResponse.json(
-        { success: false, message: "Worker name (markedBy) is required" },
+        { success: false, message: "Inspector name (markedBy) is required" },
         { status: 400 }
       );
     }
 
-    if (!reason || !DEFECT_REASONS.includes(reason as DefectReason)) {
+    if (!reason || !reason.trim()) {
       return NextResponse.json(
-        { success: false, message: "Valid defect reason is required" },
+        { success: false, message: "Defect reason is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!isCompanionDefect && (!notes || !notes.trim())) {
+      return NextResponse.json(
+        { success: false, message: "Please provide remarks explaining why the item was marked defective" },
         { status: 400 }
       );
     }
@@ -59,27 +75,61 @@ export async function POST(request: NextRequest) {
 
     // Update barcode status and defectiveInfo
     barcode.status = "defective";
+    barcode.currentDepartment = "Quality";
+    barcode.scannedAt = new Date();
+
     barcode.defectiveInfo = {
       markedAt: new Date(),
       markedBy,
-      department: department as Department,
-      reason: reason as DefectReason,
-      notes: notes || undefined,
+      department: "Quality",
+      reason: reason.trim(),
+      notes: notes?.trim() || (isCompanionDefect ? "Scrapped as companion piece to complete broken suit set" : undefined),
+      isCompanionDefect: !!isCompanionDefect,
+      defectiveReferenceBarcode: defectiveReferenceBarcode || undefined,
+      companionReason: companionReason || undefined,
     };
+
+    // Add Quality to department history if not already present
+    if (!barcode.departmentHistory) {
+      barcode.departmentHistory = [];
+    }
+    barcode.departmentHistory.push({
+      department: "Quality",
+      scannedAt: new Date(),
+      scannedBy: markedBy,
+    });
 
     await barcode.save();
 
+    // Determine suit companion items that need to be scrapped together
+    const suitType = barcode.suitType || "3pc";
+    const fullSuitItems = suitType === "1pc" 
+      ? ["Qameez"] 
+      : suitType === "2pc" 
+      ? ["Qameez", "Shalwar"] 
+      : ["Qameez", "Shalwar", "Dupatta"];
+    const companionItems = fullSuitItems.filter((it) => it !== barcode.item);
+
     return NextResponse.json({
       success: true,
-      message: `Barcode marked as defective by ${markedBy} in ${department}`,
+      message: isCompanionDefect 
+        ? `Companion piece (${barcode.item} - ${barcode.size}) marked as defective` 
+        : `Barcode (${barcode.item} - ${barcode.size}) marked as defective`,
       barcode: {
         id: barcode._id,
         design: barcode.design,
         size: barcode.size,
+        suitType: barcode.suitType,
         item: barcode.item,
         unitNumber: barcode.unitNumber,
         status: barcode.status,
         defectiveInfo: barcode.defectiveInfo,
+      },
+      companionInfo: {
+        suitType,
+        size: barcode.size,
+        design: barcode.design,
+        companionItemsNeeded: companionItems,
       },
     });
   } catch (error: any) {

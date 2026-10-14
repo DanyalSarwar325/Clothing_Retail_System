@@ -54,18 +54,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if already quality checked or damaged
-    if (barcode.status === "quality_ok" || barcode.status === "damaged") {
+    // If damaged, ensure remarks are provided
+    if (isDamaged && (!notes || !notes.trim())) {
       return NextResponse.json(
-        { success: false, message: "This barcode has already been quality checked" },
-        { status: 400 }
-      );
-    }
-
-    // Check if already marked as defective
-    if (barcode.status === "defective") {
-      return NextResponse.json(
-        { success: false, message: "This barcode is already marked as defective" },
+        { success: false, message: "Please provide remarks explaining why the item was marked damaged" },
         { status: 400 }
       );
     }
@@ -81,10 +73,36 @@ export async function POST(request: NextRequest) {
       status: finalStatus,
       ...(isDamaged && department ? { department } : {}),
       ...(isDamaged && responsiblePerson ? { responsiblePerson } : {}),
-      notes: notes || undefined,
+      notes: notes?.trim() || undefined,
     };
 
     // Also add to department history
+    if (!barcode.departmentHistory) {
+      barcode.departmentHistory = [];
+    }
+
+    // Auto-record Overlock and Clipping when Quality approves the piece
+    // (They are exempted from barcode scanning)
+    if (finalStatus === "quality_ok") {
+      const hasOverlock = barcode.departmentHistory.some((h: any) => h.department === "Overlock");
+      if (!hasOverlock) {
+        barcode.departmentHistory.push({
+          department: "Overlock" as Department,
+          scannedAt: new Date(),
+          scannedBy: "Overlock",
+        });
+      }
+
+      const hasClipping = barcode.departmentHistory.some((h: any) => h.department === "Clipping");
+      if (!hasClipping) {
+        barcode.departmentHistory.push({
+          department: "Clipping" as Department,
+          scannedAt: new Date(),
+          scannedBy: "Clipping",
+        });
+      }
+    }
+
     barcode.departmentHistory.push({
       department: "Quality" as Department,
       scannedAt: new Date(),
@@ -98,12 +116,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: status === "quality_ok" 
-        ? "Product marked as Quality OK" 
+        ? "Product marked as Quality OK ✓" 
         : "Product marked as Damaged",
       barcode: {
         id: barcode._id,
         design: barcode.design,
         size: barcode.size,
+        suitType: barcode.suitType,
         item: barcode.item,
         unitNumber: barcode.unitNumber,
         status: barcode.status,

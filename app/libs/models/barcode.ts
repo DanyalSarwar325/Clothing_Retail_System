@@ -64,8 +64,11 @@ export interface IDefectiveInfo {
   markedAt: Date;
   markedBy: string;
   department: Department;
-  reason: DefectReason;
-  notes?: string; // Additional notes for "Other" reason
+  reason: string; // DefectReason or custom description
+  notes?: string; // Remarks entered by quality staff explaining defect
+  isCompanionDefect?: boolean; // True if marked defective because companion piece of suit was defective
+  defectiveReferenceBarcode?: string; // Reference barcode or ID of the primary defective item
+  companionReason?: string; // Explanation of why the companion was scrapped (e.g. Small Shalwar damaged)
 }
 
 // Payment tracking per department
@@ -139,15 +142,16 @@ const DefectiveInfoSchema = new Schema<IDefectiveInfo>({
   markedBy: { type: String, required: true },
   department: { 
     type: String, 
-    enum: DEPARTMENTS, 
     required: true 
   },
   reason: { 
     type: String, 
-    enum: DEFECT_REASONS, 
     required: true 
   },
   notes: { type: String },
+  isCompanionDefect: { type: Boolean, default: false },
+  defectiveReferenceBarcode: { type: String },
+  companionReason: { type: String },
 });
 
 const QualityCheckInfoSchema = new Schema<IQualityCheckInfo>({

@@ -117,6 +117,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         };
         const barcodeDataStr = JSON.stringify(payload);
 
+        const cuttingPerson = po.receivingLogs?.slice().reverse().find((l: any) => l.cuttingPersonName)?.cuttingPersonName || "Cutting Master";
         barcodesToInsert.push({
           design: po.design,
           size: req.size,
@@ -127,8 +128,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           totalUnitsInBatch: totalItemDisplay,
           barcodeData: barcodeDataStr,
           status: "generated",
-          currentDepartment: "Admin",
+          currentDepartment: "Cutting",
           departmentHistory: [
+            {
+              department: "Cutting",
+              scannedAt: new Date(),
+              scannedBy: cuttingPerson,
+            },
             {
               department: "Admin",
               scannedAt: new Date(),

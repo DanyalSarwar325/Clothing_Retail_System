@@ -2,7 +2,23 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, ShieldCheck, AlertTriangle, FileOutput, X } from "lucide-react";
+import { 
+  LogOut, 
+  Scan, 
+  CheckCircle, 
+  AlertCircle, 
+  History, 
+  User, 
+  Clock, 
+  ShieldCheck, 
+  AlertTriangle, 
+  FileOutput, 
+  X,
+  Layers,
+  RefreshCw,
+  Search,
+  Filter
+} from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
@@ -20,6 +36,8 @@ interface BarcodeDetails {
   id: string;
   design: string;
   size: string;
+  suitType?: string;
+  barcodeData?: string;
   item: string;
   unitNumber: number;
   status: string;
@@ -29,8 +47,38 @@ interface BarcodeDetails {
   scannedAt?: string;
 }
 
+interface DefectiveLogEntry {
+  id: string;
+  design: string;
+  size: string;
+  suitType?: string;
+  item: string;
+  unitNumber: number;
+  status: string;
+  defectiveInfo?: {
+    markedAt: string;
+    markedBy: string;
+    department: string;
+    reason: string;
+    notes?: string;
+    isCompanionDefect?: boolean;
+    defectiveReferenceBarcode?: string;
+    companionReason?: string;
+  };
+  qualityCheckInfo?: {
+    checkedAt: string;
+    checkedBy: string;
+    status: string;
+    department?: string;
+    responsiblePerson?: string;
+    notes?: string;
+  };
+  createdAt: string;
+}
+
 export default function QualityPage() {
   const { user, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState<"scan" | "defective_log">("scan");
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [barcodeDetails, setBarcodeDetails] = useState<BarcodeDetails | null>(null);
@@ -39,16 +87,41 @@ export default function QualityPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [showQualityCheckModal, setShowQualityCheckModal] = useState(false);
-  const [isQualityCheckMode, setIsQualityCheckMode] = useState(false);
   const [showOutpassModal, setShowOutpassModal] = useState(false);
   const [scannerInput, setScannerInput] = useState("");
   const scannerInputRef = useRef<HTMLInputElement>(null);
+
+  // Defective log states
+  const [defectiveLogs, setDefectiveLogs] = useState<DefectiveLogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logSearch, setLogSearch] = useState("");
+  const [logFilter, setLogFilter] = useState<"all" | "primary" | "companion">("all");
 
   useEffect(() => {
     if (scanning && scannerInputRef.current) {
       scannerInputRef.current.focus();
     }
   }, [scanning]);
+
+  // Load defective logs on mount and when tab switched
+  useEffect(() => {
+    fetchDefectiveLogs();
+  }, []);
+
+  const fetchDefectiveLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch("/api/barcodes/defective");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.barcodes)) {
+        setDefectiveLogs(data.barcodes);
+      }
+    } catch (err) {
+      console.error("Failed to fetch defective logs:", err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
 
   const processScan = async (barcodeData: string) => {
     setLoading(true);
@@ -57,48 +130,25 @@ export default function QualityPage() {
     setBarcodeDetails(null);
 
     try {
-      if (isQualityCheckMode) {
-        // Quality check mode - just fetch the barcode details and show modal
-        const response = await fetch(`/api/barcodes/scan`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ barcodeData }),
-        });
+      // Find barcode data and open inspection modal
+      const response = await fetch(`/api/barcodes/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcodeData: barcodeData.trim() }),
+      });
 
-        const result = await response.json();
+      const result = await response.json();
 
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setShowQualityCheckModal(true);
-        } else {
-          setError(result.message || "Barcode not found");
-        }
+      if (result.success && result.barcode) {
+        setBarcodeDetails(result.barcode);
+        setShowQualityCheckModal(true);
       } else {
-        const response = await fetch("/api/barcodes/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barcodeData,
-            department: "Quality",
-            scannedBy: user?.name || user?.username,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          setBarcodeDetails(result.barcode);
-          setSuccess(`Product quality verified and updated by ${user?.name}`);
-          setScanCount((prev) => prev + 1);
-        } else {
-          if (result.alreadyScanned) {
-            toast.error(result.message);
-          }
-          setError(result.message || "Barcode not found");
-        }
+        setError(result.message || "Barcode not found in database");
+        setScanning(true);
       }
     } catch (err: any) {
       setError(err.message || "Failed to process barcode");
+      setScanning(true);
     } finally {
       setLoading(false);
     }
@@ -108,15 +158,6 @@ export default function QualityPage() {
     setError("");
     setSuccess("");
     setBarcodeDetails(null);
-    setIsQualityCheckMode(false);
-    setScanning(true);
-  };
-
-  const startQualityCheckScan = () => {
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setIsQualityCheckMode(true);
     setScanning(true);
   };
 
@@ -126,11 +167,11 @@ export default function QualityPage() {
     setSuccess("");
     setScanning(false);
     setShowHistory(false);
-    setIsQualityCheckMode(false);
     setShowQualityCheckModal(false);
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "N/A";
     return new Date(dateString).toLocaleString("en-US", {
       dateStyle: "medium",
       timeStyle: "short",
@@ -146,239 +187,336 @@ export default function QualityPage() {
     }
   };
 
+  // Filter defective logs
+  const filteredLogs = defectiveLogs.filter((log) => {
+    const matchesSearch = 
+      log.design.toLowerCase().includes(logSearch.toLowerCase()) ||
+      log.item.toLowerCase().includes(logSearch.toLowerCase()) ||
+      (log.defectiveInfo?.reason && log.defectiveInfo.reason.toLowerCase().includes(logSearch.toLowerCase())) ||
+      (log.defectiveInfo?.notes && log.defectiveInfo.notes.toLowerCase().includes(logSearch.toLowerCase())) ||
+      (log.qualityCheckInfo?.notes && log.qualityCheckInfo.notes.toLowerCase().includes(logSearch.toLowerCase()));
+
+    if (!matchesSearch) return false;
+
+    const isCompanion = !!log.defectiveInfo?.isCompanionDefect;
+    if (logFilter === "primary") return !isCompanion;
+    if (logFilter === "companion") return isCompanion;
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
+      <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-sm">
             <ShieldCheck className="text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Quality Control</h1>
-            <p className="text-sm text-gray-500">Logged in as: {user?.name}</p>
+            <h1 className="text-xl font-bold text-gray-900">Quality Control Department</h1>
+            <p className="text-xs text-gray-500">Inspector: {user?.name || user?.username}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="text-sm text-gray-500">Verified Today</p>
-            <p className="text-2xl font-bold text-emerald-600">{scanCount}</p>
+            <p className="text-xs text-gray-500 font-medium">Verified Today</p>
+            <p className="text-2xl font-bold text-emerald-600 leading-tight">{scanCount}</p>
           </div>
           <button
             onClick={() => setShowOutpassModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg transition"
+            className="flex items-center gap-2 px-3.5 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition font-medium text-sm"
           >
-            <FileOutput size={18} />
+            <FileOutput size={16} />
             Outpass
           </button>
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+            className="flex items-center gap-2 px-3.5 py-2 text-red-600 hover:bg-red-50 rounded-lg transition font-medium text-sm"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
             Logout
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="max-w-2xl mx-auto p-6">
-        {/* Info Card */}
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <User className="text-emerald-600 mt-0.5" size={20} />
-            <div>
-              <p className="font-medium text-emerald-800">Welcome, {user?.name}</p>
-              <p className="text-sm text-emerald-700">
-                Scan product barcodes to verify quality and update status to <strong>Quality</strong> department.
-                Your name and verification time will be recorded automatically.
-              </p>
-            </div>
-          </div>
+      {/* Main Container */}
+      <div className="max-w-4xl mx-auto p-6">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-xl px-4 pt-3">
+          <button
+            onClick={() => setActiveTab("scan")}
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === "scan"
+                ? "border-emerald-600 text-emerald-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Scan size={18} />
+            Quality Inspection Scanner
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("defective_log");
+              fetchDefectiveLogs();
+            }}
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === "defective_log"
+                ? "border-emerald-600 text-emerald-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Layers size={18} />
+            Defective & Scrapped Suits Log ({defectiveLogs.length})
+          </button>
         </div>
 
-        <div className="mb-6">
-          <DepartmentPaymentSummary department="Quality" refreshKey={scanCount} />
-        </div>
-
-        {/* Payment Display */}
-        <div className="mb-6">
-          <PaymentDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
-        </div>
-
-        {/* Payment by Design */}
-        <div className="mb-6">
-          <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
-        </div>
-
-        {/* Scanner Section */}
-        {!scanning && !barcodeDetails && !loading && (error === "") && (
-          <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Scan className="text-emerald-600" size={40} />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Ready to Verify</h2>
-            <p className="text-gray-600 mb-6">
-              Click the button below to start scanning and verifying product quality
-            </p>
-            <button
-              onClick={startQualityCheckScan}
-              className="w-full bg-emerald-600 text-white py-4 rounded-lg font-semibold hover:bg-emerald-700 transition flex items-center justify-center gap-2"
-            >
-              <ShieldCheck size={20} />
-              Start Scanning
-            </button>
-          </div>
-        )}
-
-        {/* Barcode Scanner Input - Waiting for Scan */}
-        {scanning && (
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Waiting for Scan...</h2>
-              <button
-                onClick={resetScanner}
-                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="animate-pulse mb-4">
-                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <Scan className="text-emerald-600" size={32} />
-                </div>
-              </div>
-              <p className="text-gray-600 mb-4">Point your barcode scanner at the product barcode</p>
-              <input
-                ref={scannerInputRef}
-                type="text"
-                value={scannerInput}
-                onChange={(e) => setScannerInput(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter' && scannerInput.trim()) {
-                    e.preventDefault();
-                    const value = scannerInput.trim();
-                    setScannerInput("");
-                    setScanning(false);
-                    await processScan(value);
-                  }
-                }}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-center opacity-0 absolute"
-                autoComplete="off"
-                autoFocus
-              />
-              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-600 rounded-full animate-[scan_1.5s_ease-in-out_infinite]" style={{width: '30%'}}></div>
-              </div>
-              <p className="text-xs text-gray-400 mt-3">Scanner input is active and ready</p>
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading && (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Verifying product...</p>
-          </div>
-        )}
-
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-center gap-3">
-            <AlertCircle className="text-red-600" size={20} />
-            <p className="text-red-700">{error}</p>
-          </div>
-        )}
-
-        {/* Success Message */}
-        {success && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex items-center gap-3">
-            <CheckCircle className="text-green-600" size={20} />
-            <p className="text-green-700">{success}</p>
-          </div>
-        )}
-
-        {/* Barcode Details */}
-        {barcodeDetails && (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white p-4">
-              <div className="flex justify-between items-start">
+        {/* ========================================================================= */}
+        {/* TAB 1: SCANNER & INSPECTION                                              */}
+        {/* ========================================================================= */}
+        {activeTab === "scan" && (
+          <div className="space-y-6">
+            {/* Info Notice */}
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="text-emerald-600 mt-0.5 flex-shrink-0" size={20} />
                 <div>
-                  <h3 className="text-xl font-bold">{barcodeDetails.design}</h3>
-                  <p className="opacity-90">Unit #{barcodeDetails.unitNumber}</p>
+                  <p className="font-semibold text-emerald-900 text-sm">Quality Inspection Active</p>
+                  <p className="text-xs text-emerald-800 leading-relaxed mt-0.5">
+                    Scan items to inspect quality. Items that pass can be marked <strong>Quality OK</strong> to advance.
+                    If an item is marked <strong>Defective</strong>, you must enter mandatory defect remarks, and you will be guided to scan the matching companion pieces (same size) to retire the broken suit set.
+                  </p>
                 </div>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-sm flex items-center gap-1">
-                  <ShieldCheck size={14} />
-                  {barcodeDetails.currentDepartment}
+              </div>
+            </div>
+
+            {/* Summaries & Rates */}
+            <div className="space-y-4">
+              <DepartmentPaymentSummary department="Quality" refreshKey={scanCount} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <PaymentDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
+                <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Quality" scanCount={scanCount} />
+              </div>
+            </div>
+
+            {/* Scanner Trigger Card */}
+            {!scanning && !barcodeDetails && !loading && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 p-8 text-center">
+                <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <Scan size={38} />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Ready for Quality Inspection</h2>
+                <p className="text-sm text-gray-600 max-w-md mx-auto mb-6">
+                  Click the button below or start barcode scanning directly. You can re-scan pieces freely without duplicate restrictions.
+                </p>
+                <button
+                  onClick={startScanning}
+                  className="w-full max-w-sm mx-auto bg-emerald-600 text-white py-3.5 px-6 rounded-xl font-bold hover:bg-emerald-700 transition shadow-md flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck size={20} />
+                  Start Scanning Products
+                </button>
+              </div>
+            )}
+
+            {/* Active Scanner Input Screen */}
+            {scanning && (
+              <div className="bg-white rounded-2xl shadow-md border-2 border-emerald-500 p-6 relative">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2 text-emerald-700 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                    <span>Barcode Scanner Listening...</span>
+                  </div>
+                  <button
+                    onClick={resetScanner}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex flex-col items-center py-4">
+                  <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3">
+                    <Scan className="text-emerald-600 animate-pulse" size={32} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-700 mb-1">
+                    Scan any product sticker barcode with your physical scanner
+                  </p>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Or type barcode manually and press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">Enter</kbd>
+                  </p>
+
+                  <input
+                    ref={scannerInputRef}
+                    type="text"
+                    value={scannerInput}
+                    onChange={(e) => setScannerInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && scannerInput.trim()) {
+                        e.preventDefault();
+                        const val = scannerInput.trim();
+                        setScannerInput("");
+                        setScanning(false);
+                        await processScan(val);
+                      }
+                    }}
+                    placeholder="Scanner active — point scanner at barcode..."
+                    className="w-full max-w-md px-4 py-3 border-2 border-emerald-500 rounded-xl focus:outline-none focus:ring-4 focus:ring-emerald-500/20 text-center font-mono text-sm shadow-sm"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Loading Indicator */}
+            {loading && (
+              <div className="bg-white rounded-xl shadow-sm p-8 text-center border">
+                <div className="animate-spin rounded-full h-10 w-10 border-4 border-emerald-600 border-t-transparent mx-auto mb-3" />
+                <p className="text-sm font-medium text-gray-600">Retrieving barcode info...</p>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+                <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+                <p className="text-sm text-red-700 font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {success && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
+                <p className="text-sm text-green-700 font-medium">{success}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 2: DEFECTIVE & BROKEN SUITS LOG                                      */}
+        {/* ========================================================================= */}
+        {activeTab === "defective_log" && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Header & Controls */}
+            <div className="p-4 border-b border-gray-200 flex flex-col md:flex-row gap-3 items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-gray-900 text-base">Defective & Scrapped Items</h3>
+                <span className="text-xs bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded-full">
+                  {filteredLogs.length}
                 </span>
               </div>
-            </div>
 
-            {/* Details */}
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Item</p>
-                  <p className="font-semibold">{barcodeDetails.item}</p>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {/* Search */}
+                <div className="relative flex-1 md:w-60">
+                  <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    placeholder="Search design, remarks..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                  />
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Size</p>
-                  <p className="font-semibold">{getSizeLabel(barcodeDetails.size)}</p>
-                </div>
+
+                {/* Filter */}
+                <select
+                  value={logFilter}
+                  onChange={(e: any) => setLogFilter(e.target.value)}
+                  className="text-xs border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                  <option value="all">All Defects</option>
+                  <option value="primary">Primary Defects</option>
+                  <option value="companion">Companion Scraps</option>
+                </select>
+
+                {/* Refresh */}
+                <button
+                  onClick={fetchDefectiveLogs}
+                  disabled={logsLoading}
+                  className="p-1.5 border rounded-lg hover:bg-gray-100 text-gray-600 transition"
+                  title="Refresh defective logs"
+                >
+                  <RefreshCw size={14} className={logsLoading ? "animate-spin" : ""} />
+                </button>
               </div>
+            </div>
 
-              {/* Quality Verification Info */}
-              <div className="bg-emerald-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock size={16} className="text-emerald-600" />
-                  <p className="text-sm font-medium text-emerald-800">Quality Verification Recorded</p>
-                </div>
-                <div className="text-sm text-emerald-700">
-                  <p><strong>Verified by:</strong> {user?.name}</p>
-                  <p><strong>Time:</strong> {formatDate(barcodeDetails.scannedAt || new Date().toISOString())}</p>
-                  <p><strong>Status:</strong> Quality Checked ✓</p>
-                </div>
+            {/* Table */}
+            {logsLoading ? (
+              <div className="p-12 text-center text-sm text-gray-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-emerald-600 border-t-transparent mx-auto mb-2" />
+                Loading defective logs...
               </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="p-12 text-center text-sm text-gray-400">
+                No defective items recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b">
+                    <tr>
+                      <th className="py-3 px-4">Design & Piece</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Defect Reason</th>
+                      <th className="py-3 px-4">Remarks (Quality Notes)</th>
+                      <th className="py-3 px-4">Inspector & Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredLogs.map((log) => {
+                      const isCompanion = !!log.defectiveInfo?.isCompanionDefect;
+                      const inspector = log.defectiveInfo?.markedBy || log.qualityCheckInfo?.checkedBy || "Unknown";
+                      const defectReasonText = log.defectiveInfo?.reason || "Quality Issue";
+                      const remarksText = log.defectiveInfo?.notes || log.qualityCheckInfo?.notes || "—";
+                      const markedTime = log.defectiveInfo?.markedAt || log.qualityCheckInfo?.checkedAt || log.createdAt;
 
-              {/* History Toggle */}
-              <button
-                onClick={() => setShowHistory(!showHistory)}
-                className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
-              >
-                <History size={16} />
-                {showHistory ? "Hide" : "Show"} Scan History ({barcodeDetails.departmentHistory?.length || 0})
-              </button>
-
-              {/* History */}
-              {showHistory && barcodeDetails.departmentHistory && (
-                <div className="border rounded-lg divide-y">
-                  {barcodeDetails.departmentHistory.map((scan, index) => (
-                    <div key={index} className="p-3 flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{scan.department}</p>
-                        <p className="text-xs text-gray-500">
-                          {scan.scannedBy ? `by ${scan.scannedBy}` : "Unknown user"}
-                        </p>
-                      </div>
-                      <p className="text-xs text-gray-500">{formatDate(scan.scannedAt)}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="p-4 border-t">
-              <button
-                onClick={resetScanner}
-                className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 transition-colors"
-              >
-                Verify Another Product
-              </button>
-            </div>
+                      return (
+                        <tr key={log.id} className="hover:bg-gray-50/70 transition">
+                          <td className="py-3 px-4">
+                            <p className="font-bold text-gray-900">{log.design}</p>
+                            <p className="text-gray-500 text-[11px]">
+                              {log.item} • Size {getSizeLabel(log.size)} • Unit #{log.unitNumber}
+                            </p>
+                          </td>
+                          <td className="py-3 px-4">
+                            {isCompanion ? (
+                              <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[11px] bg-purple-50 text-purple-700 border border-purple-200">
+                                Companion Scrap
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[11px] bg-red-50 text-red-700 border border-red-200">
+                                Primary Defect
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="font-semibold text-gray-800">{defectReasonText}</span>
+                            {log.defectiveInfo?.companionReason && (
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                {log.defectiveInfo.companionReason}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 max-w-xs">
+                            <p className="text-gray-800 italic bg-gray-50 p-1.5 rounded border border-gray-100 text-[11px] leading-relaxed">
+                              "{remarksText}"
+                            </p>
+                          </td>
+                          <td className="py-3 px-4 text-gray-600">
+                            <p className="font-medium text-gray-900">{inspector}</p>
+                            <p className="text-[10px] text-gray-400">{formatDate(markedTime)}</p>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -388,20 +526,26 @@ export default function QualityPage() {
             isOpen={showQualityCheckModal}
             onClose={() => {
               setShowQualityCheckModal(false);
-              resetScanner();
+              setBarcodeDetails(null);
             }}
             barcodeId={barcodeDetails.id}
             barcodeInfo={{
               design: barcodeDetails.design,
               item: barcodeDetails.item,
               size: barcodeDetails.size,
+              suitType: barcodeDetails.suitType || "3pc",
               unitNumber: barcodeDetails.unitNumber,
+              barcodeData: barcodeDetails.barcodeData,
             }}
-            checkedBy={user?.name || user?.username || "Unknown"}
+            checkedBy={user?.name || user?.username || "Quality Inspector"}
             departmentHistory={barcodeDetails.departmentHistory}
             onSuccess={() => {
               setScanCount((prev) => prev + 1);
-              resetScanner();
+              fetchDefectiveLogs();
+              setShowQualityCheckModal(false);
+              setBarcodeDetails(null);
+              // Automatically re-arm scanner so the inspector can scan the next piece immediately
+              setScanning(true);
             }}
           />
         )}

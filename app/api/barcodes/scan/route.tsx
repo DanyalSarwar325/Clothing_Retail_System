@@ -38,11 +38,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Check if this barcode was already scanned by this department
+      // NOTE: Quality department is exempted so quality inspectors can re-scan and inspect freely
       const alreadyScannedByDepartment = barcode.departmentHistory.some(
         (entry: { department: string }) => entry.department === department
       );
 
-      if (alreadyScannedByDepartment) {
+      if (department !== "Quality" && alreadyScannedByDepartment) {
         return NextResponse.json(
           {
             success: false,
@@ -76,8 +77,10 @@ export async function POST(request: NextRequest) {
       message: department ? `Barcode updated to ${department}` : "Barcode found",
       barcode: {
         id: barcode._id,
+        barcodeData: barcode.barcodeData,
         design: barcode.design,
         size: barcode.size,
+        suitType: barcode.suitType || "3pc",
         item: barcode.item,
         unitNumber: barcode.unitNumber,
         status: barcode.status,
