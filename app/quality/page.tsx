@@ -25,6 +25,7 @@ import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
 import QualityCheckModal from "@/app/components/QualityCheckModal";
 import OutpassModal from "@/app/components/OutpassModal";
+import { playScanSuccessSound, playScanErrorSound } from "@/app/libs/audio";
 
 interface DepartmentScan {
   department: string;
@@ -140,13 +141,16 @@ export default function QualityPage() {
       const result = await response.json();
 
       if (result.success && result.barcode) {
+        playScanSuccessSound();
         setBarcodeDetails(result.barcode);
         setShowQualityCheckModal(true);
       } else {
+        playScanErrorSound();
         setError(result.message || "Barcode not found in database");
         setScanning(true);
       }
     } catch (err: any) {
+      playScanErrorSound();
       setError(err.message || "Failed to process barcode");
       setScanning(true);
     } finally {
@@ -540,6 +544,7 @@ export default function QualityPage() {
             checkedBy={user?.name || user?.username || "Quality Inspector"}
             departmentHistory={barcodeDetails.departmentHistory}
             onSuccess={() => {
+              playScanSuccessSound();
               setScanCount((prev) => prev + 1);
               fetchDefectiveLogs();
               setShowQualityCheckModal(false);

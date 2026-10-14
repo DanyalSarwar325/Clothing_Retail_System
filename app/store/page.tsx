@@ -27,6 +27,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
+import { playScanSuccessSound, playScanErrorSound } from "@/app/libs/audio";
 
 interface FinalStickerItem {
   _id: string;
@@ -176,6 +177,7 @@ export default function StorePage() {
         });
         const data = await res.json();
         if (data.success) {
+          playScanSuccessSound();
           toast.success(data.message);
           setLastScannedResult({
             type: "success",
@@ -185,6 +187,7 @@ export default function StorePage() {
           setBarcodeInput("");
           fetchInventory();
         } else {
+          playScanErrorSound();
           toast.error(data.message || "Failed to check in item");
           setLastScannedResult({
             type: "error",
@@ -205,6 +208,7 @@ export default function StorePage() {
         });
         const data = await res.json();
         if (data.success) {
+          playScanSuccessSound();
           toast.success(data.message);
           setLastScannedResult({
             type: "success",
@@ -215,6 +219,7 @@ export default function StorePage() {
           setCheckoutRemarks("");
           fetchInventory();
         } else {
+          playScanErrorSound();
           toast.error(data.message || "Failed to checkout item");
           setLastScannedResult({
             type: "error",
@@ -234,6 +239,7 @@ export default function StorePage() {
         });
         const data = await res.json();
         if (data.success) {
+          playScanSuccessSound();
           toast.success(data.message);
           setLastScannedResult({
             type: "success",
@@ -244,6 +250,7 @@ export default function StorePage() {
           setReturnRemarks("");
           fetchInventory();
         } else {
+          playScanErrorSound();
           toast.error(data.message || "Failed to process return");
           setLastScannedResult({
             type: "error",
@@ -252,6 +259,7 @@ export default function StorePage() {
         }
       }
     } catch (err: any) {
+      playScanErrorSound();
       toast.error(err.message || "An unexpected error occurred");
       setLastScannedResult({
         type: "error",
