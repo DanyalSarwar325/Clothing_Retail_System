@@ -8,11 +8,26 @@ export async function POST(request: NextRequest) {
     await DbConnect();
 
     const body = await request.json();
-    const { barcodeData, dispatchedBy, customerName, customerPhone, customerAddress } = body;
+    const {
+      barcodeData,
+      dispatchedBy,
+      customerName,
+      customerPhone,
+      customerAddress,
+      checkoutType,
+      remarks,
+    } = body;
 
     if (!barcodeData) {
       return NextResponse.json(
         { success: false, message: "Barcode data is required" },
+        { status: 400 }
+      );
+    }
+
+    if (checkoutType && !["WholeSale", "Retail", "Cmd"].includes(checkoutType)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid checkout type. Allowed: WholeSale, Retail, Cmd." },
         { status: 400 }
       );
     }
@@ -22,26 +37,33 @@ export async function POST(request: NextRequest) {
     try {
       parsedData = JSON.parse(barcodeData);
     } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid barcode format" },
-        { status: 400 }
-      );
+      parsedData = null;
     }
 
-    // Check if this is a final sticker barcode
-    if (parsedData.type !== "final") {
-      return NextResponse.json(
-        { success: false, message: "This is not a final sticker barcode", isFinalSticker: false },
-        { status: 400 }
-      );
-    }
+    let sticker = null;
 
-    // Find the final sticker
-    const sticker = await FinalSticker.findOne({ barcodeData });
+    if (parsedData && parsedData.type === "final") {
+      sticker = await FinalSticker.findOne({ barcodeData });
+      if (!sticker && parsedData.design && parsedData.size && parsedData.unitNumber) {
+        sticker = await FinalSticker.findOne({
+          design: parsedData.design,
+          size: parsedData.size,
+          unitNumber: parsedData.unitNumber,
+        });
+      }
+    } else {
+      // Also allow lookup by exact barcodeData or _id if scanned/selected
+      sticker = await FinalSticker.findOne({
+        $or: [
+          { barcodeData },
+          ...(barcodeData.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: barcodeData }] : [])
+        ]
+      });
+    }
 
     if (!sticker) {
       return NextResponse.json(
-        { success: false, message: "Final sticker not found" },
+        { success: false, message: "Final sticker not found in database" },
         { status: 404 }
       );
     }
@@ -50,7 +72,7 @@ export async function POST(request: NextRequest) {
     if (sticker.status !== "in_store") {
       return NextResponse.json({
         success: false,
-        message: `Cannot dispatch: Item status is "${sticker.status}". Only items in store can be dispatched.`,
+        message: `Cannot checkout: Item status is "${sticker.status}". Only items in store can be checked out.`,
         sticker,
       });
     }
@@ -63,19 +85,22 @@ export async function POST(request: NextRequest) {
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
       customerAddress: customerAddress || undefined,
+      checkoutType: checkoutType || "Retail",
+      remarks: remarks?.trim() || undefined,
     };
 
     // Initialize payment info
     sticker.paymentInfo = {
       isPaid: false,
       amountReceived: 0,
+      notes: remarks?.trim() || undefined,
     };
 
     await sticker.save();
 
     return NextResponse.json({
       success: true,
-      message: `Item dispatched for delivery: ${sticker.design} - ${sticker.suitType} - Unit #${sticker.unitNumber}`,
+      message: `Item checked out (${sticker.dispatchInfo.checkoutType}): ${sticker.design} - ${sticker.suitType} - Unit #${sticker.unitNumber}`,
       sticker,
     });
   } catch (error: any) {

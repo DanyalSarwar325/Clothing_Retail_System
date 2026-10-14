@@ -20,7 +20,8 @@ import {
   UserPlus,
   Layers,
   FileOutput,
-  Receipt
+  Receipt,
+  Store
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -198,16 +199,6 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/store") && user.role !== "admin" && (
-          <Link href="/store" onClick={closeSidebar}>
-            <SidebarItem
-              icon={<Box size={18} />}
-              label="Store Scan"
-              active={pathname.startsWith("/store")}
-            />
-          </Link>
-        )}
-
         {canAccess("/payments") && user.role === "admin" && (
           <Link href="/payments" onClick={closeSidebar}>
             <SidebarItem
@@ -238,12 +229,12 @@ export default function Sidebar({ active, setActive }: any) {
           </Link>
         )}
 
-        {canAccess("/revenue") && user.role === "admin" && (
-          <Link href="/revenue" onClick={closeSidebar}>
+        {canAccess("/store") && (
+          <Link href="/store" onClick={closeSidebar}>
             <SidebarItem
-              icon={<DollarSign size={18} />}
-              label="Revenue"
-              active={pathname.startsWith("/revenue")}
+              icon={<Store size={18} />}
+              label="Store"
+              active={pathname.startsWith("/store")}
             />
           </Link>
         )}

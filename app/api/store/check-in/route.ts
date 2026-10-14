@@ -37,11 +37,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the final sticker
-    const sticker = await FinalSticker.findOne({ barcodeData });
+    let sticker = await FinalSticker.findOne({ barcodeData });
+    if (!sticker && parsedData.design && parsedData.size && parsedData.unitNumber) {
+      sticker = await FinalSticker.findOne({
+        design: parsedData.design,
+        size: parsedData.size,
+        unitNumber: parsedData.unitNumber,
+      });
+    }
 
     if (!sticker) {
       return NextResponse.json(
-        { success: false, message: "Final sticker not found" },
+        { success: false, message: "Final sticker not found in database" },
         { status: 404 }
       );
     }

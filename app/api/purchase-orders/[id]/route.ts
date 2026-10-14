@@ -71,14 +71,23 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // Check if any barcodes exist for this PO
     const barcodeCount = await Barcode.countDocuments({ poId: po._id });
+    const cascade = request.nextUrl.searchParams.get("cascade") === "true";
+
     if (barcodeCount > 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: `Cannot delete PO ${po.poNumber}. It already has ${barcodeCount} barcodes generated. Delete the barcodes first.`,
-        },
-        { status: 400 }
-      );
+      if (cascade) {
+        // Delete all associated barcodes
+        await Barcode.deleteMany({ poId: po._id });
+      } else {
+        return NextResponse.json(
+          {
+            success: false,
+            hasBarcodes: true,
+            barcodeCount,
+            message: `PO ${po.poNumber} has ${barcodeCount} barcodes generated. Confirm deletion with cascade to delete both.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     await PurchaseOrder.findByIdAndDelete(id);

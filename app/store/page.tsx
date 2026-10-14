@@ -1,480 +1,977 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import Sidebar from "@/app/components/Sidebar";
 import { useAuth } from "@/app/context/AuthContext";
-import { LogOut, Scan, CheckCircle, AlertCircle, History, User, Clock, Box, ArrowDownToLine, ArrowUpFromLine, X } from "lucide-react";
-import toast from "react-hot-toast";
-import PaymentDisplay from "@/app/components/PaymentDisplay";
-import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
-import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
+import {
+  Store as StoreIcon,
+  Scan,
+  CheckCircle,
+  AlertCircle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  RotateCcw,
+  RefreshCw,
+  Search,
+  Package,
+  DollarSign,
+  Camera,
+  CameraOff,
+  Clock,
+  User,
+  X,
+  Truck,
+  Check,
+  QrCode,
+  ShieldCheck,
+  AlertTriangle,
+} from "lucide-react";
+import toast, { Toaster } from "react-hot-toast";
 
-interface DepartmentScan {
-  department: string;
-  scannedAt: string;
-  scannedBy?: string;
-}
-
-interface BarcodeDetails {
-  id: string;
-  design: string;
-  size: string;
-  item: string;
-  unitNumber: number;
-  status: string;
-  currentDepartment: string;
-  departmentHistory: DepartmentScan[];
-  createdAt: string;
-  scannedAt?: string;
-}
-
-interface FinalStickerDetails {
+interface FinalStickerItem {
   _id: string;
   design: string;
   size: string;
   suitType: string;
   unitNumber: number;
+  category?: "A" | "B";
+  categoryLabel?: string;
+  isDefective?: boolean;
+  defectSummary?: string;
   sellingPrice: number;
   status: string;
   currentDepartment: string;
+  barcodeData: string;
+  dispatchInfo?: {
+    dispatchedAt: string;
+    dispatchedBy: string;
+    customerName?: string;
+    customerPhone?: string;
+    customerAddress?: string;
+    checkoutType?: "WholeSale" | "Retail" | "Cmd";
+    remarks?: string;
+  };
+  returnInfo?: {
+    returnedAt: string;
+    returnedBy: string;
+    remarks?: string;
+    previousStatus?: string;
+  };
+  paymentInfo?: {
+    isPaid: boolean;
+    amountReceived: number;
+    paidAt?: string;
+    receivedBy?: string;
+    notes?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
-type ScanMode = "check-in" | "check-out";
+interface InventorySummary {
+  totalInStore: number;
+  totalDispatched: number;
+  totalDelivered: number;
+  totalReturned: number;
+  inventoryValue: number;
+  dispatchedValue: number;
+  totalRevenue: number;
+}
+
+type StoreMode = "check-in" | "check-out" | "return";
 
 export default function StorePage() {
-  const { user, logout } = useAuth();
-  const [scanning, setScanning] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [barcodeDetails, setBarcodeDetails] = useState<BarcodeDetails | null>(null);
-  const [finalStickerDetails, setFinalStickerDetails] = useState<FinalStickerDetails | null>(null);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [showHistory, setShowHistory] = useState(false);
-  const [scanCount, setScanCount] = useState(0);
-  const [scanMode, setScanMode] = useState<ScanMode>("check-in");
-  const [scannerInput, setScannerInput] = useState("");
-  const scannerInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    if (scanning && scannerInputRef.current) {
-      scannerInputRef.current.focus();
-    }
-  }, [scanning]);
+  // Mode and view states
+  const [activeMode, setActiveMode] = useState<StoreMode>("check-in");
+  const [activeTab, setActiveTab] = useState<"in_store" | "dispatched" | "returned" | "all">("in_store");
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const processScan = async (barcodeData: string) => {
-    setLoading(true);
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setFinalStickerDetails(null);
+  // Camera QR Scanner states
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const html5QrCodeRef = useRef<any>(null);
 
+  // Checkout Form State
+  const [checkoutType, setCheckoutType] = useState<"WholeSale" | "Retail" | "Cmd">("Retail");
+  const [checkoutRemarks, setCheckoutRemarks] = useState("");
+
+  // Return Form State
+  const [returnRemarks, setReturnRemarks] = useState("");
+  const [itemToReturn, setItemToReturn] = useState<FinalStickerItem | null>(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+
+  // Data states
+  const [summary, setSummary] = useState<InventorySummary>({
+    totalInStore: 0,
+    totalDispatched: 0,
+    totalDelivered: 0,
+    totalReturned: 0,
+    inventoryValue: 0,
+    dispatchedValue: 0,
+    totalRevenue: 0,
+  });
+  const [items, setItems] = useState<FinalStickerItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastScannedResult, setLastScannedResult] = useState<{
+    type: "success" | "error";
+    message: string;
+    item?: FinalStickerItem;
+  } | null>(null);
+
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchInventory = useCallback(async () => {
     try {
-      // Check if it's a final sticker
-      let parsedData;
-      try {
-        parsedData = JSON.parse(barcodeData);
-      } catch {
-        parsedData = null;
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (activeTab !== "all") {
+        params.set("status", activeTab);
+      }
+      if (searchTerm.trim()) {
+        params.set("search", searchTerm.trim());
       }
 
-      if (parsedData && parsedData.type === "final") {
-        // Handle final sticker scan
-        const endpoint = scanMode === "check-in" 
-          ? "/api/store/check-in" 
-          : "/api/store/check-out";
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barcodeData,
-            scannedBy: user?.name || user?.username,
-            dispatchedBy: user?.name || user?.username,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          setFinalStickerDetails(result.sticker);
-          setSuccess(result.message);
-          setScanCount((prev) => prev + 1);
-          toast.success(result.message);
-        } else {
-          setError(result.message || "Failed to process final sticker");
-          toast.error(result.message);
-        }
-      } else {
-        // Store only accepts final stickers, not individual barcodes
-        setError("Store only accepts final stickers. Please scan a final sticker barcode.");
-        toast.error("Store only accepts final stickers. Individual item barcodes are not allowed.");
+      const res = await fetch(`/api/store/inventory?${params.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        setSummary(data.summary);
+        setItems(data.items || []);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to process barcode");
+      toast.error(err.message || "Failed to load store inventory");
     } finally {
       setLoading(false);
     }
+  }, [activeTab, searchTerm]);
+
+  useEffect(() => {
+    fetchInventory();
+  }, [fetchInventory]);
+
+  // Handle barcode submission based on current mode
+  const handleProcessBarcode = async (codeToProcess: string) => {
+    const rawBarcode = codeToProcess.trim();
+    if (!rawBarcode) {
+      toast.error("Please enter or scan a barcode");
+      return;
+    }
+
+    setProcessing(true);
+    setLastScannedResult(null);
+
+    try {
+      if (activeMode === "check-in") {
+        // CHECK-IN API CALL
+        const res = await fetch("/api/store/check-in", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: rawBarcode,
+            scannedBy: user?.name || user?.username || "Store Staff",
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success(data.message);
+          setLastScannedResult({
+            type: "success",
+            message: data.message,
+            item: data.sticker,
+          });
+          setBarcodeInput("");
+          fetchInventory();
+        } else {
+          toast.error(data.message || "Failed to check in item");
+          setLastScannedResult({
+            type: "error",
+            message: data.message || "Failed to check in item",
+          });
+        }
+      } else if (activeMode === "check-out") {
+        // CHECK-OUT API CALL
+        const res = await fetch("/api/store/check-out", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: rawBarcode,
+            dispatchedBy: user?.name || user?.username || "Store Staff",
+            checkoutType,
+            remarks: checkoutRemarks,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success(data.message);
+          setLastScannedResult({
+            type: "success",
+            message: data.message,
+            item: data.sticker,
+          });
+          setBarcodeInput("");
+          setCheckoutRemarks("");
+          fetchInventory();
+        } else {
+          toast.error(data.message || "Failed to checkout item");
+          setLastScannedResult({
+            type: "error",
+            message: data.message || "Failed to checkout item",
+          });
+        }
+      } else if (activeMode === "return") {
+        // RETURN API CALL
+        const res = await fetch("/api/store/return", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: rawBarcode,
+            returnedBy: user?.name || user?.username || "Store Staff",
+            remarks: returnRemarks,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success(data.message);
+          setLastScannedResult({
+            type: "success",
+            message: data.message,
+            item: data.sticker,
+          });
+          setBarcodeInput("");
+          setReturnRemarks("");
+          fetchInventory();
+        } else {
+          toast.error(data.message || "Failed to process return");
+          setLastScannedResult({
+            type: "error",
+            message: data.message || "Failed to process return",
+          });
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An unexpected error occurred");
+      setLastScannedResult({
+        type: "error",
+        message: err.message || "An unexpected error occurred",
+      });
+    } finally {
+      setProcessing(false);
+      if (barcodeInputRef.current) {
+        barcodeInputRef.current.focus();
+      }
+    }
   };
 
-  const startScanning = (mode: ScanMode) => {
-    setScanMode(mode);
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setFinalStickerDetails(null);
-    setScanning(true);
+  // Start Camera QR Scanner
+  const startCameraScanner = async () => {
+    setCameraError("");
+    setIsCameraActive(true);
+
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+
+      setTimeout(async () => {
+        try {
+          if (!document.getElementById("qr-reader-container")) return;
+
+          const html5QrCode = new Html5Qrcode("qr-reader-container");
+          html5QrCodeRef.current = html5QrCode;
+
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 220, height: 220 },
+            },
+            async (decodedText: string) => {
+              toast.success("QR Code detected");
+              handleProcessBarcode(decodedText);
+            },
+            () => {}
+          );
+        } catch (err: any) {
+          console.error("Camera startup error:", err);
+          setCameraError(err.message || "Could not access camera. Please allow camera permissions.");
+          setIsCameraActive(false);
+        }
+      }, 300);
+    } catch (err: any) {
+      console.error("Failed to load html5-qrcode:", err);
+      setCameraError("Camera scanner could not be loaded.");
+      setIsCameraActive(false);
+    }
   };
 
-  const resetScanner = () => {
-    setBarcodeDetails(null);
-    setFinalStickerDetails(null);
-    setError("");
-    setSuccess("");
-    setScanning(false);
-    setShowHistory(false);
+  // Stop Camera QR Scanner
+  const stopCameraScanner = async () => {
+    try {
+      if (html5QrCodeRef.current) {
+        if (html5QrCodeRef.current.isScanning) {
+          await html5QrCodeRef.current.stop();
+        }
+        html5QrCodeRef.current.clear();
+        html5QrCodeRef.current = null;
+      }
+    } catch (err) {
+      console.error("Error stopping camera scanner:", err);
+    } finally {
+      setIsCameraActive(false);
+    }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        html5QrCodeRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
 
-  const getSizeLabel = (size: string) => {
-    switch (size) {
-      case "S": return "Small";
-      case "M": return "Medium";
-      case "L": return "Large";
-      default: return size;
+  // Handle return from list button
+  const handleConfirmItemReturn = async () => {
+    if (!itemToReturn) return;
+
+    setProcessing(true);
+    try {
+      const res = await fetch("/api/store/return", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stickerId: itemToReturn._id,
+          returnedBy: user?.name || user?.username || "Store Staff",
+          remarks: returnRemarks,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        setShowReturnModal(false);
+        setItemToReturn(null);
+        setReturnRemarks("");
+        fetchInventory();
+      } else {
+        toast.error(data.message || "Failed to return item");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to process return");
+    } finally {
+      setProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Box className="text-white" size={24} />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Store Check-In</h1>
-            <p className="text-sm text-gray-500">Logged in as: {user?.name}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-sm text-gray-500">Checked In Today</p>
-            <p className="text-2xl font-bold text-blue-600">{scanCount}</p>
-          </div>
-          <button
-            onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-          >
-            <LogOut size={18} />
-            Logout
-          </button>
-        </div>
-      </header>
+    <div className="flex min-h-screen bg-gray-50">
+      <Toaster position="top-center" />
+      {/* Fixed Admin Sidebar */}
+      <Sidebar active="store" setActive={() => {}} />
 
-      {/* Main Content */}
-      <div className="max-w-2xl mx-auto p-6">
-        {/* Info Card */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <User className="text-blue-600 mt-0.5" size={20} />
+      {/* Main Content Area */}
+      <div className="w-full lg:ml-64 p-4 sm:p-6 lg:p-8 pt-20 lg:pt-8 min-w-0 flex flex-col">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-xs shrink-0">
+              <StoreIcon size={22} />
+            </div>
             <div>
-              <p className="font-medium text-blue-800">Welcome, {user?.name}</p>
-              <p className="text-sm text-blue-700">
-                Scan product barcodes to check items into <strong>Store</strong>. Your name and check-in time will be recorded automatically.
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Store Department</h1>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                Check In & Out via QR Scan • WholeSale, Retail & Cmd Options • Product Returns
               </p>
             </div>
           </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              onClick={fetchInventory}
+              disabled={loading}
+              className="px-3.5 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin text-blue-600" : "text-gray-500"} />
+              Refresh
+            </button>
+          </div>
         </div>
 
-        {/* Payment Displays */}
-        <div className="space-y-4 mb-6">
-          <DepartmentPaymentSummary department="Store" refreshKey={scanCount} />
-          <PaymentDisplay userName={user?.name || user?.username || ""} department="Store" scanCount={scanCount} />
-          <PaymentByDesignDisplay userName={user?.name || user?.username || ""} department="Store" scanCount={scanCount} />
-        </div>
-
-        {/* Scanner Section */}
-        {!scanning && !barcodeDetails && !finalStickerDetails && !loading && (error === "") && (
-          <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Scan className="text-blue-600" size={40} />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Store Inventory Management</h2>
-            <p className="text-gray-600 mb-6">
-              Scan individual items or final stickers to manage store inventory
-            </p>
-            
-            {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <button
-                onClick={() => startScanning("check-in")}
-                className="bg-green-600 text-white py-4 rounded-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-              >
-                <ArrowDownToLine size={20} />
-                Check In
-              </button>
-              <button
-                onClick={() => startScanning("check-out")}
-                className="bg-orange-600 text-white py-4 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
-              >
-                <ArrowUpFromLine size={20} />
-                Check Out
-              </button>
-            </div>
-            
-            <p className="text-xs text-gray-500">
-              <strong>Check In:</strong> Add items to store inventory &nbsp;|&nbsp; 
-              <strong>Check Out:</strong> Dispatch items for delivery
+        {/* Metric Cards - Necessary Semantic Colors on Numbers */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">In Store Inventory</p>
+            <p className="text-2xl font-bold text-blue-600 mt-1">{summary.totalInStore}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Value: Rs. {summary.inventoryValue.toLocaleString()}
             </p>
           </div>
-        )}
 
-        {/* Barcode Scanner Input - Waiting for Scan */}
-        {scanning && (
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className={`flex-1 text-center p-3 rounded-lg ${scanMode === "check-in" ? "bg-green-100" : "bg-orange-100"}`}>
-                <h2 className="text-lg font-semibold flex items-center justify-center gap-2">
-                  {scanMode === "check-in" ? (
-                    <>
-                      <ArrowDownToLine className="text-green-600" size={20} />
-                      <span className="text-green-800">Waiting for Check In Scan...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpFromLine className="text-orange-600" size={20} />
-                      <span className="text-orange-800">Waiting for Check Out Scan...</span>
-                    </>
-                  )}
-                </h2>
-              </div>
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Checked Out / Dispatched</p>
+            <p className="text-2xl font-bold text-amber-600 mt-1">{summary.totalDispatched}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Receivables: Rs. {summary.dispatchedValue.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Revenue</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">Rs. {summary.totalRevenue.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {summary.totalDelivered} suits paid & delivered
+            </p>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Returns Processed</p>
+            <p className="text-2xl font-bold text-purple-600 mt-1">{summary.totalReturned}</p>
+            <p className="text-xs text-gray-500 mt-1">Restocked to inventory</p>
+          </div>
+        </div>
+
+        {/* Operation & QR Scanning Panel */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-2xs mb-6">
+          {/* Mode Switcher Buttons - Clear Semantic Indicator on Active Tab */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-gray-100">
+            <div className="inline-flex p-1 bg-gray-100 rounded-lg gap-1">
               <button
-                onClick={resetScanner}
-                className="ml-2 p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full transition"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="animate-pulse mb-4">
-                <div className={`w-16 h-16 ${scanMode === "check-in" ? "bg-green-100" : "bg-orange-100"} rounded-full flex items-center justify-center`}>
-                  <Scan className={scanMode === "check-in" ? "text-green-600" : "text-orange-600"} size={32} />
-                </div>
-              </div>
-              <p className="text-gray-600 mb-4">Point your barcode scanner at the product barcode</p>
-              <input
-                ref={scannerInputRef}
-                type="text"
-                value={scannerInput}
-                onChange={(e) => setScannerInput(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter' && scannerInput.trim()) {
-                    e.preventDefault();
-                    const value = scannerInput.trim();
-                    setScannerInput("");
-                    setScanning(false);
-                    await processScan(value);
-                  }
+                type="button"
+                onClick={() => {
+                  setActiveMode("check-in");
+                  setLastScannedResult(null);
                 }}
-                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 ${scanMode === "check-in" ? "focus:ring-green-500 focus:border-green-500" : "focus:ring-orange-500 focus:border-orange-500"} text-center opacity-0 absolute`}
-                autoComplete="off"
-                autoFocus
-              />
-              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
-                <div className={`h-full ${scanMode === "check-in" ? "bg-green-600" : "bg-orange-600"} rounded-full animate-[scan_1.5s_ease-in-out_infinite]`} style={{width: '30%'}}></div>
-              </div>
-              <p className="text-xs text-gray-400 mt-3">Scanner input is active and ready</p>
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading && (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Processing barcode...</p>
-          </div>
-        )}
-
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-center gap-3">
-            <AlertCircle className="text-red-600" size={20} />
-            <p className="text-red-700">{error}</p>
-          </div>
-        )}
-
-        {/* Success Message */}
-        {success && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex items-center gap-3">
-            <CheckCircle className="text-green-600" size={20} />
-            <p className="text-green-700">{success}</p>
-          </div>
-        )}
-
-        {/* Barcode Details */}
-        {barcodeDetails && (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-bold">{barcodeDetails.design}</h3>
-                  <p className="opacity-90">Unit #{barcodeDetails.unitNumber}</p>
-                </div>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-sm">
-                  {barcodeDetails.currentDepartment}
-                </span>
-              </div>
-            </div>
-
-            {/* Details */}
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Item</p>
-                  <p className="font-semibold">{barcodeDetails.item}</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Size</p>
-                  <p className="font-semibold">{getSizeLabel(barcodeDetails.size)}</p>
-                </div>
-              </div>
-
-              {/* Scan Info */}
-              <div className="bg-blue-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock size={16} className="text-blue-600" />
-                  <p className="text-sm font-medium text-blue-800">Check-In Recorded</p>
-                </div>
-                <div className="text-sm text-blue-700">
-                  <p><strong>Checked in by:</strong> {user?.name}</p>
-                  <p><strong>Time:</strong> {formatDate(barcodeDetails.scannedAt || new Date().toISOString())}</p>
-                  <p><strong>Department:</strong> Store</p>
-                </div>
-              </div>
-
-              {/* History Toggle */}
-              <button
-                onClick={() => setShowHistory(!showHistory)}
-                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeMode === "check-in"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
               >
-                <History size={16} />
-                {showHistory ? "Hide" : "Show"} Scan History ({barcodeDetails.departmentHistory?.length || 0})
+                <ArrowDownToLine size={14} />
+                1. Check In
               </button>
 
-              {/* History */}
-              {showHistory && barcodeDetails.departmentHistory && (
-                <div className="border rounded-lg divide-y">
-                  {barcodeDetails.departmentHistory.map((scan, index) => (
-                    <div key={index} className="p-3 flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{scan.department}</p>
-                        <p className="text-xs text-gray-500">
-                          {scan.scannedBy ? `by ${scan.scannedBy}` : "Unknown user"}
-                        </p>
-                      </div>
-                      <p className="text-xs text-gray-500">{formatDate(scan.scannedAt)}</p>
-                    </div>
-                  ))}
-                </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveMode("check-out");
+                  setLastScannedResult(null);
+                }}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeMode === "check-out"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <ArrowUpFromLine size={14} />
+                2. Check Out
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveMode("return");
+                  setLastScannedResult(null);
+                }}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeMode === "return"
+                    ? "bg-rose-600 text-white shadow-xs"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <RotateCcw size={14} />
+                3. Return
+              </button>
+            </div>
+
+            {/* Camera QR Scanner Toggle */}
+            <button
+              type="button"
+              onClick={isCameraActive ? stopCameraScanner : startCameraScanner}
+              className={`px-3 py-1.5 border rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                isCameraActive
+                  ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              {isCameraActive ? (
+                <>
+                  <CameraOff size={14} />
+                  Stop Camera
+                </>
+              ) : (
+                <>
+                  <Camera size={14} className="text-gray-600" />
+                  Camera QR Scan
+                </>
               )}
-            </div>
-
-            {/* Actions */}
-            <div className="p-4 border-t">
-              <button
-                onClick={resetScanner}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-              >
-                Check In Another
-              </button>
-            </div>
+            </button>
           </div>
-        )}
 
-        {/* Final Sticker Details */}
-        {finalStickerDetails && (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            {/* Header */}
-            <div className={`text-white p-4 ${scanMode === "check-in" ? "bg-gradient-to-r from-green-500 to-green-600" : "bg-gradient-to-r from-orange-500 to-orange-600"}`}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-bold">{finalStickerDetails.design}</h3>
-                  <p className="opacity-90">Suit #{finalStickerDetails.unitNumber}</p>
-                </div>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-sm">
-                  {scanMode === "check-in" ? "Checked In" : "Dispatched"}
+          {/* Camera Viewfinder Box */}
+          {isCameraActive && (
+            <div className="mb-5 p-4 bg-gray-950 rounded-xl text-center text-white max-w-sm mx-auto">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-300 flex items-center gap-1.5 font-medium">
+                  <QrCode size={14} className="text-blue-400" />
+                  Align final sticker QR in box
                 </span>
+                <button
+                  type="button"
+                  onClick={stopCameraScanner}
+                  className="text-gray-400 hover:text-white text-xs font-medium"
+                >
+                  Close
+                </button>
+              </div>
+              <div id="qr-reader-container" className="w-full overflow-hidden rounded-lg bg-black"></div>
+            </div>
+          )}
+
+          {cameraError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
+              <AlertCircle size={15} className="shrink-0 text-red-600" />
+              <span>{cameraError}</span>
+            </div>
+          )}
+
+          {/* Form & Input */}
+          <div className="space-y-4 max-w-2xl">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                <span>
+                  {activeMode === "check-in" && "Scan Final Sticker QR to Check In"}
+                  {activeMode === "check-out" && "Scan Final Sticker QR to Check Out"}
+                  {activeMode === "return" && "Scan Final Sticker QR to Return"}
+                </span>
+                <span className="text-[11px] font-normal text-gray-400">
+                  Ready for handheld scanner or manual code
+                </span>
+              </label>
+
+              <div className="relative">
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && barcodeInput.trim()) {
+                      e.preventDefault();
+                      handleProcessBarcode(barcodeInput);
+                    }
+                  }}
+                  placeholder="Scan QR code with scanner gun or enter barcode data..."
+                  className="w-full bg-white border border-gray-300 rounded-lg px-3.5 py-2.5 pl-9 text-xs sm:text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                  autoFocus
+                />
+                <Scan size={16} className="absolute left-3 top-3 text-gray-400" />
               </div>
             </div>
 
-            {/* Details */}
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Suit Type</p>
-                  <p className="font-semibold">{finalStickerDetails.suitType}</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Size</p>
-                  <p className="font-semibold">{getSizeLabel(finalStickerDetails.size)}</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Selling Price</p>
-                  <p className="font-semibold text-green-600">Rs. {finalStickerDetails.sellingPrice?.toLocaleString()}</p>
+            {/* Check Out Fields */}
+            {activeMode === "check-out" && (
+              <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Checkout Type <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={checkoutType}
+                      onChange={(e) => setCheckoutType(e.target.value as "WholeSale" | "Retail" | "Cmd")}
+                      className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="WholeSale">1. WholeSale</option>
+                      <option value="Retail">2. Retail</option>
+                      <option value="Cmd">3. Cmd</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Remarks / Notes
+                    </label>
+                    <textarea
+                      value={checkoutRemarks}
+                      onChange={(e) => setCheckoutRemarks(e.target.value)}
+                      placeholder="Customer name, invoice #, buyer details, or notes..."
+                      rows={2}
+                      className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Status Info */}
-              <div className={`p-3 rounded-lg ${scanMode === "check-in" ? "bg-green-50" : "bg-orange-50"}`}>
-                <div className="flex items-center gap-2 mb-2">
-                  {scanMode === "check-in" ? (
-                    <ArrowDownToLine size={16} className="text-green-600" />
-                  ) : (
-                    <ArrowUpFromLine size={16} className="text-orange-600" />
+            {/* Return Fields */}
+            {activeMode === "return" && (
+              <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Return Remarks / Reason
+                </label>
+                <textarea
+                  value={returnRemarks}
+                  onChange={(e) => setReturnRemarks(e.target.value)}
+                  placeholder="Reason for return..."
+                  rows={2}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+                <p className="text-[11px] text-gray-500">
+                  Item will be restocked to store inventory (+1) and revenue reversed.
+                </p>
+              </div>
+            )}
+
+            {/* Semantic Action Submit Button */}
+            <button
+              type="button"
+              onClick={() => handleProcessBarcode(barcodeInput)}
+              disabled={processing || !barcodeInput.trim()}
+              className={`w-full py-2.5 rounded-lg text-xs font-bold text-white transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
+                activeMode === "check-in"
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : activeMode === "check-out"
+                  ? "bg-blue-600 hover:bg-blue-700"
+                  : "bg-rose-600 hover:bg-rose-700"
+              }`}
+            >
+              {processing ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" />
+                  Processing QR Scan...
+                </>
+              ) : (
+                <>
+                  {activeMode === "check-in" && <ArrowDownToLine size={15} />}
+                  {activeMode === "check-out" && <ArrowUpFromLine size={15} />}
+                  {activeMode === "return" && <RotateCcw size={15} />}
+                  {activeMode === "check-in" && "Check In to Store"}
+                  {activeMode === "check-out" && `Complete Check Out (${checkoutType})`}
+                  {activeMode === "return" && "Process Return to Inventory"}
+                </>
+              )}
+            </button>
+
+            {/* Status Feedback */}
+            {lastScannedResult && (
+              <div
+                className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                  lastScannedResult.type === "success"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                    : "bg-red-50 border-red-200 text-red-800"
+                }`}
+              >
+                {lastScannedResult.type === "success" ? (
+                  <CheckCircle size={15} className="text-emerald-600 mt-0.5 shrink-0" />
+                ) : (
+                  <AlertCircle size={15} className="text-red-600 mt-0.5 shrink-0" />
+                )}
+                <div>
+                  <p className="font-semibold">{lastScannedResult.message}</p>
+                  {lastScannedResult.item && (
+                    <p className="text-[11px] opacity-80 mt-0.5">
+                      {lastScannedResult.item.design} • {lastScannedResult.item.suitType} • Size:{" "}
+                      {lastScannedResult.item.size} • Unit #{lastScannedResult.item.unitNumber} • Price: Rs.{" "}
+                      {lastScannedResult.item.sellingPrice?.toLocaleString()}
+                    </p>
                   )}
-                  <p className={`text-sm font-medium ${scanMode === "check-in" ? "text-green-800" : "text-orange-800"}`}>
-                    {scanMode === "check-in" ? "Checked Into Store" : "Dispatched for Delivery"}
-                  </p>
-                </div>
-                <div className={`text-sm ${scanMode === "check-in" ? "text-green-700" : "text-orange-700"}`}>
-                  <p><strong>{scanMode === "check-in" ? "Checked in" : "Dispatched"} by:</strong> {user?.name}</p>
-                  <p><strong>Time:</strong> {formatDate(new Date().toISOString())}</p>
-                  <p><strong>Status:</strong> {finalStickerDetails.status}</p>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
 
-              {scanMode === "check-out" && (
-                <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                  <p className="text-sm text-yellow-800">
-                    <strong>💰 Payment Pending:</strong> Rs. {finalStickerDetails.sellingPrice?.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-yellow-600 mt-1">
-                    Use Revenue page to mark payment as received
-                  </p>
+        {/* Inventory Records Table Section */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+          {/* Filter Bar */}
+          <div className="p-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 bg-gray-50/70">
+            <div className="inline-flex p-0.5 bg-gray-200/70 rounded-lg gap-0.5 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setActiveTab("in_store")}
+                className={`px-3 py-1.5 rounded-md text-xs transition whitespace-nowrap cursor-pointer ${
+                  activeTab === "in_store"
+                    ? "bg-white text-blue-700 shadow-2xs font-bold"
+                    : "text-gray-600 hover:text-gray-900 font-medium"
+                }`}
+              >
+                In Store ({summary.totalInStore})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("dispatched")}
+                className={`px-3 py-1.5 rounded-md text-xs transition whitespace-nowrap cursor-pointer ${
+                  activeTab === "dispatched"
+                    ? "bg-white text-amber-700 shadow-2xs font-bold"
+                    : "text-gray-600 hover:text-gray-900 font-medium"
+                }`}
+              >
+                Dispatched ({summary.totalDispatched})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("returned")}
+                className={`px-3 py-1.5 rounded-md text-xs transition whitespace-nowrap cursor-pointer ${
+                  activeTab === "returned"
+                    ? "bg-white text-purple-700 shadow-2xs font-bold"
+                    : "text-gray-600 hover:text-gray-900 font-medium"
+                }`}
+              >
+                Returned ({summary.totalReturned})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("all")}
+                className={`px-3 py-1.5 rounded-md text-xs transition whitespace-nowrap cursor-pointer ${
+                  activeTab === "all"
+                    ? "bg-white text-gray-900 shadow-2xs font-bold"
+                    : "text-gray-600 hover:text-gray-900 font-medium"
+                }`}
+              >
+                All Items
+              </button>
+            </div>
+
+            <div className="relative w-full sm:w-60">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Filter by design, remarks..."
+                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-1.5 pl-8 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <Search size={13} className="absolute left-2.5 top-2.5 text-gray-400" />
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-4">Design & Unit</th>
+                  <th className="py-2.5 px-4">Size & Suit</th>
+                  <th className="py-2.5 px-4">Quality Category</th>
+                  <th className="py-2.5 px-4">Price</th>
+                  <th className="py-2.5 px-4">Status</th>
+                  <th className="py-2.5 px-4">Details</th>
+                  <th className="py-2.5 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-gray-400 font-medium">
+                      Loading store records...
+                    </td>
+                  </tr>
+                ) : items.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-gray-400 font-medium">
+                      No records found.
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => {
+                    const isCatB = item.category === "B" || item.isDefective;
+                    const isDispatched = item.status === "dispatched";
+                    const isDelivered = item.status === "delivered";
+
+                    return (
+                      <tr key={item._id} className="hover:bg-gray-50/80 transition">
+                        <td className="py-2.5 px-4">
+                          <span className="font-semibold text-gray-900 block">{item.design}</span>
+                          <span className="text-[11px] font-mono text-gray-500">Unit #{item.unitNumber}</span>
+                        </td>
+
+                        <td className="py-2.5 px-4 text-gray-700">
+                          {item.suitType} <span className="text-gray-400">({item.size})</span>
+                        </td>
+
+                        {/* Necessary Semantic Quality Badges */}
+                        <td className="py-2.5 px-4">
+                          {isCatB ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                              <AlertTriangle size={12} className="text-amber-600" />
+                              Cat B (Defect)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <ShieldCheck size={12} className="text-emerald-600" />
+                              Cat A (OK)
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 font-semibold text-gray-900">
+                          Rs. {item.sellingPrice?.toLocaleString()}
+                        </td>
+
+                        {/* Necessary Status Badges */}
+                        <td className="py-2.5 px-4">
+                          {item.status === "in_store" && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                              In Store
+                            </span>
+                          )}
+                          {item.status === "dispatched" && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              Dispatched
+                            </span>
+                          )}
+                          {item.status === "delivered" && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Delivered
+                            </span>
+                          )}
+                          {item.status === "packed" && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                              Packed
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 max-w-xs text-gray-600">
+                          {item.dispatchInfo?.checkoutType && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-gray-900 text-[11px]">
+                                {item.dispatchInfo.checkoutType}
+                              </span>
+                              {item.dispatchInfo.remarks && (
+                                <span className="text-gray-500 text-[11px] truncate" title={item.dispatchInfo.remarks}>
+                                  — {item.dispatchInfo.remarks}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {item.returnInfo?.returnedAt && (
+                            <div className="text-[11px] text-purple-700 font-medium">
+                              Returned: {new Date(item.returnInfo.returnedAt).toLocaleDateString()}
+                              {item.returnInfo.remarks && ` (${item.returnInfo.remarks})`}
+                            </div>
+                          )}
+                          {!item.dispatchInfo?.checkoutType && !item.returnInfo?.returnedAt && (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Action Buttons with Subtle Semantic Accents */}
+                        <td className="py-2.5 px-4 text-right">
+                          {(isDispatched || isDelivered) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItemToReturn(item);
+                                setShowReturnModal(true);
+                              }}
+                              className="px-2.5 py-1 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md transition cursor-pointer"
+                            >
+                              Return
+                            </button>
+                          )}
+                          {item.status === "in_store" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMode("check-out");
+                                setBarcodeInput(item.barcodeData);
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }}
+                              className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition cursor-pointer"
+                            >
+                              Checkout
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Return Modal */}
+      {showReturnModal && itemToReturn && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-5 shadow-lg border border-gray-200">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-200 mb-3">
+              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
+                <RotateCcw size={16} className="text-rose-600" />
+                Return Item to Inventory
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReturnModal(false);
+                  setItemToReturn(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs mb-3 space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Design:</span>
+                <span className="font-semibold text-gray-900">{itemToReturn.design} (Unit #{itemToReturn.unitNumber})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Price:</span>
+                <span className="font-semibold text-gray-900">Rs. {itemToReturn.sellingPrice?.toLocaleString()}</span>
+              </div>
+              {itemToReturn.dispatchInfo?.checkoutType && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Checkout Type:</span>
+                  <span className="font-semibold text-blue-700">{itemToReturn.dispatchInfo.checkoutType}</span>
                 </div>
               )}
             </div>
 
-            {/* Actions */}
-            <div className="p-4 border-t">
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Return Remarks
+              </label>
+              <textarea
+                value={returnRemarks}
+                onChange={(e) => setReturnRemarks(e.target.value)}
+                placeholder="Reason for return..."
+                rows={2}
+                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
               <button
-                onClick={resetScanner}
-                className={`w-full text-white py-3 rounded-lg font-semibold transition-colors ${scanMode === "check-in" ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}
+                type="button"
+                onClick={() => {
+                  setShowReturnModal(false);
+                  setItemToReturn(null);
+                }}
+                disabled={processing}
+                className="px-3.5 py-1.5 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition cursor-pointer"
               >
-                Scan Another
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmItemReturn}
+                disabled={processing}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-2xs"
+              >
+                {processing ? "Processing..." : "Confirm Return"}
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

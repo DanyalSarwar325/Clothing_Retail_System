@@ -3,7 +3,7 @@ import DbConnect from "@/app/libs/dbConnect";
 import FinalSticker from "@/app/libs/models/finalSticker";
 import Barcode from "@/app/libs/models/barcode";
 
-// GET - Get all final stickers or filter by design
+// GET - Get all final stickers or filter by design/category/status
 export async function GET(request: NextRequest) {
   try {
     await DbConnect();
@@ -11,17 +11,30 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
     const status = searchParams.get("status");
+    const category = searchParams.get("category"); // "A" or "B"
 
     const filter: any = {};
     if (design) filter.design = design;
     if (status) filter.status = status;
+    if (category) filter.category = category;
 
-    const stickers = await FinalSticker.find(filter).sort({ design: 1, size: 1, unitNumber: 1 });
+    // Sort by design, category ("A" first, then "B"), size, unitNumber
+    const stickers = await FinalSticker.find(filter).sort({
+      design: 1,
+      category: 1,
+      size: 1,
+      unitNumber: 1,
+    });
+
+    const categoryACount = stickers.filter((s: any) => s.category === "A").length;
+    const categoryBCount = stickers.filter((s: any) => s.category === "B").length;
 
     return NextResponse.json({
       success: true,
       stickers,
       count: stickers.length,
+      categoryACount,
+      categoryBCount,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -31,13 +44,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Generate final stickers for a design
+// POST - Generate final stickers for a design with automatic 2pc/3pc detection & Category A/B grouping
 export async function POST(request: NextRequest) {
   try {
     await DbConnect();
 
     const body = await request.json();
-    const { design, sellingPrice, suitType, departmentRates } = body;
+    const { design, sellingPrice, departmentRates } = body;
 
     if (!design) {
       return NextResponse.json(
@@ -53,15 +66,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!suitType || !["2pc", "3pc"].includes(suitType)) {
-      return NextResponse.json(
-        { success: false, message: "Suit type must be 2pc or 3pc" },
-        { status: 400 }
-      );
-    }
-
     // Validate department rates
-    if (!departmentRates || departmentRates.Packing < 0 || departmentRates.Store < 0 || departmentRates.Packing === undefined || departmentRates.Store === undefined) {
+    if (
+      !departmentRates ||
+      departmentRates.Packing < 0 ||
+      departmentRates.Store < 0 ||
+      departmentRates.Packing === undefined ||
+      departmentRates.Store === undefined
+    ) {
       return NextResponse.json(
         { success: false, message: "Packing and Store rates are required" },
         { status: 400 }
@@ -72,57 +84,99 @@ export async function POST(request: NextRequest) {
     const existingStickers = await FinalSticker.findOne({ design });
     if (existingStickers) {
       return NextResponse.json(
-        { success: false, message: "Final stickers already generated for this design" },
+        { success: false, message: "Final stickers already generated for this design. Delete existing ones to regenerate." },
         { status: 400 }
       );
     }
 
-    // Get total barcodes per size for this design
-    const sizeGroups = await Barcode.aggregate([
-      { $match: { design } },
-      {
-        $group: {
-          _id: "$size",
-          totalBarcodes: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    // Fetch all barcodes for this design
+    const barcodes = await Barcode.find({ design }).sort({ size: 1, unitNumber: 1 }).lean();
 
-    if (sizeGroups.length === 0) {
+    if (!barcodes || barcodes.length === 0) {
       return NextResponse.json(
         { success: false, message: "No barcodes found for this design" },
         { status: 404 }
       );
     }
 
-    const divisor = suitType === "2pc" ? 2 : 3;
+    // Automatically detect suitType: if any barcode has item === "Dupatta" or suitType === "3pc", it's 3pc; otherwise 2pc
+    const hasDupatta = barcodes.some(
+      (b: any) => b.item === "Dupatta" || b.suitType === "3pc"
+    );
+    const detectedSuitType = hasDupatta ? "3pc" : "2pc";
+    const divisor = detectedSuitType === "3pc" ? 3 : 2;
 
-    // Generate final stickers: for each size, total barcodes / divisor = number of stickers
-    const stickersToCreate: any[] = [];
+    const SIZES = ["S", "M", "L"] as const;
+    const catAStickers: any[] = [];
+    const catBStickers: any[] = [];
 
-    for (const group of sizeGroups) {
-      const size = group._id; // "S", "M", or "L"
-      const totalBarcodesForSize = group.totalBarcodes;
-      const stickerCount = Math.floor(totalBarcodesForSize / divisor);
+    let totalGlobalSuits = 0;
 
-      for (let i = 1; i <= stickerCount; i++) {
-        // Generate unique barcode data for final sticker
+    for (const size of SIZES) {
+      const sizeBarcodes = barcodes.filter((b: any) => b.size === size);
+      if (sizeBarcodes.length === 0) continue;
+
+      // Group barcodes by unitNumber
+      const unitMap = new Map<number, any[]>();
+      for (const b of sizeBarcodes) {
+        const uNum = b.unitNumber || 1;
+        if (!unitMap.has(uNum)) unitMap.set(uNum, []);
+        unitMap.get(uNum)!.push(b);
+      }
+
+      const totalSuitsForSize = Math.floor(sizeBarcodes.length / divisor);
+      if (totalSuitsForSize === 0) continue;
+
+      // Extract unique unit numbers present, sorted
+      const sortedUnitNumbers = Array.from(unitMap.keys()).sort((a, b) => a - b);
+
+      for (let i = 0; i < totalSuitsForSize; i++) {
+        const unitNum = sortedUnitNumbers[i] !== undefined ? sortedUnitNumbers[i] : i + 1;
+        const pieces = unitMap.get(unitNum) || [];
+
+        // Check if ANY piece in this unit is defective or damaged
+        const defectivePieces = pieces.filter(
+          (p: any) =>
+            p.status === "defective" ||
+            p.status === "damaged" ||
+            !!p.defectiveInfo
+        );
+
+        const isUnitDefective = defectivePieces.length > 0;
+        const category = isUnitDefective ? "B" : "A";
+        const categoryLabel = isUnitDefective ? "Category B - Defective" : "Category A - OK Quality";
+
+        let defectSummary = "";
+        if (isUnitDefective) {
+          defectSummary = defectivePieces
+            .map((dp: any) => `${dp.item}: ${dp.defectiveInfo?.reason || "Defective"}`)
+            .join("; ");
+        }
+
+        totalGlobalSuits++;
+
         const barcodePayload = {
           type: "final",
+          category,
           design,
           size,
-          suitType,
-          unitNumber: i,
+          suitType: detectedSuitType,
+          unitNumber: unitNum,
           sellingPrice,
-          timestamp: Date.now() + stickersToCreate.length, // ensure uniqueness
+          isDefective: isUnitDefective,
+          timestamp: Date.now() + totalGlobalSuits,
         };
 
-        stickersToCreate.push({
+        const stickerDoc = {
           design,
           size,
-          suitType,
-          unitNumber: i,
+          suitType: detectedSuitType,
+          category,
+          categoryLabel,
+          isDefective: isUnitDefective,
+          defectSummary: defectSummary || undefined,
+          componentBarcodeIds: pieces.map((p: any) => p._id.toString()),
+          unitNumber: unitNum,
           sellingPrice,
           departmentRates: [
             { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
@@ -132,26 +186,42 @@ export async function POST(request: NextRequest) {
           status: "generated",
           currentDepartment: "Press",
           departmentHistory: [],
-        });
+        };
+
+        if (category === "A") {
+          catAStickers.push(stickerDoc);
+        } else {
+          catBStickers.push(stickerDoc);
+        }
       }
     }
 
-    if (stickersToCreate.length === 0) {
+    // Grouping rule: All Category A first, followed by Category B
+    const allStickersToCreate = [...catAStickers, ...catBStickers];
+
+    if (allStickersToCreate.length === 0) {
       return NextResponse.json(
-        { success: false, message: `Not enough barcodes per size to create ${suitType} stickers. Need at least ${divisor} barcodes per size.` },
+        {
+          success: false,
+          message: `Not enough barcodes to create ${detectedSuitType} stickers. Need at least ${divisor} pieces per size.`,
+        },
         { status: 400 }
       );
     }
 
-    const createdStickers = await FinalSticker.insertMany(stickersToCreate);
+    const createdStickers = await FinalSticker.insertMany(allStickersToCreate);
 
     return NextResponse.json({
       success: true,
-      message: `Generated ${createdStickers.length} final stickers for design "${design}" (${suitType})`,
+      message: `Generated ${createdStickers.length} final stickers for "${design}" (${detectedSuitType}): ${catAStickers.length} Category A (OK) and ${catBStickers.length} Category B (Defective)`,
       stickers: createdStickers,
       count: createdStickers.length,
+      categoryACount: catAStickers.length,
+      categoryBCount: catBStickers.length,
+      suitType: detectedSuitType,
     });
   } catch (error: any) {
+    console.error("Error generating final stickers:", error);
     return NextResponse.json(
       { success: false, message: error.message },
       { status: 500 }

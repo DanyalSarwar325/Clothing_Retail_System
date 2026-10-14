@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
+import { ShieldCheck, AlertTriangle, Printer, ArrowLeft } from "lucide-react";
 
 interface FinalStickerData {
   qr: string;
@@ -10,6 +11,10 @@ interface FinalStickerData {
   size: string;
   sizeCode: "S" | "M" | "L";
   suitType: "1pc" | "2pc" | "3pc";
+  category: "A" | "B";
+  categoryLabel: string;
+  isDefective: boolean;
+  defectSummary?: string;
   unitNumber: number;
   totalStickers: number;
   sellingPrice: number;
@@ -19,6 +24,7 @@ interface FinalStickerData {
 function PrintFinalStickersContent() {
   const searchParams = useSearchParams();
   const [stickers, setStickers] = useState<FinalStickerData[]>([]);
+  const [filterCategory, setFilterCategory] = useState<"ALL" | "A" | "B">("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -46,7 +52,6 @@ function PrintFinalStickersContent() {
         }
 
         const sizeLabels: Record<string, string> = { S: "Small", M: "Medium", L: "Large" };
-
         const totalStickers = data.stickers.length;
 
         // Generate QR codes for each sticker
@@ -59,6 +64,10 @@ function PrintFinalStickersContent() {
               size: sizeLabels[sticker.size] || sticker.size,
               sizeCode: sticker.size,
               suitType: sticker.suitType,
+              category: sticker.category || "A",
+              categoryLabel: sticker.categoryLabel || (sticker.category === "B" ? "Category B - Defective" : "Category A - OK Quality"),
+              isDefective: sticker.isDefective || sticker.category === "B",
+              defectSummary: sticker.defectSummary,
               unitNumber: sticker.unitNumber,
               totalStickers,
               sellingPrice: sticker.sellingPrice || 0,
@@ -81,7 +90,7 @@ function PrintFinalStickersContent() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl">Loading Final Stickers...</div>
+        <div className="text-sm font-semibold text-gray-700 animate-pulse">Loading Final Stickers...</div>
       </div>
     );
   }
@@ -89,11 +98,11 @@ function PrintFinalStickersContent() {
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="text-red-600 text-xl mb-4">Error: {error}</div>
+        <div className="text-center p-6 bg-red-50 rounded-2xl border border-red-200">
+          <div className="text-red-700 text-sm font-bold mb-4">Error: {error}</div>
           <button
             onClick={() => window.history.back()}
-            className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700"
+            className="bg-gray-800 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-gray-900 transition"
           >
             ← Go Back
           </button>
@@ -102,45 +111,85 @@ function PrintFinalStickersContent() {
     );
   }
 
-  // Group stickers by size
-  const groupedStickers: Record<string, FinalStickerData[]> = {};
-  stickers.forEach((s) => {
-    const key = s.size;
-    if (!groupedStickers[key]) groupedStickers[key] = [];
-    groupedStickers[key].push(s);
-  });
+  const categoryACount = stickers.filter((s) => s.category === "A").length;
+  const categoryBCount = stickers.filter((s) => s.category === "B").length;
+
+  // Filter stickers based on selected tab (ALL, Category A, or Category B)
+  const displayedStickers =
+    filterCategory === "ALL"
+      ? stickers
+      : stickers.filter((s) => s.category === filterCategory);
 
   return (
     <div className="p-8 print:p-0 bg-white min-h-screen">
       {/* Print Header - Hidden on print */}
-      <div className="print:hidden mb-8">
-        <h1 className="text-2xl font-bold text-center mb-2">
-          Final Stickers for Design: {design}
-        </h1>
-        <p className="text-center text-gray-600">
-          Total: {stickers.length} stickers (Complete Suits)
-        </p>
-      </div>
+      <div className="print:hidden mb-6 max-w-3xl mx-auto">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <h1 className="text-xl font-black text-gray-900">
+              Final Stickers: {design}
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Total <strong>{stickers.length}</strong> suits • Grouped by Category A then Category B
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.history.back()}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <ArrowLeft size={14} /> Back
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Printer size={15} /> Print {displayedStickers.length} Stickers (25×50mm)
+            </button>
+          </div>
+        </div>
 
-      {/* Action Buttons - Hidden on print */}
-      <div className="flex gap-4 mb-8 print:hidden">
-        <button
-          onClick={() => window.print()}
-          className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700"
-        >
-          🖨️ Print Final Stickers (25mm × 50mm Landscape)
-        </button>
-        <button
-          onClick={() => window.history.back()}
-          className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700"
-        >
-          ← Go Back
-        </button>
+        {/* Category breakdown stats & print filters */}
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+          <span className="text-xs font-bold text-gray-600 mr-1">Filter Print View:</span>
+          <button
+            onClick={() => setFilterCategory("ALL")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              filterCategory === "ALL"
+                ? "bg-purple-600 text-white shadow-2xs"
+                : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+            }`}
+          >
+            All Stickers ({stickers.length})
+          </button>
+          <button
+            onClick={() => setFilterCategory("A")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              filterCategory === "A"
+                ? "bg-emerald-600 text-white shadow-2xs"
+                : "bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50"
+            }`}
+          >
+            <ShieldCheck size={14} />
+            Cat A • OK Quality ({categoryACount})
+          </button>
+          <button
+            onClick={() => setFilterCategory("B")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              filterCategory === "B"
+                ? "bg-amber-600 text-white shadow-2xs"
+                : "bg-white text-amber-800 border border-amber-200 hover:bg-amber-50"
+            }`}
+          >
+            <AlertTriangle size={14} />
+            Cat B • Defective ({categoryBCount})
+          </button>
+        </div>
       </div>
 
       {/* Stickers printed sequentially for 50mm thermal roll */}
-      <div className="print:block">
-        {stickers.map((sticker, index) => (
+      <div className="print:block max-w-xs mx-auto">
+        {displayedStickers.map((sticker, index) => (
           <FinalStickerCard key={index} sticker={sticker} />
         ))}
       </div>
@@ -230,48 +279,68 @@ function PrintFinalStickersContent() {
 
 export default function PrintFinalStickersPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl">Loading Final Stickers...</div>
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-sm font-semibold text-gray-600">Loading Final Stickers...</div>
+        </div>
+      }
+    >
       <PrintFinalStickersContent />
     </Suspense>
   );
 }
 
 function FinalStickerCard({ sticker }: { sticker: FinalStickerData }) {
-  const suitTypeColors = {
-    "1pc": "bg-blue-100 text-blue-800",
-    "2pc": "bg-green-100 text-green-800",
-    "3pc": "bg-purple-100 text-purple-800",
-  };
-
   const suitItems: Record<string, string> = {
+    "1pc": "Qameez",
     "2pc": "Qameez + Shalwar",
     "3pc": "Qameez + Shalwar + Dupatta",
   };
 
+  const isCatB = sticker.category === "B";
+
   return (
-    <div className="sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 bg-white flex flex-row items-center gap-2 px-2">
+    <div
+      className={`sticker-card border-b-2 border-dashed border-gray-400 pb-3 mb-3 pt-2 bg-white flex flex-row items-center gap-2 px-2 ${
+        isCatB ? "bg-amber-50/20" : ""
+      }`}
+    >
       <img src={sticker.qr} alt="QR Code" className="sticker-qr w-20 h-20" />
       <div className="sticker-info text-center space-y-0.5 flex-1">
-        <div className="sticker-header bg-purple-600 text-white text-[6px] font-bold py-0.5 px-1 rounded mb-0.5 inline-block">
-          FINAL STICKER
-        </div>
+        {/* Category Header Badge */}
+        {isCatB ? (
+          <div className="sticker-header bg-amber-700 text-white text-[6.5px] font-black py-0.5 px-1.5 rounded mb-0.5 inline-block uppercase tracking-wider">
+            ⚠️ CAT B • DEFECTIVE
+          </div>
+        ) : (
+          <div className="sticker-header bg-emerald-800 text-white text-[6.5px] font-black py-0.5 px-1.5 rounded mb-0.5 inline-block uppercase tracking-wider">
+            ✓ CAT A • OK QUALITY
+          </div>
+        )}
+
         <p className="sticker-design text-[7px] font-bold text-gray-800 truncate max-w-[28mm]" title={sticker.design}>
           {sticker.design}
         </p>
-        <div className={`text-[7px] font-semibold py-0.5 px-1 rounded inline-block ${suitTypeColors[sticker.suitType] || "bg-gray-100 text-gray-800"}`}>
-          {sticker.suitType} | {sticker.sizeCode}
+
+        <div className="text-[6.5px] font-bold py-0.5 px-1 rounded inline-block bg-gray-100 text-gray-800">
+          {sticker.suitType} | Size: {sticker.sizeCode} | Unit #{sticker.unitNumber}
         </div>
+
         {suitItems[sticker.suitType] && (
-          <p className="text-[6px] text-gray-500">
+          <p className="text-[5.5px] text-gray-500 font-medium">
             {suitItems[sticker.suitType]}
           </p>
         )}
+
+        {isCatB && sticker.defectSummary && (
+          <p className="text-[5.5px] font-semibold text-red-600 truncate max-w-[28mm]" title={sticker.defectSummary}>
+            {sticker.defectSummary}
+          </p>
+        )}
+
         {sticker.sellingPrice > 0 && (
-          <p className="sticker-price text-[8px] font-bold text-green-700 bg-green-100 rounded py-0.5">
+          <p className="sticker-price text-[7.5px] font-black text-gray-900 bg-gray-100 rounded py-0.5 mt-0.5">
             PKR {sticker.sellingPrice.toLocaleString()}
           </p>
         )}

@@ -38,10 +38,17 @@ export interface IDepartmentPayment {
   amount: number;
 }
 
+export type StickerCategory = "A" | "B";
+
 export interface IFinalSticker extends Document {
   design: string;
   size: "S" | "M" | "L";
   suitType: SuitType;
+  category: StickerCategory; // "A" = OK Quality, "B" = Defective Quality
+  categoryLabel: string; // "Category A - OK Quality" | "Category B - Defective"
+  isDefective: boolean; // false for Cat A, true for Cat B
+  defectSummary?: string; // Summary of defect reasons if Category B
+  componentBarcodeIds?: string[]; // Barcode IDs of component pieces
   unitNumber: number;
   barcodeData: string; // JSON string of barcode payload
   sellingPrice: number; // Selling price for this suit type
@@ -57,6 +64,15 @@ export interface IFinalSticker extends Document {
     customerName?: string;
     customerPhone?: string;
     customerAddress?: string;
+    checkoutType?: "WholeSale" | "Retail" | "Cmd";
+    remarks?: string;
+  };
+  // Return tracking
+  returnInfo?: {
+    returnedAt: Date;
+    returnedBy: string;
+    remarks?: string;
+    previousStatus?: string;
   };
   // Payment tracking
   paymentInfo?: {
@@ -94,6 +110,11 @@ const FinalStickerSchema = new Schema<IFinalSticker>(
     design: { type: String, required: true },
     size: { type: String, enum: ["S", "M", "L"], required: true },
     suitType: { type: String, enum: ["1pc", "2pc", "3pc"], required: true },
+    category: { type: String, enum: ["A", "B"], default: "A", required: true },
+    categoryLabel: { type: String, default: "Category A - OK Quality" },
+    isDefective: { type: Boolean, default: false },
+    defectSummary: { type: String },
+    componentBarcodeIds: [{ type: String }],
     unitNumber: { type: Number, required: true },
     barcodeData: { type: String, required: true, unique: true },
     sellingPrice: { type: Number, required: true, default: 0 },
@@ -123,6 +144,14 @@ const FinalStickerSchema = new Schema<IFinalSticker>(
       customerName: { type: String },
       customerPhone: { type: String },
       customerAddress: { type: String },
+      checkoutType: { type: String, enum: ["WholeSale", "Retail", "Cmd"] },
+      remarks: { type: String },
+    },
+    returnInfo: {
+      returnedAt: { type: Date },
+      returnedBy: { type: String },
+      remarks: { type: String },
+      previousStatus: { type: String },
     },
     paymentInfo: {
       isPaid: { type: Boolean, default: false },
@@ -136,6 +165,7 @@ const FinalStickerSchema = new Schema<IFinalSticker>(
 );
 
 // Compound index for efficient queries
+FinalStickerSchema.index({ design: 1, category: 1, size: 1, unitNumber: 1 });
 FinalStickerSchema.index({ design: 1, size: 1, unitNumber: 1 });
 FinalStickerSchema.index({ status: 1 });
 

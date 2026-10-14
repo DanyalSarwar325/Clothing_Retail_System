@@ -2,14 +2,43 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sticker, RefreshCw, Printer, Trash2, Check, AlertCircle } from "lucide-react";
+import {
+  Sticker,
+  RefreshCw,
+  Printer,
+  Trash2,
+  Check,
+  AlertCircle,
+  ShieldCheck,
+  AlertTriangle,
+  Layers,
+  Sparkles,
+} from "lucide-react";
 import toast from "react-hot-toast";
-import QRCode from "qrcode";
+
+interface DesignStats {
+  design: string;
+  suitType: "2pc" | "3pc";
+  totalPieces: number;
+  totalSuits: number;
+  totalCategoryA: number;
+  totalCategoryB: number;
+  sizeBreakdown: Record<
+    string,
+    {
+      totalPieces: number;
+      totalSuits: number;
+      categoryA: number;
+      categoryB: number;
+      defectivePieces: number;
+    }
+  >;
+}
 
 interface DesignInfo {
   availableDesigns: string[];
   generatedDesigns: string[];
-  stickerCounts: Record<string, number>;
+  stickerCounts: Record<string, { total: number; catA: number; catB: number }>;
 }
 
 export default function FinalStickerGenerator() {
@@ -20,11 +49,13 @@ export default function FinalStickerGenerator() {
     stickerCounts: {},
   });
   const [selectedDesign, setSelectedDesign] = useState("");
+  const [designStats, setDesignStats] = useState<DesignStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [sellingPrice, setSellingPrice] = useState(0);
-  const [suitType, setSuitType] = useState<"2pc" | "3pc">("2pc");
+
   // Department rates for Packing and Store
   const [departmentRates, setDepartmentRates] = useState({
     Packing: 0,
@@ -39,9 +70,9 @@ export default function FinalStickerGenerator() {
 
       if (data.success) {
         setDesignInfo({
-          availableDesigns: data.availableDesigns,
-          generatedDesigns: data.generatedDesigns,
-          stickerCounts: data.stickerCounts,
+          availableDesigns: data.availableDesigns || [],
+          generatedDesigns: data.generatedDesigns || [],
+          stickerCounts: data.stickerCounts || {},
         });
       } else {
         toast.error(data.message || "Failed to fetch designs");
@@ -56,6 +87,34 @@ export default function FinalStickerGenerator() {
   useEffect(() => {
     fetchDesigns();
   }, []);
+
+  // Fetch detailed stats when selectedDesign changes
+  useEffect(() => {
+    if (!selectedDesign) {
+      setDesignStats(null);
+      return;
+    }
+
+    const fetchStats = async () => {
+      setLoadingStats(true);
+      try {
+        const res = await fetch(`/api/final-stickers/designs?design=${encodeURIComponent(selectedDesign)}`);
+        const data = await res.json();
+        if (data.success && data.stats) {
+          setDesignStats(data.stats);
+        } else {
+          setDesignStats(null);
+          toast.error(data.message || "Could not calculate design preview");
+        }
+      } catch (err) {
+        setDesignStats(null);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+
+    fetchStats();
+  }, [selectedDesign]);
 
   const generateStickers = async () => {
     if (!selectedDesign) {
@@ -84,7 +143,11 @@ export default function FinalStickerGenerator() {
       const response = await fetch("/api/final-stickers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ design: selectedDesign, sellingPrice, suitType, departmentRates }),
+        body: JSON.stringify({
+          design: selectedDesign,
+          sellingPrice,
+          departmentRates,
+        }),
       });
 
       const data = await response.json();
@@ -134,19 +197,21 @@ export default function FinalStickerGenerator() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6">
+    <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-          <Sticker className="text-purple-600" size={24} />
+        <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center text-purple-600">
+          <Sticker size={22} />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Final Stickers</h2>
-          <p className="text-sm text-gray-500">Generate combined suit stickers for Press department</p>
+          <h2 className="text-lg font-bold text-gray-900">Final Stickers & Polybag Packaging</h2>
+          <p className="text-xs text-gray-500">
+            Auto-detects 2pc/3pc, separates Category A (OK) & Category B (Defective), and groups print
+          </p>
         </div>
         <button
           onClick={fetchDesigns}
           disabled={loading}
-          className="ml-auto p-2 hover:bg-gray-100 rounded-lg transition"
+          className="ml-auto p-2 hover:bg-gray-100 rounded-lg transition cursor-pointer"
           title="Refresh"
         >
           <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
@@ -154,257 +219,307 @@ export default function FinalStickerGenerator() {
       </div>
 
       {/* Generate New Stickers Section */}
-      <div className="border border-gray-200 rounded-lg p-4 mb-6">
-        <h3 className="font-medium text-gray-900 mb-3">Generate New Final Stickers</h3>
+      <div className="border border-gray-200 rounded-xl p-5 mb-6 bg-gray-50/50">
+        <h3 className="font-bold text-gray-900 mb-3 text-sm flex items-center gap-2">
+          <Sparkles size={16} className="text-purple-600" />
+          Generate New Final Stickers
+        </h3>
 
         {designInfo.availableDesigns.length === 0 ? (
-          <div className="text-center py-4 text-gray-500">
-            <AlertCircle className="mx-auto mb-2" size={24} />
-            <p>No designs available for final sticker generation.</p>
-            <p className="text-sm">Generate initial barcodes first or all designs already have final stickers.</p>
+          <div className="text-center py-6 text-gray-500 bg-white rounded-xl border border-dashed border-gray-200">
+            <AlertCircle className="mx-auto mb-2 text-gray-400" size={28} />
+            <p className="font-medium text-gray-700">No designs pending final sticker generation.</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Either all designs have stickers generated, or initial piece barcodes haven't been created yet.
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
-            <select
-              value={selectedDesign}
-              onChange={(e) => setSelectedDesign(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              disabled={generating}
-            >
-              <option value="">Select a design</option>
-              {designInfo.availableDesigns.map((design) => (
-                <option key={design} value={design}>
-                  {design}
-                </option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                Select Design for Final Sticker Packaging
+              </label>
+              <select
+                value={selectedDesign}
+                onChange={(e) => setSelectedDesign(e.target.value)}
+                className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                disabled={generating}
+              >
+                <option value="">-- Choose an available design --</option>
+                {designInfo.availableDesigns.map((design) => (
+                  <option key={design} value={design}>
+                    {design}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            {/* Selling Price & Suit Type */}
-            {selectedDesign && (
-              <div className="bg-purple-50 rounded-lg p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Sticker Configuration</h4>
-                <div className="grid grid-cols-2 gap-3">
+            {/* Loading Stats Spinner */}
+            {loadingStats && (
+              <div className="p-6 bg-white rounded-xl border border-gray-200 text-center text-xs text-gray-500 flex items-center justify-center gap-2">
+                <RefreshCw size={16} className="animate-spin text-purple-600" />
+                Analyzing barcodes & defect records for {selectedDesign}...
+              </div>
+            )}
+
+            {/* Intelligent Design Breakdown Preview */}
+            {selectedDesign && designStats && !loadingStats && (
+              <div className="bg-white rounded-xl border border-purple-200 p-4 shadow-2xs space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Selling Price (PKR)</label>
+                    <h4 className="text-sm font-bold text-gray-900">
+                      Automated Production Detection: {designStats.design}
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      Analyzed {designStats.totalPieces} scanned pieces across sizes
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                      <Layers size={13} />
+                      {designStats.suitType === "3pc"
+                        ? "3pc Suit (Qameez + Shalwar + Dupatta)"
+                        : "2pc Suit (Qameez + Shalwar)"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Category A & B Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl">
+                    <div className="flex items-center justify-between text-emerald-800 mb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck size={16} className="text-emerald-600" />
+                        Category A (OK Quality)
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black text-emerald-900">
+                      {designStats.totalCategoryA}{" "}
+                      <span className="text-xs font-normal text-emerald-700">stickers</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 mt-1">
+                      100% flawless suits ready for premium retail
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
+                    <div className="flex items-center justify-between text-amber-800 mb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <AlertTriangle size={16} className="text-amber-600" />
+                        Category B (Defective)
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black text-amber-900">
+                      {designStats.totalCategoryB}{" "}
+                      <span className="text-xs font-normal text-amber-700">stickers</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Contains piece(s) marked defective at Quality
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-purple-50/80 border border-purple-200 rounded-xl">
+                    <div className="flex items-center justify-between text-purple-800 mb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <Sticker size={16} className="text-purple-600" />
+                        Total Final Stickers
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black text-purple-900">
+                      {designStats.totalSuits}{" "}
+                      <span className="text-xs font-normal text-purple-700">polybags</span>
+                    </div>
+                    <p className="text-[11px] text-purple-700 mt-1">
+                      Cat A prints first, followed by Cat B
+                    </p>
+                  </div>
+                </div>
+
+                {/* Size breakdown mini table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-gray-500 uppercase font-semibold">
+                        <th className="py-1.5 px-2">Size</th>
+                        <th className="py-1.5 px-2">Total Pieces</th>
+                        <th className="py-1.5 px-2 text-emerald-700">Category A (OK)</th>
+                        <th className="py-1.5 px-2 text-amber-700">Category B (Defective)</th>
+                        <th className="py-1.5 px-2 text-right">Total Suits</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {["S", "M", "L"].map((sz) => {
+                        const sData = designStats.sizeBreakdown[sz] || {
+                          totalPieces: 0,
+                          totalSuits: 0,
+                          categoryA: 0,
+                          categoryB: 0,
+                        };
+                        return (
+                          <tr key={sz} className="hover:bg-gray-50">
+                            <td className="py-1.5 px-2 font-bold text-gray-800">Size {sz}</td>
+                            <td className="py-1.5 px-2 text-gray-600">{sData.totalPieces} pcs</td>
+                            <td className="py-1.5 px-2 font-semibold text-emerald-700">
+                              {sData.categoryA} suits
+                            </td>
+                            <td className="py-1.5 px-2 font-semibold text-amber-700">
+                              {sData.categoryB} suits
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-bold text-gray-900">
+                              {sData.totalSuits} suits
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pricing & Department Rates */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Selling Price (PKR) - Applies to Both A & B
+                    </label>
                     <input
                       type="number"
                       min="0"
                       value={sellingPrice || ""}
                       onChange={(e) => setSellingPrice(Number(e.target.value))}
                       placeholder="e.g. 5000"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
                       disabled={generating}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Suit Type</label>
-                    <select
-                      value={suitType}
-                      onChange={(e) => setSuitType(e.target.value as "2pc" | "3pc")}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      disabled={generating}
-                    >
-                      <option value="2pc">2pc (Qameez + Shalwar)</option>
-                      <option value="3pc">3pc (Qameez + Shalwar + Dupatta)</option>
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Total barcodes per size will be divided by {suitType === "2pc" ? 2 : 3} to get sticker count
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* Department Rates for Packing and Store */}
-            {selectedDesign && (
-              <div className="bg-green-50 rounded-lg p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Set Department Rates (PKR per scan)</h4>
-                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Packing Rate</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Packing Rate (PKR / suit)
+                    </label>
                     <input
                       type="number"
                       min="0"
-                      value={departmentRates.Packing !== undefined && departmentRates.Packing !== null ? departmentRates.Packing : ""}
-                      onChange={(e) => setDepartmentRates({ ...departmentRates, Packing: Number(e.target.value) })}
-                      placeholder="Rate per scan"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      value={departmentRates.Packing !== undefined ? departmentRates.Packing : ""}
+                      onChange={(e) =>
+                        setDepartmentRates({ ...departmentRates, Packing: Number(e.target.value) })
+                      }
+                      placeholder="Packing rate"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
                       disabled={generating}
                     />
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Store Rate</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Store Rate (PKR / suit)
+                    </label>
                     <input
                       type="number"
                       min="0"
-                      value={departmentRates.Store !== undefined && departmentRates.Store !== null ? departmentRates.Store : ""}
-                      onChange={(e) => setDepartmentRates({ ...departmentRates, Store: Number(e.target.value) })}
-                      placeholder="Rate per scan"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      value={departmentRates.Store !== undefined ? departmentRates.Store : ""}
+                      onChange={(e) =>
+                        setDepartmentRates({ ...departmentRates, Store: Number(e.target.value) })
+                      }
+                      placeholder="Store rate"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
                       disabled={generating}
                     />
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={generateStickers}
+                  disabled={generating || !selectedDesign}
+                  className="w-full mt-3 px-6 py-3 bg-purple-600 text-white rounded-xl font-bold text-xs hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                >
+                  {generating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Generating Final Stickers...
+                    </>
+                  ) : (
+                    <>
+                      <Printer size={16} />
+                      Generate & Print {designStats.totalSuits} Final Stickers ({designStats.totalCategoryA} Cat A +{" "}
+                      {designStats.totalCategoryB} Cat B)
+                    </>
+                  )}
+                </button>
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={generateStickers}
-              disabled={generating || !selectedDesign}
-              className="w-full px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {generating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Printer size={18} />
-                  Generate & Print Stickers
-                </>
-              )}
-            </button>
           </div>
         )}
       </div>
 
       {/* Generated Stickers List */}
       <div>
-        <h3 className="font-medium text-gray-900 mb-3">Generated Final Stickers</h3>
+        <h3 className="font-bold text-gray-900 mb-3 text-sm flex items-center gap-2">
+          <Sticker size={16} className="text-gray-600" />
+          Active Generated Final Stickers
+        </h3>
 
         {designInfo.generatedDesigns.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
-            <Sticker className="mx-auto mb-2 opacity-50" size={32} />
-            <p>No final stickers generated yet.</p>
+          <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-xl">
+            <Sticker className="mx-auto mb-2 opacity-40" size={32} />
+            <p className="text-xs font-medium">No final stickers generated yet.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {designInfo.generatedDesigns.map((design) => (
-              <div
-                key={design}
-                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                    <Check className="text-green-600" size={16} />
+          <div className="space-y-2.5">
+            {designInfo.generatedDesigns.map((design) => {
+              const counts = designInfo.stickerCounts[design] || { total: 0, catA: 0, catB: 0 };
+              return (
+                <div
+                  key={design}
+                  className="flex items-center justify-between p-3.5 bg-gray-50 hover:bg-gray-100/80 border border-gray-200/70 rounded-xl transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center text-purple-700">
+                      <Check size={16} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-900 text-xs">{design}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[11px] font-medium text-gray-500">
+                          Total: <strong>{counts.total}</strong> suits
+                        </span>
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          Cat A: {counts.catA}
+                        </span>
+                        <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          Cat B: {counts.catB}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{design}</p>
-                    <p className="text-sm text-gray-500">
-                      {designInfo.stickerCounts[design] || 0} stickers generated
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => printStickers(design)}
+                      className="px-3 py-1.5 text-xs font-semibold bg-white text-purple-700 border border-purple-200 hover:bg-purple-50 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      title="Print Stickers"
+                    >
+                      <Printer size={14} />
+                      Print
+                    </button>
+                    <button
+                      onClick={() => deleteStickers(design)}
+                      disabled={deleting === design}
+                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition disabled:opacity-50 cursor-pointer"
+                      title="Delete Stickers"
+                    >
+                      {deleting === design ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                      ) : (
+                        <Trash2 size={16} />
+                      )}
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => printStickers(design)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                    title="Print Stickers"
-                  >
-                    <Printer size={18} />
-                  </button>
-                  <button
-                    onClick={() => deleteStickers(design)}
-                    disabled={deleting === design}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                    title="Delete Stickers"
-                  >
-                    {deleting === design ? (
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
-                    ) : (
-                      <Trash2 size={18} />
-                    )}
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-export function PrintFinalStickers({ design }: { design: string }) {
-  const [stickers, setStickers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStickers = async () => {
-      try {
-        const response = await fetch(`/api/final-stickers?design=${encodeURIComponent(design)}`);
-        const data = await response.json();
-
-        if (data.success) {
-          const stickerData = data.stickers.map((sticker: any) => {
-            const qr = QRCode.toDataURL(JSON.stringify(sticker));
-            return { ...sticker, qr };
-          });
-          setStickers(await Promise.all(stickerData));
-        } else {
-          console.error("Failed to fetch stickers", data.message);
-        }
-      } catch (error) {
-        console.error("Error fetching stickers", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStickers();
-  }, [design]);
-
-  if (loading) {
-    return <div>Loading...</div>;
-  }
-
-  return (
-    <div className="p-4">
-      <button
-        onClick={() => window.print()}
-        className="bg-green-600 text-white px-4 py-2 rounded-lg mb-4"
-      >
-        🖨️ Print Stickers
-      </button>
-
-      <div className="print:block">
-        {stickers.map((sticker, index) => (
-          <div
-            key={index}
-            className="sticker-card border-b-2 border-dashed border-gray-400 pb-4 mb-4"
-          >
-            <img src={sticker.qr} alt="QR Code" className="w-40 h-40 mx-auto" />
-            <div className="mt-2 text-center">
-              <p className="text-sm font-bold text-gray-800">{sticker.design}</p>
-              <p className="text-sm text-gray-600">{sticker.suitType} | {sticker.size}</p>
-              <p className="text-sm font-semibold text-blue-600">Unit #{sticker.unitNumber}</p>
-              <p className="text-sm font-bold text-gray-900 bg-gray-100 rounded py-1">{sticker.item}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <style jsx global>{`
-        @media print {
-          @page {
-            size: 50mm auto;
-            margin: 0;
-          }
-          body {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .sticker-card:not(:last-child) {
-            page-break-after: always;
-          }
-          .sticker-card {
-            page-break-inside: avoid;
-            margin-left: 3mm !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

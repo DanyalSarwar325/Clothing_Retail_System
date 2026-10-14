@@ -23,6 +23,7 @@ import {
   ArrowRight,
   TrendingUp,
   Receipt,
+  Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -108,6 +109,32 @@ export default function PurchaseOrdersPage() {
   const [barcodeQuantity, setBarcodeQuantity] = useState<number>(0);
   const [submittingBarcode, setSubmittingBarcode] = useState(false);
   const [barcodeSuccessMessage, setBarcodeSuccessMessage] = useState("");
+
+  // Delete Confirmation State
+  const [poToDelete, setPoToDelete] = useState<PurchaseOrder | null>(null);
+  const [deletingPO, setDeletingPO] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!poToDelete) return;
+    setDeletingPO(true);
+    try {
+      const res = await fetch(`/api/purchase-orders/${poToDelete._id}?cascade=true`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || `Purchase Order ${poToDelete.poNumber} deleted`);
+        setPoToDelete(null);
+        fetchPurchaseOrders();
+      } else {
+        toast.error(data.message || "Failed to delete purchase order");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error deleting purchase order");
+    } finally {
+      setDeletingPO(false);
+    }
+  };
 
   const fetchPurchaseOrders = async () => {
     setLoading(true);
@@ -545,6 +572,13 @@ export default function PurchaseOrdersPage() {
                               className="p-1.5 hover:bg-gray-200 text-gray-600 rounded-lg transition"
                             >
                               <ChevronRight size={18} />
+                            </button>
+                            <button
+                              onClick={() => setPoToDelete(po)}
+                              title="Delete Purchase Order"
+                              className="p-1.5 hover:bg-red-50 text-red-500 hover:text-red-700 rounded-lg transition cursor-pointer"
+                            >
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>
@@ -1161,6 +1195,99 @@ export default function PurchaseOrdersPage() {
                 ) : (
                   <p className="text-xs text-gray-400 italic">No cut piece receipts recorded yet.</p>
                 )}
+              </div>
+
+              {/* Details Modal Footer */}
+              <div className="mt-6 pt-4 border-t flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    const toDel = selectedPO;
+                    setShowDetailsModal(false);
+                    setPoToDelete(toDel);
+                  }}
+                  className="px-3 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg border border-red-200 transition font-medium flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 size={14} />
+                  Delete PO
+                </button>
+                <button
+                  onClick={() => setShowDetailsModal(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= MODAL 4: DELETE CONFIRMATION ================= */}
+        {poToDelete && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <div className="p-3 bg-red-100 text-red-600 rounded-xl">
+                  <Trash2 size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Delete Purchase Order</h3>
+                  <p className="text-xs text-gray-500">Please confirm before proceeding</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-xs mb-4 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">PO Number:</span>
+                  <strong className="text-gray-900 font-mono">{poToDelete.poNumber}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Design Name:</span>
+                  <strong className="text-gray-900">{poToDelete.design}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Current Status:</span>
+                  <span className="font-semibold text-gray-800">{poToDelete.status}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Planned Pieces:</span>
+                  <span className="font-semibold text-gray-800">{poToDelete.totalPlanned} pcs</span>
+                </div>
+                {poToDelete.totalBarcoded > 0 && (
+                  <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-800 font-semibold pt-1.5 mt-2">
+                    ⚠️ Warning: This PO has <strong>{poToDelete.totalBarcoded}</strong> generated barcodes. Deleting this PO will also permanently remove these {poToDelete.totalBarcoded} barcodes.
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-600 mb-6">
+                Are you sure you want to delete <strong className="text-gray-900">{poToDelete.poNumber}</strong>? This action cannot be undone.
+              </p>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setPoToDelete(null)}
+                  disabled={deletingPO}
+                  className="px-4 py-2 border rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={deletingPO}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                >
+                  {deletingPO ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      Yes, Delete PO
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
