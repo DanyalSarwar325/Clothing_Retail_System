@@ -99,6 +99,37 @@ export async function POST(request: NextRequest) {
       scannedBy: markedBy,
     });
 
+    // Initialize Admin Defect Decision review
+    if (isCompanionDefect) {
+      // Auto-approve all previous departments for companion pieces
+      barcode.adminDefectReview = {
+        reviewedAt: new Date(),
+        reviewedBy: "System (Companion Protection)",
+        notes: "Suit companion piece scrapped to complete broken suit. All workers receive full payment.",
+        status: "reviewed",
+        departmentReviews: (barcode.departmentHistory || [])
+          .filter((h: any) => h.department !== "Quality" && h.department !== "Admin")
+          .map((h: any) => ({
+            department: h.department,
+            workerName: h.scannedBy || "Worker",
+            rate: 0,
+            previouslyPaid: barcode.paidDepartments?.some((pd: any) => pd.department === h.department) || false,
+            decision: "approved",
+            decidedAt: new Date(),
+            decidedBy: "System",
+            notes: "Companion piece auto-approved",
+          })),
+      };
+    } else {
+      barcode.adminDefectReview = {
+        reviewedAt: new Date(),
+        reviewedBy: "Pending Admin Review",
+        notes: notes?.trim() || "",
+        status: "pending",
+        departmentReviews: [],
+      };
+    }
+
     await barcode.save();
 
     // Determine suit companion items that need to be scrapped together

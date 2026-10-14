@@ -11,10 +11,20 @@ import {
   Check, 
   Layers,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { DEFECT_REASONS } from "@/app/libs/models/barcode";
+
+const DEFECT_REASONS = [
+  "Wrong cutting",
+  "Fabric damaged",
+  "Stitching error",
+  "Machine damage",
+  "Color defect",
+  "Size error",
+  "Quality issue",
+  "Other",
+] as const;
 
 const DEPARTMENTS = [
   "Sewing", 

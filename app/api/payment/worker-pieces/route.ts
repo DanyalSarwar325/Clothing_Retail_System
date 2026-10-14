@@ -115,6 +115,7 @@ export async function GET(request: NextRequest) {
             scannedAt: "$departmentHistory.scannedAt",
             departmentRates: 1,
             paidDepartments: 1,
+            status: 1,
             isPaid: {
               $cond: [
                 { $isArray: "$paidDepartments" },
@@ -160,13 +161,25 @@ export async function GET(request: NextRequest) {
         { $sort: { scannedAt: -1 } },
       ]);
     } else {
-      // For all garment piece departments:
-      // Match item-specific rate first, then department-level rate, then fallbackRate
+      // For garment piece departments:
+      // Match active pieces, companion defect pieces, or defective pieces reviewed by admin
       pieces = await Barcode.aggregate([
         {
           $match: {
             "departmentHistory.department": department,
-            status: { $nin: ["defective", "damaged"] },
+            $or: [
+              { status: { $nin: ["defective", "damaged"] } },
+              { "defectiveInfo.isCompanionDefect": true },
+              {
+                status: "defective",
+                "adminDefectReview.departmentReviews": {
+                  $elemMatch: {
+                    department: department,
+                    decision: { $in: ["approved", "cancelled", "adjusted"] },
+                  },
+                },
+              },
+            ],
           },
         },
         { $unwind: "$departmentHistory" },
@@ -183,6 +196,40 @@ export async function GET(request: NextRequest) {
             scannedAt: "$departmentHistory.scannedAt",
             departmentRates: 1,
             paidDepartments: 1,
+            status: 1,
+            defectiveInfo: 1,
+            adminDefectReview: 1,
+            defectDecision: {
+              $let: {
+                vars: {
+                  rev: {
+                    $arrayElemAt: [
+                      {
+                        $filter: {
+                          input: { $ifNull: ["$adminDefectReview.departmentReviews", []] },
+                          as: "dr",
+                          cond: { $eq: ["$$dr.department", department] },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                },
+                in: {
+                  $cond: [
+                    { $eq: ["$defectiveInfo.isCompanionDefect", true] },
+                    "approved",
+                    {
+                      $cond: [
+                        { $ne: ["$status", "defective"] },
+                        "approved",
+                        { $ifNull: ["$$rev.decision", "pending"] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
             isPaid: {
               $cond: [
                 { $isArray: "$paidDepartments" },
@@ -265,11 +312,56 @@ export async function GET(request: NextRequest) {
           totalPending: 0,
           paidAmount: 0,
           pendingAmount: 0,
+          totalAdjusted: 0,
+          adjustedAmount: 0,
+          adjustments: [],
+          totalCancelled: 0,
+          cancelledAmount: 0,
+          cancelled: [],
           designs: {},
         };
       }
 
       const worker = workerMap[workerName];
+      const decision = piece.defectDecision || "approved";
+
+      // Case 1: Cancelled by Admin (unpaid piece cancelled due to defect)
+      if (decision === "cancelled") {
+        worker.totalCancelled++;
+        worker.cancelledAmount += piece.rate;
+        worker.cancelled.push({
+          _id: piece._id,
+          design: piece.design,
+          item: piece.item,
+          size: piece.size,
+          unitNumber: piece.unitNumber,
+          rate: piece.rate,
+          reason: piece.defectiveInfo?.reason || "Defect",
+          notes: piece.defectiveInfo?.notes || "",
+          decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
+        });
+        continue; // Exclude from normal active pieces
+      }
+
+      // Case 2: Adjusted by Admin (piece was already paid, so deduction applies to future payout)
+      if (decision === "adjusted") {
+        worker.totalAdjusted++;
+        worker.adjustedAmount += piece.rate;
+        worker.adjustments.push({
+          _id: piece._id,
+          design: piece.design,
+          item: piece.item,
+          size: piece.size,
+          unitNumber: piece.unitNumber,
+          rate: piece.rate,
+          reason: piece.defectiveInfo?.reason || "Defect",
+          notes: piece.defectiveInfo?.notes || "",
+          decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
+        });
+        // Still marked as paid in history, but deducted from future pending earnings
+      }
+
+      // Normal active / approved pieces
       worker.totalPieces++;
 
       if (piece.isPaid) {
@@ -302,6 +394,7 @@ export async function GET(request: NextRequest) {
         rate: piece.rate,
         isPaid: piece.isPaid,
         scannedAt: piece.scannedAt,
+        isAdjusted: decision === "adjusted",
       });
 
       if (piece.isPaid) {
@@ -331,7 +424,7 @@ export async function GET(request: NextRequest) {
 
       const it = designGroup.itemsBreakdown[itemKey];
       it.count++;
-      it.rate = piece.rate; // Keep the active rate
+      it.rate = piece.rate;
       it.totalAmount += piece.rate;
       it.pieceIds.push(piece._id);
 
@@ -345,41 +438,51 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Convert to array format with sorted item breakdowns
+    // Convert to array format with sorted item breakdowns and net pending
     const itemOrder = ["Qameez", "Shalwar", "Dupatta", "Final Sticker"];
-    const workers = Object.values(workerMap).map((worker: any) => ({
-      ...worker,
-      designs: Object.values(worker.designs).map((d: any) => {
-        const items = Object.values(d.itemsBreakdown).sort((a: any, b: any) => {
-          const idxA = itemOrder.indexOf(a.item);
-          const idxB = itemOrder.indexOf(b.item);
-          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-          if (idxA !== -1) return -1;
-          if (idxB !== -1) return 1;
-          return a.item.localeCompare(b.item);
-        });
+    const workers = Object.values(workerMap).map((worker: any) => {
+      const netPendingAmount = Math.max(0, worker.pendingAmount - worker.adjustedAmount);
 
-        const allUnpaidPieceIds = d.pieces
-          .filter((p: any) => !p.isPaid)
-          .map((p: any) => p._id);
+      return {
+        ...worker,
+        netPendingAmount,
+        designs: Object.values(worker.designs).map((d: any) => {
+          const items = Object.values(d.itemsBreakdown).sort((a: any, b: any) => {
+            const idxA = itemOrder.indexOf(a.item);
+            const idxB = itemOrder.indexOf(b.item);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.item.localeCompare(b.item);
+          });
 
-        return {
-          design: d.design,
-          totalPieces: d.pieces.length,
-          totalAmount: d.paidAmount + d.pendingAmount,
-          paidCount: d.paidCount,
-          paidAmount: d.paidAmount,
-          pendingCount: d.pendingCount,
-          pendingAmount: d.pendingAmount,
-          items,
-          pieces: d.pieces,
-          unpaidPieceIds: allUnpaidPieceIds,
-        };
-      }),
-    }));
+          const allUnpaidPieceIds = d.pieces
+            .filter((p: any) => !p.isPaid)
+            .map((p: any) => p._id);
+
+          return {
+            design: d.design,
+            totalPieces: d.pieces.length,
+            totalAmount: d.paidAmount + d.pendingAmount,
+            paidCount: d.paidCount,
+            paidAmount: d.paidAmount,
+            pendingCount: d.pendingCount,
+            pendingAmount: d.pendingAmount,
+            items,
+            pieces: d.pieces,
+            unpaidPieceIds: allUnpaidPieceIds,
+          };
+        }),
+      };
+    });
 
     // Sort workers by pending amount (highest first)
-    workers.sort((a: any, b: any) => b.pendingAmount - a.pendingAmount);
+    workers.sort((a: any, b: any) => b.netPendingAmount - a.netPendingAmount);
+
+    const totalAdjustedSum = workers.reduce((sum: number, w: any) => sum + w.adjustedAmount, 0);
+    const totalCancelledSum = workers.reduce((sum: number, w: any) => sum + w.cancelledAmount, 0);
+    const grossPendingSum = workers.reduce((sum: number, w: any) => sum + w.pendingAmount, 0);
+    const netPendingSum = Math.max(0, grossPendingSum - totalAdjustedSum);
 
     return NextResponse.json({
       success: true,
@@ -389,11 +492,16 @@ export async function GET(request: NextRequest) {
         workers,
         totals: {
           totalWorkers: workers.length,
-          totalPieces: pieces.length,
-          totalPaid: pieces.filter((p) => p.isPaid).length,
-          totalPending: pieces.filter((p) => !p.isPaid).length,
-          paidAmount: pieces.filter((p) => p.isPaid).reduce((sum, p) => sum + p.rate, 0),
-          pendingAmount: pieces.filter((p) => !p.isPaid).reduce((sum, p) => sum + p.rate, 0),
+          totalPieces: workers.reduce((sum: number, w: any) => sum + w.totalPieces, 0),
+          totalPaid: workers.reduce((sum: number, w: any) => sum + w.totalPaid, 0),
+          totalPending: workers.reduce((sum: number, w: any) => sum + w.totalPending, 0),
+          paidAmount: workers.reduce((sum: number, w: any) => sum + w.paidAmount, 0),
+          pendingAmount: grossPendingSum,
+          totalAdjusted: workers.reduce((sum: number, w: any) => sum + w.totalAdjusted, 0),
+          adjustedAmount: totalAdjustedSum,
+          totalCancelled: workers.reduce((sum: number, w: any) => sum + w.totalCancelled, 0),
+          cancelledAmount: totalCancelledSum,
+          netPendingAmount: netPendingSum,
         },
       },
     });

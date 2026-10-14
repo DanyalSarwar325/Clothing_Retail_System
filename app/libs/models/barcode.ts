@@ -89,6 +89,26 @@ export interface IQualityCheckInfo {
   notes?: string;
 }
 
+// Admin defect decision review for each scanned department
+export interface IDefectDepartmentReview {
+  department: Department;
+  workerName: string;
+  rate: number;
+  previouslyPaid: boolean;
+  decision: "approved" | "cancelled" | "adjusted";
+  decidedAt: Date;
+  decidedBy: string;
+  notes?: string;
+}
+
+export interface IAdminDefectReview {
+  reviewedAt: Date;
+  reviewedBy: string;
+  notes?: string;
+  status: "pending" | "reviewed";
+  departmentReviews: IDefectDepartmentReview[];
+}
+
 export interface IBarcode extends Document {
   design: string;
   size: "S" | "M" | "L";
@@ -104,6 +124,7 @@ export interface IBarcode extends Document {
   departmentRates: IDesignDepartmentRate[]; // Rates per department for this design
   defectiveInfo?: IDefectiveInfo; // Info when marked as defective/damaged
   qualityCheckInfo?: IQualityCheckInfo; // Info when quality checked
+  adminDefectReview?: IAdminDefectReview; // Admin decision on defective piece departments
   paidDepartments?: IDepartmentPayment[]; // Tracks which departments have paid for this piece
   productId?: mongoose.Types.ObjectId; // Optional link to product
   poId?: mongoose.Types.ObjectId; // Optional link to purchase order
@@ -185,6 +206,25 @@ const DepartmentPaymentSchema = new Schema<IDepartmentPayment>({
   amount: { type: Number, required: true },
 });
 
+const DefectDepartmentReviewSchema = new Schema<IDefectDepartmentReview>({
+  department: { type: String, enum: DEPARTMENTS, required: true },
+  workerName: { type: String, required: true },
+  rate: { type: Number, required: true },
+  previouslyPaid: { type: Boolean, default: false },
+  decision: { type: String, enum: ["approved", "cancelled", "adjusted"], required: true },
+  decidedAt: { type: Date, default: Date.now },
+  decidedBy: { type: String, required: true },
+  notes: { type: String },
+});
+
+const AdminDefectReviewSchema = new Schema<IAdminDefectReview>({
+  reviewedAt: { type: Date, default: Date.now },
+  reviewedBy: { type: String, required: true },
+  notes: { type: String },
+  status: { type: String, enum: ["pending", "reviewed"], default: "pending" },
+  departmentReviews: [DefectDepartmentReviewSchema],
+});
+
 const BarcodeSchema = new Schema<IBarcode>({
   design: { type: String, required: true },
   size: { type: String, enum: ["S", "M", "L"], required: true },
@@ -204,6 +244,7 @@ const BarcodeSchema = new Schema<IBarcode>({
   departmentRates: [DesignDepartmentRateSchema],
   defectiveInfo: DefectiveInfoSchema,
   qualityCheckInfo: QualityCheckInfoSchema,
+  adminDefectReview: AdminDefectReviewSchema,
   paidDepartments: [DepartmentPaymentSchema],
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
   poId: { type: Schema.Types.ObjectId, ref: "PurchaseOrder" },
