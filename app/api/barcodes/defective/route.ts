@@ -8,11 +8,11 @@ export async function POST(request: NextRequest) {
     await DbConnect();
 
     const body = await request.json();
-    const { 
-      barcodeId, 
-      department, 
-      markedBy, 
-      reason, 
+    const {
+      barcodeId,
+      department,
+      markedBy,
+      reason,
       notes,
       isCompanionDefect,
       defectiveReferenceBarcode,
@@ -69,18 +69,6 @@ export async function POST(request: NextRequest) {
     if (barcode.status === "defective" || barcode.status === "damaged") {
       return NextResponse.json(
         { success: false, message: "This barcode is already marked as defective/damaged" },
-        { status: 400 }
-      );
-    }
-
-    // An approved Quality OK product cannot become defective on its own.
-    // It can ONLY be retired as a companion defect referencing another broken piece of the suit set.
-    if (!isCompanionDefect && (barcode.status === "quality_ok" || barcode.qualityCheckInfo?.status === "quality_ok")) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: `This product (${barcode.design} - ${barcode.item} Unit #${barcode.unitNumber}) is already approved as Quality OK. An OK quality product cannot be marked defective directly (it can only be retired as a companion piece referencing a defective suit set).` 
-        },
         { status: 400 }
       );
     }
@@ -142,21 +130,28 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // Automatically detect suitType for this design:
+    // If barcode is 1pc, keep 1pc. If any barcode in this design has item === "Dupatta", it is 3pc; otherwise 2pc!
+    let suitType: "1pc" | "2pc" | "3pc" = (barcode.suitType as "1pc" | "2pc" | "3pc") || "2pc";
+    if (suitType !== "1pc") {
+      const hasDupatta = await Barcode.exists({ design: barcode.design, item: "Dupatta" });
+      suitType = hasDupatta ? "3pc" : "2pc";
+    }
+
+    barcode.suitType = suitType;
     await barcode.save();
 
-    // Determine suit companion items that need to be scrapped together
-    const suitType = barcode.suitType || "3pc";
-    const fullSuitItems = suitType === "1pc" 
-      ? ["Qameez"] 
-      : suitType === "2pc" 
-      ? ["Qameez", "Shalwar"] 
-      : ["Qameez", "Shalwar", "Dupatta"];
+    const fullSuitItems = suitType === "1pc"
+      ? ["Qameez"]
+      : suitType === "2pc"
+        ? ["Qameez", "Shalwar"]
+        : ["Qameez", "Shalwar", "Dupatta"];
     const companionItems = fullSuitItems.filter((it) => it !== barcode.item);
 
     return NextResponse.json({
       success: true,
-      message: isCompanionDefect 
-        ? `Companion piece (${barcode.item} - ${barcode.size}) marked as defective` 
+      message: isCompanionDefect
+        ? `Companion piece (${barcode.item} - ${barcode.size}) marked as defective`
         : `Barcode (${barcode.item} - ${barcode.size}) marked as defective`,
       barcode: {
         id: barcode._id,
@@ -229,16 +224,16 @@ export async function GET(request: NextRequest) {
       defectiveBarcodes.forEach((b: any) => {
         // For quality-checked damaged items, use responsiblePerson if available, otherwise use checkedBy
         // For defective items (from defective modal), use markedBy
-        const workerName = b.qualityCheckInfo?.responsiblePerson 
-          || b.defectiveInfo?.markedBy 
-          || b.qualityCheckInfo?.checkedBy 
+        const workerName = b.qualityCheckInfo?.responsiblePerson
+          || b.defectiveInfo?.markedBy
+          || b.qualityCheckInfo?.checkedBy
           || "Unknown";
-        
+
         // Get department from either qualityCheckInfo or defectiveInfo
-        const dept = b.qualityCheckInfo?.department 
-          || b.defectiveInfo?.department 
+        const dept = b.qualityCheckInfo?.department
+          || b.defectiveInfo?.department
           || "Unknown";
-        
+
         const workerKey = `${workerName}-${dept}`;
 
         if (!workerStats[workerKey]) {
@@ -254,7 +249,7 @@ export async function GET(request: NextRequest) {
 
         workerStats[workerKey].totalDefective++;
         workerStats[workerKey].byDesign[b.design] = (workerStats[workerKey].byDesign[b.design] || 0) + 1;
-        
+
         // Get reason from defectiveInfo or notes from qualityCheckInfo
         const reason = b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue";
         workerStats[workerKey].byReason[reason] = (workerStats[workerKey].byReason[reason] || 0) + 1;
@@ -296,14 +291,14 @@ export async function GET(request: NextRequest) {
 
     // Get total generated for each design
     const allDesigns = [...new Set(defectiveBarcodes.map((b: any) => b.design))];
-    
+
     for (const designName of allDesigns) {
       const totalGenerated = await Barcode.countDocuments({ design: designName });
       const defectiveCount = defectiveBarcodes.filter((b: any) => b.design === designName).length;
-      
+
       const byDepartment: Record<string, number> = {};
       const byReason: Record<string, number> = {};
-      
+
       defectiveBarcodes
         .filter((b: any) => b.design === designName)
         .forEach((b: any) => {

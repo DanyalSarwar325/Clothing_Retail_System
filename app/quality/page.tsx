@@ -2,17 +2,17 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-import { 
-  LogOut, 
-  Scan, 
-  CheckCircle, 
-  AlertCircle, 
-  History, 
-  User, 
-  Clock, 
-  ShieldCheck, 
-  AlertTriangle, 
-  FileOutput, 
+import {
+  LogOut,
+  Scan,
+  CheckCircle,
+  AlertCircle,
+  History,
+  User,
+  Clock,
+  ShieldCheck,
+  AlertTriangle,
+  FileOutput,
   X,
   Layers,
   RefreshCw,
@@ -141,26 +141,6 @@ export default function QualityPage() {
       const result = await response.json();
 
       if (result.success && result.barcode) {
-        // Prevent re-scanning or marking already Quality OK pieces
-        if (result.barcode.status === "quality_ok" || result.barcode.qualityCheckInfo?.status === "quality_ok") {
-          playScanErrorSound();
-          const alreadyOkMsg = `⚠️ Already Approved: ${result.barcode.design} - ${result.barcode.item} (${result.barcode.size}) Unit #${result.barcode.unitNumber} is already marked Quality OK. It cannot be scanned or marked OK again, and approved OK products cannot become Defective.`;
-          setError(alreadyOkMsg);
-          toast.error(alreadyOkMsg, { duration: 6000 });
-          setScanning(true);
-          return;
-        }
-
-        // Prevent scanning already Defective pieces
-        if (result.barcode.status === "defective" || result.barcode.status === "damaged") {
-          playScanErrorSound();
-          const alreadyDefectMsg = `⚠️ Already Defective: ${result.barcode.design} - ${result.barcode.item} (${result.barcode.size}) Unit #${result.barcode.unitNumber} is already marked as defective.`;
-          setError(alreadyDefectMsg);
-          toast.error(alreadyDefectMsg, { duration: 5000 });
-          setScanning(true);
-          return;
-        }
-
         playScanSuccessSound();
         setBarcodeDetails(result.barcode);
         setShowQualityCheckModal(true);
@@ -213,7 +193,7 @@ export default function QualityPage() {
 
   // Filter defective logs
   const filteredLogs = defectiveLogs.filter((log) => {
-    const matchesSearch = 
+    const matchesSearch =
       log.design.toLowerCase().includes(logSearch.toLowerCase()) ||
       log.item.toLowerCase().includes(logSearch.toLowerCase()) ||
       (log.defectiveInfo?.reason && log.defectiveInfo.reason.toLowerCase().includes(logSearch.toLowerCase())) ||
@@ -269,11 +249,10 @@ export default function QualityPage() {
         <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-xl px-4 pt-3">
           <button
             onClick={() => setActiveTab("scan")}
-            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
-              activeTab === "scan"
-                ? "border-emerald-600 text-emerald-700"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === "scan"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
           >
             <Scan size={18} />
             Quality Inspection Scanner
@@ -283,11 +262,10 @@ export default function QualityPage() {
               setActiveTab("defective_log");
               fetchDefectiveLogs();
             }}
-            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
-              activeTab === "defective_log"
-                ? "border-emerald-600 text-emerald-700"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === "defective_log"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
           >
             <Layers size={18} />
             Defective & Scrapped Suits Log ({defectiveLogs.length})

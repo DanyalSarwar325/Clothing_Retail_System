@@ -54,17 +54,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If piece is already approved as Quality OK, prevent re-approving
-    if (barcode.status === "quality_ok" || barcode.qualityCheckInfo?.status === "quality_ok") {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: `This piece (${barcode.design} - ${barcode.item} Unit #${barcode.unitNumber}) is already approved as Quality OK. It cannot be marked OK again.` 
-        },
-        { status: 400 }
-      );
-    }
-
     // If damaged, ensure remarks are provided
     if (isDamaged && (!notes || !notes.trim())) {
       return NextResponse.json(
@@ -126,8 +115,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: status === "quality_ok" 
-        ? "Product marked as Quality OK ✓" 
+      message: status === "quality_ok"
+        ? "Product marked as Quality OK ✓"
         : "Product marked as Damaged",
       barcode: {
         id: barcode._id,

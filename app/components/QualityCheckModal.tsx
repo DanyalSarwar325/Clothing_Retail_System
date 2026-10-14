@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { 
-  ShieldCheck, 
-  X, 
-  User, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Scan, 
-  Check, 
+import {
+  ShieldCheck,
+  X,
+  User,
+  AlertTriangle,
+  CheckCircle2,
+  Scan,
+  Check,
   Layers,
   ArrowRight,
   AlertCircle,
@@ -27,13 +27,13 @@ const DEFECT_REASONS = [
 ] as const;
 
 const DEPARTMENTS = [
-  "Sewing", 
-  "Quality", 
-  "Handmade", 
-  "Adda Work", 
-  "Patching", 
-  "Press", 
-  "Packing", 
+  "Sewing",
+  "Quality",
+  "Handmade",
+  "Adda Work",
+  "Patching",
+  "Press",
+  "Packing",
   "Store"
 ] as const;
 
@@ -61,6 +61,7 @@ interface QualityCheckModalProps {
     suitType?: string;
     unitNumber: number;
     barcodeData?: string;
+    status?: string;
   };
   checkedBy: string;
   onSuccess: () => void;
@@ -76,11 +77,15 @@ export default function QualityCheckModal({
   onSuccess,
   departmentHistory = [],
 }: QualityCheckModalProps) {
-  // Modal flow state: "inspect" | "companion_scrap"
   const [modalStage, setModalStage] = useState<"inspect" | "companion_scrap">("inspect");
-  
+
+  const isAlreadyOk = barcodeInfo.status === "quality_ok";
+  const [detectedSuitType, setDetectedSuitType] = useState<string>(barcodeInfo.suitType || "2pc");
+
   // Inspection form states
-  const [decision, setDecision] = useState<"ok" | "defective" | "">("");
+  const [decision, setDecision] = useState<"ok" | "defective" | "">(
+    isAlreadyOk ? "defective" : ""
+  );
   const [defectReason, setDefectReason] = useState<string>("Fabric damaged");
   const [defectDepartment, setDefectDepartment] = useState<string>("");
   const [lastScannedBy, setLastScannedBy] = useState<string>("");
@@ -211,11 +216,14 @@ export default function QualityCheckModal({
       const result = await response.json();
 
       if (result.success) {
+        if (result.companionInfo?.suitType) {
+          setDetectedSuitType(result.companionInfo.suitType);
+        }
         const companionItemsNeeded: string[] = result.companionInfo?.companionItemsNeeded || [];
 
         if (companionItemsNeeded.length > 0) {
           // Switch to Companion Scraping Stage
-          toast.success("Primary defect recorded! Now scan companion pieces to scrap the complete suit.", {
+          toast.success(`Primary defect recorded! Now scan matching companion piece for ${result.companionInfo?.suitType || "2pc"} suit.`, {
             duration: 5000,
           });
           setCompanionNeeds(
@@ -266,12 +274,6 @@ export default function QualityCheckModal({
       // Cannot scan the same barcode that is already defective primary
       if (scannedItem.id === barcodeId) {
         setCompanionScanError("This is the original defective item. Please scan another piece of the suit.");
-        return;
-      }
-
-      // Cannot scan an item that has already been scrapped/defective
-      if (scannedItem.status === "defective" || scannedItem.status === "damaged") {
-        setCompanionScanError(`This ${scannedItem.item} (Unit #${scannedItem.unitNumber}) is already marked defective. Please scan an unscrapped companion piece.`);
         return;
       }
 
@@ -343,11 +345,11 @@ export default function QualityCheckModal({
         prev.map((need) =>
           need.item.toLowerCase() === scannedItem.item.toLowerCase() && !need.completed
             ? {
-                ...need,
-                completed: true,
-                scannedBarcodeId: scannedItem.id,
-                scannedUnitNumber: scannedItem.unitNumber,
-              }
+              ...need,
+              completed: true,
+              scannedBarcodeId: scannedItem.id,
+              scannedUnitNumber: scannedItem.unitNumber,
+            }
             : need
         )
       );
@@ -372,15 +374,14 @@ export default function QualityCheckModal({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-        
+
         {/* Header */}
-        <div className={`px-6 py-4 flex items-center justify-between text-white shrink-0 ${
-          modalStage === "companion_scrap" 
-            ? "bg-gradient-to-r from-amber-600 to-red-600" 
-            : decision === "defective"
+        <div className={`px-6 py-4 flex items-center justify-between text-white shrink-0 ${modalStage === "companion_scrap"
+          ? "bg-gradient-to-r from-amber-600 to-red-600"
+          : decision === "defective"
             ? "bg-gradient-to-r from-red-600 to-rose-600"
             : "bg-gradient-to-r from-emerald-600 to-teal-700"
-        }`}>
+          }`}>
           <div className="flex items-center gap-2.5">
             {modalStage === "companion_scrap" ? (
               <Layers size={22} className="animate-pulse" />
@@ -389,13 +390,13 @@ export default function QualityCheckModal({
             )}
             <div>
               <h2 className="text-base font-bold leading-tight">
-                {modalStage === "companion_scrap" 
-                  ? "Scrap Companion Suit Pieces" 
+                {modalStage === "companion_scrap"
+                  ? `Scrap Companion Piece (${detectedSuitType.toUpperCase()} Suit)`
                   : "Quality Inspection"}
               </h2>
               <p className="text-xs text-white/80">
                 {modalStage === "companion_scrap"
-                  ? `Complete Suit Breakdown (Size ${barcodeInfo.size})`
+                  ? `Match ${barcodeInfo.design} (Size ${barcodeInfo.size}) — Any Unit #`
                   : `Inspector: ${checkedBy}`}
               </p>
             </div>
@@ -455,11 +456,10 @@ export default function QualityCheckModal({
                   <button
                     type="button"
                     onClick={() => setDecision("ok")}
-                    className={`py-3 px-4 rounded-xl border-2 flex items-center justify-center gap-2 font-semibold text-sm transition-all ${
-                      decision === "ok"
-                        ? "border-emerald-600 bg-emerald-50 text-emerald-800 shadow-sm ring-2 ring-emerald-500/20"
-                        : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50 text-gray-700"
-                    }`}
+                    className={`py-3 px-4 rounded-xl border-2 flex items-center justify-center gap-2 font-semibold text-sm transition-all ${decision === "ok"
+                      ? "border-emerald-600 bg-emerald-50 text-emerald-800 shadow-sm ring-2 ring-emerald-500/20"
+                      : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50 text-gray-700"
+                      }`}
                   >
                     <CheckCircle2 size={18} className={decision === "ok" ? "text-emerald-600" : "text-gray-400"} />
                     Quality OK
@@ -468,11 +468,10 @@ export default function QualityCheckModal({
                   <button
                     type="button"
                     onClick={() => setDecision("defective")}
-                    className={`py-3 px-4 rounded-xl border-2 flex items-center justify-center gap-2 font-semibold text-sm transition-all ${
-                      decision === "defective"
-                        ? "border-red-600 bg-red-50 text-red-800 shadow-sm ring-2 ring-red-500/20"
-                        : "border-gray-200 hover:border-red-300 hover:bg-red-50/50 text-gray-700"
-                    }`}
+                    className={`py-3 px-4 rounded-xl border-2 flex items-center justify-center gap-2 font-semibold text-sm transition-all ${decision === "defective"
+                      ? "border-red-600 bg-red-50 text-red-800 shadow-sm ring-2 ring-red-500/20"
+                      : "border-gray-200 hover:border-red-300 hover:bg-red-50/50 text-gray-700"
+                      }`}
                   >
                     <AlertTriangle size={18} className={decision === "defective" ? "text-red-600" : "text-gray-400"} />
                     Mark Defective
@@ -563,14 +562,14 @@ export default function QualityCheckModal({
                   </div>
 
                   {/* Companion Scraping notice */}
-                  {(barcodeInfo.suitType || "3pc") !== "1pc" && (
+                  {detectedSuitType !== "1pc" && (
                     <div className="bg-red-50 border border-red-200/80 rounded-lg p-3 text-xs text-red-800">
                       <p className="font-semibold flex items-center gap-1.5 mb-1">
                         <AlertTriangle size={14} className="text-red-600" />
-                        Whole Suit Integrity Rule
+                        {detectedSuitType.toUpperCase()} Suit Breakdown Rule
                       </p>
                       <p className="text-red-700 leading-relaxed">
-                        Because this <strong>{barcodeInfo.size} {barcodeInfo.item}</strong> is defective, the whole suit set is damaged. You will be prompted to scan the companion OK piece(s) of size <strong>{barcodeInfo.size}</strong> to retire them as companion defects.
+                        Because this <strong>{barcodeInfo.size} {barcodeInfo.item}</strong> is defective, the whole {detectedSuitType} suit is damaged. You will be prompted to scan its companion piece of size <strong>{barcodeInfo.size}</strong> (matching design and size, regardless of unit number) to retire the complete suit set.
                       </p>
                     </div>
                   )}
@@ -636,36 +635,34 @@ export default function QualityCheckModal({
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900">
                 <div className="flex items-center gap-2 font-bold mb-1 text-amber-800 text-sm">
                   <AlertCircle size={16} className="text-amber-600 flex-shrink-0" />
-                  <span>Whole Suit Broken — Scrap Matching Pieces</span>
+                  <span>{detectedSuitType.toUpperCase()} Suit Broken — Scan Companion Piece</span>
                 </div>
                 <p className="leading-relaxed">
                   Primary defect: <strong>{barcodeInfo.design}</strong> — <strong>{barcodeInfo.size} {barcodeInfo.item}</strong> (Unit #{barcodeInfo.unitNumber}).
-                  Since this piece is defective, the whole suit set cannot be sold. Scan any companion piece of size <strong>{barcodeInfo.size}</strong> (regardless of unit number) to retire it with reference to this defect.
+                  Since this is a {detectedSuitType} suit, scan any companion piece of size <strong>{barcodeInfo.size}</strong> (same design and size, regardless of unit number) to complete the suit retirement.
                 </p>
               </div>
 
               {/* Companion pieces checklist */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                  Required Companion Pieces (Size {barcodeInfo.size} — Any Unit #)
+                  Required {detectedSuitType.toUpperCase()} Companion Pieces (Size {barcodeInfo.size} — Any Unit #)
                 </label>
                 <div className="space-y-2">
                   {companionNeeds.map((need, idx) => (
                     <div
                       key={idx}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
-                        need.completed
-                          ? "bg-emerald-50 border-emerald-300 text-emerald-900"
-                          : "bg-gray-50 border-dashed border-gray-300 text-gray-800"
-                      }`}
+                      className={`p-3 rounded-xl border flex items-center justify-between transition-all ${need.completed
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                        : "bg-gray-50 border-dashed border-gray-300 text-gray-800"
+                        }`}
                     >
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                            need.completed
-                              ? "bg-emerald-600 text-white"
-                              : "bg-gray-200 text-gray-600"
-                          }`}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${need.completed
+                            ? "bg-emerald-600 text-white"
+                            : "bg-gray-200 text-gray-600"
+                            }`}
                         >
                           {need.completed ? <Check size={14} /> : idx + 1}
                         </div>
@@ -674,7 +671,7 @@ export default function QualityCheckModal({
                             {barcodeInfo.design} — {need.item}
                           </p>
                           <p className="text-xs text-gray-500">
-                            Required: Size <strong>{barcodeInfo.size}</strong> (Any Unit #)
+                            Required: Size <strong>{barcodeInfo.size}</strong> (Any Unit # of {barcodeInfo.design})
                           </p>
                         </div>
                       </div>
@@ -705,7 +702,7 @@ export default function QualityCheckModal({
                       Scan Companion Piece Barcode
                     </label>
                   </div>
-                  
+
                   <div className="relative">
                     <input
                       ref={companionInputRef}
@@ -766,11 +763,10 @@ export default function QualityCheckModal({
                     onSuccess();
                     handleClose();
                   }}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 ${
-                    allCompanionsCompleted
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                      : "border border-gray-300 text-gray-700 hover:bg-gray-100"
-                  }`}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 ${allCompanionsCompleted
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                    : "border border-gray-300 text-gray-700 hover:bg-gray-100"
+                    }`}
                 >
                   {allCompanionsCompleted ? (
                     <>
