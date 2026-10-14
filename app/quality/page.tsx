@@ -17,7 +17,10 @@ import {
   Layers,
   RefreshCw,
   Search,
-  Filter
+  Filter,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
@@ -77,6 +80,21 @@ interface DefectiveLogEntry {
   createdAt: string;
 }
 
+interface InspectedItem {
+  id: string;
+  design: string;
+  item: string;
+  size: string;
+  suitType?: string;
+  unitNumber: number;
+  status: "quality_ok" | "defective" | "damaged";
+  time: string;
+  inspector: string;
+  reason?: string;
+  notes?: string;
+  departmentHistory?: DepartmentScan[];
+}
+
 export default function QualityPage() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"scan" | "defective_log">("scan");
@@ -91,6 +109,11 @@ export default function QualityPage() {
   const [showOutpassModal, setShowOutpassModal] = useState(false);
   const [scannerInput, setScannerInput] = useState("");
   const scannerInputRef = useRef<HTMLInputElement>(null);
+
+  // Inspected items feed states
+  const [lastInspected, setLastInspected] = useState<InspectedItem | null>(null);
+  const [recentInspections, setRecentInspections] = useState<InspectedItem[]>([]);
+  const [showLastHistory, setShowLastHistory] = useState(false);
 
   // Defective log states
   const [defectiveLogs, setDefectiveLogs] = useState<DefectiveLogEntry[]>([]);
@@ -393,6 +416,199 @@ export default function QualityPage() {
                 <p className="text-sm text-green-700 font-medium">{success}</p>
               </div>
             )}
+
+            {/* Last Inspected Item Card */}
+            {lastInspected && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fadeIn">
+                <div className={`p-5 text-white ${
+                  lastInspected.status === "quality_ok"
+                    ? "bg-gradient-to-r from-emerald-600 to-teal-700"
+                    : "bg-gradient-to-r from-red-600 to-rose-700"
+                }`}>
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/20 uppercase tracking-wide">
+                          Last Inspected Piece
+                        </span>
+                        <span className="text-xs text-white/80 font-mono">
+                          Unit #{lastInspected.unitNumber}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-bold tracking-tight">{lastInspected.design}</h3>
+                    </div>
+                    <div className="text-right">
+                      <span className={`inline-flex items-center gap-1.5 font-bold px-3 py-1 rounded-full text-xs shadow-sm ${
+                        lastInspected.status === "quality_ok"
+                          ? "bg-white text-emerald-800"
+                          : "bg-white text-red-800"
+                      }`}>
+                        {lastInspected.status === "quality_ok" ? (
+                          <>
+                            <CheckCircle2 size={13} className="text-emerald-600" />
+                            <span>Quality OK ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle size={13} className="text-red-600" />
+                            <span>Defective</span>
+                          </>
+                        )}
+                      </span>
+                      <p className="text-xs text-white/80 mt-1 font-mono">
+                        {lastInspected.time}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 font-medium">Item</p>
+                      <p className="text-sm font-bold text-gray-900 truncate mt-0.5">{lastInspected.item}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 font-medium">Size</p>
+                      <p className="text-sm font-bold text-gray-900 mt-0.5">{getSizeLabel(lastInspected.size)}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 font-medium">Suit Type</p>
+                      <p className="text-sm font-bold text-gray-900 mt-0.5">{lastInspected.suitType || "3pc"}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 font-medium">Inspector</p>
+                      <p className="text-sm font-bold text-gray-900 truncate mt-0.5">{lastInspected.inspector}</p>
+                    </div>
+                  </div>
+
+                  {/* Defect Details if Defective */}
+                  {lastInspected.status !== "quality_ok" && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-900 space-y-1">
+                      <p className="font-bold flex items-center gap-1.5 text-red-800">
+                        <AlertTriangle size={14} className="text-red-600" />
+                        Defect Reason: {lastInspected.reason || "Quality Issue"}
+                      </p>
+                      {lastInspected.notes && (
+                        <p className="text-red-700 italic bg-white/70 p-2 rounded border border-red-100">
+                          "{lastInspected.notes}"
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Department History Timeline */}
+                  {lastInspected.departmentHistory && lastInspected.departmentHistory.length > 0 && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <button
+                        type="button"
+                        onClick={() => setShowLastHistory(!showLastHistory)}
+                        className="flex items-center justify-between w-full py-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <History size={14} />
+                          Department Scan History ({lastInspected.departmentHistory.length} events)
+                        </span>
+                        {showLastHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+
+                      {showLastHistory && (
+                        <div className="mt-2 space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {lastInspected.departmentHistory.map((scan, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${scan.department === "Quality" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                                <div>
+                                  <p className="font-semibold text-gray-800">{scan.department}</p>
+                                  <p className="text-[11px] text-gray-500">{scan.scannedBy ? `by ${scan.scannedBy}` : "System"}</p>
+                                </div>
+                              </div>
+                              <span className="text-gray-400 font-mono text-[11px]">{formatDate(scan.scannedAt)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Recent Quality Inspections Activity Stream */}
+            {recentInspections.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers size={18} className="text-emerald-600" />
+                    <h3 className="font-bold text-gray-900 text-sm">
+                      Recent Quality Inspections (Today's Stream)
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
+                      {recentInspections.length}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRecentInspections([])}
+                    className="text-xs text-gray-400 hover:text-gray-600 font-medium transition"
+                  >
+                    Clear Feed
+                  </button>
+                </div>
+
+                <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                  {recentInspections.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`px-6 py-3 flex items-center justify-between transition ${
+                        item.status === "quality_ok" ? "hover:bg-gray-50/80" : "bg-red-50/30 hover:bg-red-50/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.status === "quality_ok" ? (
+                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <CheckCircle2 size={18} />
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                            <AlertTriangle size={18} />
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {item.design} — {item.item} ({item.size})
+                            </p>
+                            <span className="px-1.5 py-0.5 text-[11px] font-mono bg-gray-100 text-gray-700 rounded">
+                              #{item.unitNumber}
+                            </span>
+                          </div>
+                          <p className={`text-xs truncate ${
+                            item.status === "quality_ok" ? "text-gray-500" : "text-red-600 font-medium"
+                          }`}>
+                            {item.status === "quality_ok"
+                              ? "Quality Approved ✓"
+                              : `Defective: ${item.reason || "Quality Issue"}${item.notes ? ` — "${item.notes}"` : ""}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 ml-4">
+                        <span className="text-xs font-mono text-gray-400">{item.time}</span>
+                        <div className="text-[11px]">
+                          <span className={`font-semibold ${
+                            item.status === "quality_ok" ? "text-emerald-700" : "text-red-600"
+                          }`}>
+                            {item.status === "quality_ok" ? "Quality OK" : "Defective"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -541,10 +757,32 @@ export default function QualityPage() {
             }}
             checkedBy={user?.name || user?.username || "Quality Inspector"}
             departmentHistory={barcodeDetails.departmentHistory}
-            onSuccess={() => {
+            onSuccess={(resultStatus?: "quality_ok" | "defective", defectReason?: string, defectNotes?: string) => {
               playScanSuccessSound();
               setScanCount((prev) => prev + 1);
               fetchDefectiveLogs();
+
+              const finalStatus = resultStatus || "quality_ok";
+              const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+              const inspected: InspectedItem = {
+                id: `${barcodeDetails.id}-${Date.now()}`,
+                design: barcodeDetails.design,
+                item: barcodeDetails.item,
+                size: barcodeDetails.size,
+                suitType: barcodeDetails.suitType || "3pc",
+                unitNumber: barcodeDetails.unitNumber,
+                status: finalStatus,
+                time: timestamp,
+                inspector: user?.name || user?.username || "Quality Inspector",
+                reason: defectReason,
+                notes: defectNotes,
+                departmentHistory: barcodeDetails.departmentHistory,
+              };
+
+              setLastInspected(inspected);
+              setRecentInspections((prev) => [inspected, ...prev.slice(0, 19)]);
+
               setShowQualityCheckModal(false);
               setBarcodeDetails(null);
               // Automatically re-arm scanner so the inspector can scan the next piece immediately

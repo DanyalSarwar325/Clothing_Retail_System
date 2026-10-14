@@ -12,6 +12,7 @@ import {
   Layers,
   ArrowRight,
   AlertCircle,
+  History,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -64,7 +65,7 @@ interface QualityCheckModalProps {
     status?: string;
   };
   checkedBy: string;
-  onSuccess: () => void;
+  onSuccess: (resultStatus?: "quality_ok" | "defective", defectReason?: string, defectNotes?: string) => void;
   departmentHistory?: DepartmentScan[];
 }
 
@@ -81,6 +82,7 @@ export default function QualityCheckModal({
 
   const isAlreadyOk = barcodeInfo.status === "quality_ok";
   const [detectedSuitType, setDetectedSuitType] = useState<string>(barcodeInfo.suitType || "2pc");
+  const [showModalHistory, setShowModalHistory] = useState(false);
 
   // Inspection form states
   const [decision, setDecision] = useState<"ok" | "defective" | "">(
@@ -174,7 +176,7 @@ export default function QualityCheckModal({
 
       if (result.success) {
         toast.success(`Quality OK ✓ — ${barcodeInfo.item} (${barcodeInfo.size}) approved`);
-        onSuccess();
+        onSuccess("quality_ok");
         handleClose();
       } else {
         toast.error(result.message || "Failed to mark as Quality OK");
@@ -236,7 +238,7 @@ export default function QualityCheckModal({
         } else {
           // 1pc suit or no companion pieces needed
           toast.success("Item marked as defective");
-          onSuccess();
+          onSuccess("defective", defectReason, notes.trim());
           handleClose();
         }
       } else {
@@ -444,7 +446,52 @@ export default function QualityCheckModal({
                       {barcodeInfo.size === "S" ? "Small (S)" : barcodeInfo.size === "M" ? "Medium (M)" : barcodeInfo.size === "L" ? "Large (L)" : barcodeInfo.size}
                     </span>
                   </div>
+                  <div>
+                    <span className="text-gray-500">Origin:</span>{" "}
+                    <span className="font-semibold text-gray-800">
+                      {getLastScanInfo() ? `${getLastScanInfo()?.department} (by ${getLastScanInfo()?.scannedBy})` : "Cutting / Initial"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Status:</span>{" "}
+                    <span className={`font-semibold ${isAlreadyOk ? "text-emerald-700" : "text-gray-800"}`}>
+                      {isAlreadyOk ? "Quality OK (Approved)" : "Pending Check"}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Expandable Department History */}
+                {departmentHistory && departmentHistory.length > 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-gray-200/60">
+                    <button
+                      type="button"
+                      onClick={() => setShowModalHistory(!showModalHistory)}
+                      className="flex items-center justify-between w-full text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 transition"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <History size={13} />
+                        View Department Scans Timeline ({departmentHistory.length})
+                      </span>
+                      <span>{showModalHistory ? "▲ Hide" : "▼ Show"}</span>
+                    </button>
+
+                    {showModalHistory && (
+                      <div className="mt-2 space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                        {departmentHistory.map((scan, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg border border-gray-200">
+                            <div>
+                              <p className="font-semibold text-gray-900">{scan.department}</p>
+                              <p className="text-[10px] text-gray-500">{scan.scannedBy ? `by ${scan.scannedBy}` : "System"}</p>
+                            </div>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              {new Date(scan.scannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Status Decision Buttons */}
@@ -760,7 +807,7 @@ export default function QualityCheckModal({
                 <button
                   type="button"
                   onClick={() => {
-                    onSuccess();
+                    onSuccess("defective", defectReason, notes.trim());
                     handleClose();
                   }}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 ${allCompanionsCompleted
