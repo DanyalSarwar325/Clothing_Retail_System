@@ -73,6 +73,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // An approved Quality OK product cannot become defective on its own.
+    // It can ONLY be retired as a companion defect referencing another broken piece of the suit set.
+    if (!isCompanionDefect && (barcode.status === "quality_ok" || barcode.qualityCheckInfo?.status === "quality_ok")) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: `This product (${barcode.design} - ${barcode.item} Unit #${barcode.unitNumber}) is already approved as Quality OK. An OK quality product cannot be marked defective directly (it can only be retired as a companion piece referencing a defective suit set).` 
+        },
+        { status: 400 }
+      );
+    }
+
     // Update barcode status and defectiveInfo
     barcode.status = "defective";
     barcode.currentDepartment = "Quality";

@@ -141,6 +141,26 @@ export default function QualityPage() {
       const result = await response.json();
 
       if (result.success && result.barcode) {
+        // Prevent re-scanning or marking already Quality OK pieces
+        if (result.barcode.status === "quality_ok" || result.barcode.qualityCheckInfo?.status === "quality_ok") {
+          playScanErrorSound();
+          const alreadyOkMsg = `⚠️ Already Approved: ${result.barcode.design} - ${result.barcode.item} (${result.barcode.size}) Unit #${result.barcode.unitNumber} is already marked Quality OK. It cannot be scanned or marked OK again, and approved OK products cannot become Defective.`;
+          setError(alreadyOkMsg);
+          toast.error(alreadyOkMsg, { duration: 6000 });
+          setScanning(true);
+          return;
+        }
+
+        // Prevent scanning already Defective pieces
+        if (result.barcode.status === "defective" || result.barcode.status === "damaged") {
+          playScanErrorSound();
+          const alreadyDefectMsg = `⚠️ Already Defective: ${result.barcode.design} - ${result.barcode.item} (${result.barcode.size}) Unit #${result.barcode.unitNumber} is already marked as defective.`;
+          setError(alreadyDefectMsg);
+          toast.error(alreadyDefectMsg, { duration: 5000 });
+          setScanning(true);
+          return;
+        }
+
         playScanSuccessSound();
         setBarcodeDetails(result.barcode);
         setShowQualityCheckModal(true);
