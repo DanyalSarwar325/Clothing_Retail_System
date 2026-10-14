@@ -364,11 +364,11 @@ export default function QualityCheckModal({
   const allCompanionsCompleted = companionNeeds.length > 0 && companionNeeds.every((c) => c.completed);
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className={`px-6 py-4 flex items-center justify-between text-white ${
+        <div className={`px-6 py-4 flex items-center justify-between text-white shrink-0 ${
           modalStage === "companion_scrap" 
             ? "bg-gradient-to-r from-amber-600 to-red-600" 
             : decision === "defective"
@@ -404,7 +404,7 @@ export default function QualityCheckModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto flex-1">
           {/* ========================================================================= */}
           {/* STAGE 1: INSPECTION DECISION & FORM                                      */}
           {/* ========================================================================= */}
@@ -572,7 +572,7 @@ export default function QualityCheckModal({
               )}
 
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-3 sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-gray-100 mt-4 pb-1">
                 <button
                   type="button"
                   onClick={handleClose}
@@ -753,7 +753,7 @@ export default function QualityCheckModal({
               )}
 
               {/* Bottom Actions for Companion Stage */}
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-3 sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-gray-100 mt-4 pb-1">
                 <button
                   type="button"
                   onClick={() => {
