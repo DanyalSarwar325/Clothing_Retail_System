@@ -269,6 +269,12 @@ export default function QualityCheckModal({
         return;
       }
 
+      // Cannot scan an item that has already been scrapped/defective
+      if (scannedItem.status === "defective" || scannedItem.status === "damaged") {
+        setCompanionScanError(`This ${scannedItem.item} (Unit #${scannedItem.unitNumber}) is already marked defective. Please scan an unscrapped companion piece.`);
+        return;
+      }
+
       // Already scrapped in this session?
       if (companionNeeds.some((n) => n.scannedBarcodeId === scannedItem.id)) {
         setCompanionScanError("This barcode has already been scanned for this suit set.");
@@ -634,14 +640,14 @@ export default function QualityCheckModal({
                 </div>
                 <p className="leading-relaxed">
                   Primary defect: <strong>{barcodeInfo.design}</strong> — <strong>{barcodeInfo.size} {barcodeInfo.item}</strong> (Unit #{barcodeInfo.unitNumber}).
-                  Since this piece is defective, the whole suit set cannot be sold. Scan the companion OK piece(s) of size <strong>{barcodeInfo.size}</strong> to retire them.
+                  Since this piece is defective, the whole suit set cannot be sold. Scan any companion piece of size <strong>{barcodeInfo.size}</strong> (regardless of unit number) to retire it with reference to this defect.
                 </p>
               </div>
 
               {/* Companion pieces checklist */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                  Required Companion Pieces (Size {barcodeInfo.size})
+                  Required Companion Pieces (Size {barcodeInfo.size} — Any Unit #)
                 </label>
                 <div className="space-y-2">
                   {companionNeeds.map((need, idx) => (
@@ -668,7 +674,7 @@ export default function QualityCheckModal({
                             {barcodeInfo.design} — {need.item}
                           </p>
                           <p className="text-xs text-gray-500">
-                            Required Size: <strong>{barcodeInfo.size}</strong>
+                            Required: Size <strong>{barcodeInfo.size}</strong> (Any Unit #)
                           </p>
                         </div>
                       </div>
