@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import ShopifyFulfillment from "@/app/libs/models/shopifyFulfillment";
+import prisma from "@/app/libs/prisma";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await DbConnect();
+    const rawFulfillments = await prisma.shopifyFulfillment.findMany({
+      orderBy: { createdAt: "desc" },
+    });
 
-    const fulfillments = await ShopifyFulfillment.find()
-      .sort({ createdAt: -1 })
-      .lean();
+    const fulfillments = rawFulfillments.map((f) => ({
+      ...f,
+      _id: f.id,
+      shopifyOrderId: f.shopifyOrderId.toString(),
+    }));
 
     return NextResponse.json({ success: true, fulfillments });
   } catch (error: any) {

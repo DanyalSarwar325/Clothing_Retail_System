@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FulfillmentOrder from "@/app/libs/models/fulfillmentOrder";
+import prisma from "@/app/libs/prisma";
 
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get("q") || "";
     const page = parseInt(searchParams.get("page") || "1");
@@ -24,60 +21,57 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
     const searchQuery = query.trim();
 
-    console.log(`[Orders Search] Query: "${searchQuery}", Page: ${page}, Limit: ${limit}`);
-
-    // Build MongoDB search query
-    // Search by tracking number, order number, customer name, or email
-    const mongoQuery = {
-      $or: [
-        { "fulfillment.trackingNumber": { $regex: searchQuery, $options: "i" } },
-        { orderNumber: { $regex: searchQuery, $options: "i" } },
-        { "customer.name": { $regex: searchQuery, $options: "i" } },
-        { "customer.email": { $regex: searchQuery, $options: "i" } },
-        { "customer.phone": { $regex: searchQuery, $options: "i" } },
+    const where: any = {
+      OR: [
+        { orderNumber: { contains: searchQuery, mode: "insensitive" } },
+        { orderId: { contains: searchQuery, mode: "insensitive" } },
+        { shopifyOrderId: { contains: searchQuery, mode: "insensitive" } },
       ],
     };
 
-    // Execute search with pagination
     const [results, total] = await Promise.all([
-      FulfillmentOrder.find(mongoQuery)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      FulfillmentOrder.countDocuments(mongoQuery),
+      prisma.fulfillmentOrder.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.fulfillmentOrder.count({ where }),
     ]);
 
-    console.log(`[Orders Search] Found ${total} results, returning ${results.length} for page ${page}`);
+    return NextResponse.json({
+      success: true,
+      query: searchQuery,
+      results: results.map((order) => {
+        const customer = (order.customer as any) || {};
+        const fulfillment = (order.fulfillment as any) || {};
+        const payment = (order.payment as any) || {};
+        const pricing = (order.pricing as any) || {};
 
-    return NextResponse.json(
-      {
-        success: true,
-        query: searchQuery,
-        results: results.map((order: any) => ({
-          _id: order._id,
+        return {
+          _id: order.id,
+          id: order.id,
           orderNumber: order.orderNumber,
-          customerName: order.customer?.name,
-          customerEmail: order.customer?.email,
-          customerPhone: order.customer?.phone,
-          trackingNumber: order.fulfillment?.trackingNumber,
-          trackingCompany: order.fulfillment?.trackingCompany,
-          fulfillmentStatus: order.fulfillment?.status,
-          paymentStatus: order.payment?.status,
-          total: order.pricing?.total,
-          currency: order.pricing?.currency,
+          customerName: customer.name,
+          customerEmail: customer.email,
+          customerPhone: customer.phone,
+          trackingNumber: fulfillment.trackingNumber,
+          trackingCompany: fulfillment.trackingCompany,
+          fulfillmentStatus: fulfillment.status,
+          paymentStatus: payment.status,
+          total: pricing.total,
+          currency: pricing.currency,
           createdAt: order.createdAt,
-        })),
-        pagination: {
-          page,
-          limit,
-          total,
-          pages: Math.ceil(total / limit),
-          hasMore: skip + results.length < total,
-        },
+        };
+      }),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasMore: skip + results.length < total,
       },
-      { status: 200 }
-    );
+    });
   } catch (error: any) {
     console.error("[Orders Search API] Error:", error);
     return NextResponse.json(

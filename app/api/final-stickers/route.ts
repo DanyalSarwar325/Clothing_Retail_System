@@ -1,30 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FinalSticker from "@/app/libs/models/finalSticker";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
-// GET - Get all final stickers or filter by design/category/status
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
     const status = searchParams.get("status");
     const category = searchParams.get("category"); // "A" or "B"
 
-    const filter: any = {};
-    if (design) filter.design = design;
-    if (status) filter.status = status;
-    if (category) filter.category = category;
+    const where: any = {};
+    if (design) where.design = design;
+    if (status) where.status = status;
+    if (category) where.category = category;
 
-    // Sort by design, category ("A" first, then "B"), size, unitNumber
-    const stickers = await FinalSticker.find(filter).sort({
-      design: 1,
-      category: 1,
-      size: 1,
-      unitNumber: 1,
+    const rawStickers = await prisma.finalSticker.findMany({
+      where,
+      include: {
+        departmentRates: true,
+        paidDepartments: true,
+        departmentHistory: true,
+      },
+      orderBy: [
+        { design: "asc" },
+        { category: "asc" },
+        { size: "asc" },
+        { unitNumber: "asc" },
+      ],
     });
+
+    const stickers = rawStickers.map((s) => ({
+      ...s,
+      _id: s.id,
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+      paidDepartments: s.paidDepartments.map((p) => ({
+        _id: p.id,
+        department: p.department,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        paidBy: p.paidBy,
+      })),
+      departmentHistory: s.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
+    }));
 
     const categoryACount = stickers.filter((s: any) => s.category === "A").length;
     const categoryBCount = stickers.filter((s: any) => s.category === "B").length;
@@ -44,11 +69,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Generate final stickers for a design with automatic 2pc/3pc detection & Category A/B grouping
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { design, sellingPrice, departmentRates } = body;
 
@@ -66,7 +88,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate department rates
     if (
       !departmentRates ||
       departmentRates.Packing < 0 ||
@@ -80,8 +101,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if final stickers already exist for this design
-    const existingStickers = await FinalSticker.findOne({ design });
+    const existingStickers = await prisma.finalSticker.findFirst({
+      where: { design },
+    });
     if (existingStickers) {
       return NextResponse.json(
         { success: false, message: "Final stickers already generated for this design. Delete existing ones to regenerate." },
@@ -89,8 +111,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch all barcodes for this design
-    const barcodes = await Barcode.find({ design }).sort({ size: 1, unitNumber: 1 }).lean();
+    const barcodes = await prisma.barcode.findMany({
+      where: { design },
+      orderBy: [{ size: "asc" }, { unitNumber: "asc" }],
+    });
 
     if (!barcodes || barcodes.length === 0) {
       return NextResponse.json(
@@ -99,9 +123,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Automatically detect suitType: if any barcode has item === "Dupatta" or suitType === "3pc", it's 3pc; otherwise 2pc
     const hasDupatta = barcodes.some(
-      (b: any) => b.item === "Dupatta" || b.suitType === "3pc"
+      (b) => b.item === "Dupatta" || b.suitType === "3pc"
     );
     const detectedSuitType = hasDupatta ? "3pc" : "2pc";
     const divisor = detectedSuitType === "3pc" ? 3 : 2;
@@ -113,10 +136,9 @@ export async function POST(request: NextRequest) {
     let totalGlobalSuits = 0;
 
     for (const size of SIZES) {
-      const sizeBarcodes = barcodes.filter((b: any) => b.size === size);
+      const sizeBarcodes = barcodes.filter((b) => b.size === size);
       if (sizeBarcodes.length === 0) continue;
 
-      // Group barcodes by unitNumber
       const unitMap = new Map<number, any[]>();
       for (const b of sizeBarcodes) {
         const uNum = b.unitNumber || 1;
@@ -127,14 +149,12 @@ export async function POST(request: NextRequest) {
       const totalSuitsForSize = Math.floor(sizeBarcodes.length / divisor);
       if (totalSuitsForSize === 0) continue;
 
-      // Extract unique unit numbers present, sorted
       const sortedUnitNumbers = Array.from(unitMap.keys()).sort((a, b) => a - b);
 
       for (let i = 0; i < totalSuitsForSize; i++) {
         const unitNum = sortedUnitNumbers[i] !== undefined ? sortedUnitNumbers[i] : i + 1;
         const pieces = unitMap.get(unitNum) || [];
 
-        // Check if ANY piece in this unit is defective or damaged
         const defectivePieces = pieces.filter(
           (p: any) =>
             p.status === "defective" ||
@@ -149,7 +169,7 @@ export async function POST(request: NextRequest) {
         let defectSummary = "";
         if (isUnitDefective) {
           defectSummary = defectivePieces
-            .map((dp: any) => `${dp.item}: ${dp.defectiveInfo?.reason || "Defective"}`)
+            .map((dp: any) => `${dp.item}: ${(dp.defectiveInfo as any)?.reason || "Defective"}`)
             .join("; ");
         }
 
@@ -175,17 +195,12 @@ export async function POST(request: NextRequest) {
           categoryLabel,
           isDefective: isUnitDefective,
           defectSummary: defectSummary || undefined,
-          componentBarcodeIds: pieces.map((p: any) => p._id.toString()),
+          componentBarcodeIds: pieces.map((p: any) => p.id),
           unitNumber: unitNum,
           sellingPrice,
-          departmentRates: [
-            { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
-            { department: "Store", ratePerPiece: departmentRates.Store || 0 },
-          ],
           barcodeData: JSON.stringify(barcodePayload),
           status: "generated",
           currentDepartment: "Press",
-          departmentHistory: [],
         };
 
         if (category === "A") {
@@ -196,7 +211,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Grouping rule: All Category A first, followed by Category B
     const allStickersToCreate = [...catAStickers, ...catBStickers];
 
     if (allStickersToCreate.length === 0) {
@@ -209,13 +223,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const createdStickers = await FinalSticker.insertMany(allStickersToCreate);
+    const createdStickers = await prisma.$transaction(
+      allStickersToCreate.map((st) =>
+        prisma.finalSticker.create({
+          data: {
+            ...st,
+            departmentRates: {
+              create: [
+                { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
+                { department: "Store", ratePerPiece: departmentRates.Store || 0 },
+              ],
+            },
+          },
+          include: {
+            departmentRates: true,
+          },
+        })
+      )
+    );
+
+    const formattedCreated = createdStickers.map((s) => ({
+      ...s,
+      _id: s.id,
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+    }));
 
     return NextResponse.json({
       success: true,
-      message: `Generated ${createdStickers.length} final stickers for "${design}" (${detectedSuitType}): ${catAStickers.length} Category A (OK) and ${catBStickers.length} Category B (Defective)`,
-      stickers: createdStickers,
-      count: createdStickers.length,
+      message: `Generated ${formattedCreated.length} final stickers for "${design}" (${detectedSuitType}): ${catAStickers.length} Category A (OK) and ${catBStickers.length} Category B (Defective)`,
+      stickers: formattedCreated,
+      count: formattedCreated.length,
       categoryACount: catAStickers.length,
       categoryBCount: catBStickers.length,
       suitType: detectedSuitType,
@@ -229,11 +270,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Delete all final stickers for a design (for regeneration)
 export async function DELETE(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
 
@@ -244,12 +282,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const result = await FinalSticker.deleteMany({ design });
+    const result = await prisma.finalSticker.deleteMany({
+      where: { design },
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Deleted ${result.deletedCount} final stickers for design "${design}"`,
-      deletedCount: result.deletedCount,
+      message: `Deleted ${result.count} final stickers for design "${design}"`,
+      deletedCount: result.count,
     });
   } catch (error: any) {
     return NextResponse.json(

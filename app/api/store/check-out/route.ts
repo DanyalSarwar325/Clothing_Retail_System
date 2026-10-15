@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FinalSticker from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// POST - Check-out a final sticker from store (dispatch for delivery)
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const {
       barcodeData,
@@ -32,8 +28,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse barcode data to check if it's a final sticker
-    let parsedData;
+    let parsedData: any = null;
     try {
       parsedData = JSON.parse(barcodeData);
     } catch {
@@ -43,21 +38,42 @@ export async function POST(request: NextRequest) {
     let sticker = null;
 
     if (parsedData && parsedData.type === "final") {
-      sticker = await FinalSticker.findOne({ barcodeData });
+      sticker = await prisma.finalSticker.findUnique({
+        where: { barcodeData },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+        },
+      });
+
       if (!sticker && parsedData.design && parsedData.size && parsedData.unitNumber) {
-        sticker = await FinalSticker.findOne({
-          design: parsedData.design,
-          size: parsedData.size,
-          unitNumber: parsedData.unitNumber,
+        sticker = await prisma.finalSticker.findFirst({
+          where: {
+            design: parsedData.design,
+            size: parsedData.size,
+            unitNumber: parsedData.unitNumber,
+          },
+          include: {
+            departmentHistory: true,
+            departmentRates: true,
+            paidDepartments: true,
+          },
         });
       }
     } else {
-      // Also allow lookup by exact barcodeData or _id if scanned/selected
-      sticker = await FinalSticker.findOne({
-        $or: [
-          { barcodeData },
-          ...(barcodeData.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: barcodeData }] : [])
-        ]
+      sticker = await prisma.finalSticker.findFirst({
+        where: {
+          OR: [
+            { barcodeData },
+            { id: barcodeData },
+          ],
+        },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+        },
       });
     }
 
@@ -68,19 +84,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if item is in store (can be dispatched)
+    const formatSticker = (s: typeof sticker) => ({
+      ...s,
+      _id: s.id,
+      departmentHistory: s.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+      paidDepartments: s.paidDepartments.map((p) => ({
+        _id: p.id,
+        department: p.department,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        paidBy: p.paidBy,
+      })),
+    });
+
     if (sticker.status !== "in_store") {
       return NextResponse.json({
         success: false,
         message: `Cannot checkout: Item status is "${sticker.status}". Only items in store can be checked out.`,
-        sticker,
+        sticker: formatSticker(sticker),
       });
     }
 
-    // Update sticker status to dispatched
-    sticker.status = "dispatched";
-    sticker.dispatchInfo = {
-      dispatchedAt: new Date(),
+    const dispatchInfo = {
+      dispatchedAt: new Date().toISOString(),
       dispatchedBy: dispatchedBy || "Store",
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
@@ -89,19 +125,30 @@ export async function POST(request: NextRequest) {
       remarks: remarks?.trim() || undefined,
     };
 
-    // Initialize payment info
-    sticker.paymentInfo = {
+    const paymentInfo = {
       isPaid: false,
       amountReceived: 0,
       notes: remarks?.trim() || undefined,
     };
 
-    await sticker.save();
+    const updatedSticker = await prisma.finalSticker.update({
+      where: { id: sticker.id },
+      data: {
+        status: "dispatched",
+        dispatchInfo,
+        paymentInfo,
+      },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Item checked out (${sticker.dispatchInfo.checkoutType}): ${sticker.design} - ${sticker.suitType} - Unit #${sticker.unitNumber}`,
-      sticker,
+      message: `Item checked out (${dispatchInfo.checkoutType}): ${updatedSticker.design} - ${updatedSticker.suitType} - Unit #${updatedSticker.unitNumber}`,
+      sticker: formatSticker(updatedSticker),
     });
   } catch (error: any) {
     return NextResponse.json(

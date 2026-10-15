@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import FinalSticker from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// Helper to calculate design stats
 async function getDesignStats(design: string) {
-  const barcodes = await Barcode.find({ design }).lean();
+  const barcodes = await prisma.barcode.findMany({
+    where: { design },
+  });
   if (!barcodes || barcodes.length === 0) {
     return null;
   }
 
   const hasDupatta = barcodes.some(
-    (b: any) => b.item === "Dupatta" || b.suitType === "3pc"
+    (b) => b.item === "Dupatta" || b.suitType === "3pc"
   );
   const suitType: "2pc" | "3pc" = hasDupatta ? "3pc" : "2pc";
   const divisor = suitType === "3pc" ? 3 : 2;
@@ -24,7 +23,7 @@ async function getDesignStats(design: string) {
   let totalCategoryB = 0;
 
   for (const size of SIZES) {
-    const sizeBarcodes = barcodes.filter((b: any) => b.size === size);
+    const sizeBarcodes = barcodes.filter((b) => b.size === size);
     if (sizeBarcodes.length === 0) {
       sizeBreakdown[size] = {
         totalPieces: 0,
@@ -48,7 +47,7 @@ async function getDesignStats(design: string) {
 
     let catA = 0;
     let catB = 0;
-    let defectivePiecesCount = sizeBarcodes.filter(
+    const defectivePiecesCount = sizeBarcodes.filter(
       (b: any) => b.status === "defective" || b.status === "damaged" || !!b.defectiveInfo
     ).length;
 
@@ -90,11 +89,8 @@ async function getDesignStats(design: string) {
   };
 }
 
-// GET - Get list of designs available for final sticker generation or preview stats for a design
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const designParam = searchParams.get("design");
 
@@ -112,43 +108,42 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get all unique designs from barcodes
-    const allDesigns = await Barcode.distinct("design");
+    const barcodeDesigns = await prisma.barcode.findMany({
+      select: { design: true },
+      distinct: ["design"],
+    });
+    const allDesigns = barcodeDesigns.map((b) => b.design);
 
-    // Get designs that already have final stickers generated
-    const designsWithStickers = await FinalSticker.distinct("design");
+    const stickerDesigns = await prisma.finalSticker.findMany({
+      select: { design: true },
+      distinct: ["design"],
+    });
+    const designsWithStickers = stickerDesigns.map((s) => s.design);
 
-    // Separate designs into two categories
     const availableDesigns = allDesigns.filter(
-      (design: string) => !designsWithStickers.includes(design)
+      (design) => !designsWithStickers.includes(design)
     );
-
     const generatedDesigns = designsWithStickers;
 
-    // Get count of stickers per design that are already generated
-    const stickerCounts = await FinalSticker.aggregate([
-      {
-        $group: {
-          _id: "$design",
-          count: { $sum: 1 },
-          categoryA: {
-            $sum: { $cond: [{ $eq: ["$category", "A"] }, 1, 0] },
-          },
-          categoryB: {
-            $sum: { $cond: [{ $eq: ["$category", "B"] }, 1, 0] },
-          },
-        },
+    const allStickers = await prisma.finalSticker.findMany({
+      select: {
+        design: true,
+        category: true,
       },
-    ]);
+    });
 
     const stickerCountMap: Record<string, { total: number; catA: number; catB: number }> = {};
-    stickerCounts.forEach((item: any) => {
-      stickerCountMap[item._id] = {
-        total: item.count,
-        catA: item.categoryA,
-        catB: item.categoryB,
-      };
-    });
+    for (const s of allStickers) {
+      if (!stickerCountMap[s.design]) {
+        stickerCountMap[s.design] = { total: 0, catA: 0, catB: 0 };
+      }
+      stickerCountMap[s.design].total++;
+      if (s.category === "A") {
+        stickerCountMap[s.design].catA++;
+      } else if (s.category === "B") {
+        stickerCountMap[s.design].catB++;
+      }
+    }
 
     return NextResponse.json({
       success: true,

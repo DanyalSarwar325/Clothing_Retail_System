@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import FinalSticker from "@/app/libs/models/finalSticker";
-import Rate from "@/app/libs/models/rate";
+import prisma from "@/app/libs/prisma";
 
-// Departments that use final stickers
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
-// GET - Get all pieces for workers in a department grouped by worker and design
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const department = request.nextUrl.searchParams.get("department");
 
     if (!department) {
@@ -21,292 +14,143 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Auto-sync existing records for Cutting
-    if (department === "Cutting") {
-      await Barcode.updateMany(
-        {
-          "departmentHistory.department": { $ne: "Cutting" },
-          status: { $nin: ["defective", "damaged"] },
-        },
-        {
-          $push: {
-            departmentHistory: {
-              department: "Cutting",
-              scannedAt: new Date(),
-              scannedBy: "Cutting Master",
-            },
-          },
-        }
-      );
-    }
-
-    // Auto-sync existing quality_ok records for Overlock & Clipping
-    if (department === "Overlock" || department === "Clipping") {
-      await Barcode.updateMany(
-        {
-          $or: [
-            { "qualityCheckInfo.status": "quality_ok" },
-            { "departmentHistory.department": "Quality" },
-          ],
-          "departmentHistory.department": { $ne: "Overlock" },
-          status: { $nin: ["defective", "damaged"] },
-        },
-        {
-          $push: {
-            departmentHistory: {
-              department: "Overlock",
-              scannedAt: new Date(),
-              scannedBy: "Overlock",
-            },
-          },
-        }
-      );
-
-      await Barcode.updateMany(
-        {
-          $or: [
-            { "qualityCheckInfo.status": "quality_ok" },
-            { "departmentHistory.department": "Quality" },
-          ],
-          "departmentHistory.department": { $ne: "Clipping" },
-          status: { $nin: ["defective", "damaged"] },
-        },
-        {
-          $push: {
-            departmentHistory: {
-              department: "Clipping",
-              scannedAt: new Date(),
-              scannedBy: "Clipping",
-            },
-          },
-        }
-      );
-    }
-
-    // Get fallback rate for this department
-    const rateDoc = await Rate.findOne({ department });
+    const rateDoc = await prisma.rate.findUnique({ where: { department } });
     const fallbackRate = rateDoc?.ratePerUnit || 0;
 
-    // Check if this department uses final stickers
     const usesFinalStickers = FINAL_STICKER_DEPARTMENTS.includes(department);
 
     let pieces: any[] = [];
 
     if (usesFinalStickers) {
-      // Query FinalSticker collection for Packing/Store
-      pieces = await FinalSticker.aggregate([
-        {
-          $match: {
-            "departmentHistory.department": department,
-            status: { $nin: ["defective", "damaged"] },
+      const stickers = await prisma.finalSticker.findMany({
+        where: {
+          status: { notIn: ["defective", "damaged"] },
+          departmentHistory: {
+            some: { department },
           },
         },
-        { $unwind: "$departmentHistory" },
-        { $match: { "departmentHistory.department": department } },
-        {
-          $project: {
-            _id: 1,
-            design: 1,
-            item: { $literal: "Final Sticker" },
-            size: 1,
-            suitType: 1,
-            unitNumber: 1,
-            workerName: "$departmentHistory.scannedBy",
-            scannedAt: "$departmentHistory.scannedAt",
-            departmentRates: 1,
-            paidDepartments: 1,
-            status: 1,
-            isPaid: {
-              $cond: [
-                { $isArray: "$paidDepartments" },
-                {
-                  $gt: [
-                    {
-                      $size: {
-                        $filter: {
-                          input: "$paidDepartments",
-                          as: "pd",
-                          cond: { $eq: ["$$pd.department", department] },
-                        },
-                      },
-                    },
-                    0,
-                  ],
-                },
-                false,
-              ],
-            },
-            rate: {
-              $let: {
-                vars: {
-                  matchedRate: {
-                    $arrayElemAt: [
-                      {
-                        $filter: {
-                          input: { $ifNull: ["$departmentRates", []] },
-                          as: "r",
-                          cond: { $eq: ["$$r.department", department] },
-                        },
-                      },
-                      0,
-                    ],
-                  },
-                },
-                in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
-              },
-            },
-          },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
         },
-        { $match: { workerName: { $ne: null } } },
-        { $sort: { scannedAt: -1 } },
-      ]);
+      });
+
+      for (const sticker of stickers) {
+        const matchingScans = sticker.departmentHistory.filter((h) => h.department === department);
+        for (const scan of matchingScans) {
+          if (!scan.scannedBy) continue;
+
+          const isPaid = sticker.paidDepartments.some((pd) => pd.department === department);
+          const matchedRate = sticker.departmentRates.find((r) => r.department === department);
+          const rate = matchedRate?.ratePerPiece ?? fallbackRate;
+
+          pieces.push({
+            _id: sticker.id,
+            design: sticker.design,
+            item: "Final Sticker",
+            size: sticker.size,
+            suitType: sticker.suitType,
+            unitNumber: sticker.unitNumber,
+            workerName: scan.scannedBy,
+            scannedAt: scan.scannedAt,
+            status: sticker.status,
+            isPaid,
+            rate,
+          });
+        }
+      }
     } else {
-      // For garment piece departments:
-      // Match active pieces, companion defect pieces, or defective pieces reviewed by admin
-      pieces = await Barcode.aggregate([
-        {
-          $match: {
-            "departmentHistory.department": department,
-            $or: [
-              { status: { $nin: ["defective", "damaged"] } },
-              { "defectiveInfo.isCompanionDefect": true },
-              {
-                status: "defective",
-                "adminDefectReview.departmentReviews": {
-                  $elemMatch: {
-                    department: department,
-                    decision: { $in: ["approved", "cancelled", "adjusted"] },
-                  },
-                },
-              },
-            ],
+      const barcodes = await prisma.barcode.findMany({
+        where: {
+          departmentHistory: {
+            some: { department },
           },
         },
-        { $unwind: "$departmentHistory" },
-        { $match: { "departmentHistory.department": department } },
-        {
-          $project: {
-            _id: 1,
-            design: 1,
-            item: 1,
-            size: 1,
-            suitType: 1,
-            unitNumber: 1,
-            workerName: "$departmentHistory.scannedBy",
-            scannedAt: "$departmentHistory.scannedAt",
-            departmentRates: 1,
-            paidDepartments: 1,
-            status: 1,
-            defectiveInfo: 1,
-            adminDefectReview: 1,
-            defectDecision: {
-              $let: {
-                vars: {
-                  rev: {
-                    $arrayElemAt: [
-                      {
-                        $filter: {
-                          input: { $ifNull: ["$adminDefectReview.departmentReviews", []] },
-                          as: "dr",
-                          cond: { $eq: ["$$dr.department", department] },
-                        },
-                      },
-                      0,
-                    ],
-                  },
-                },
-                in: {
-                  $cond: [
-                    { $eq: ["$defectiveInfo.isCompanionDefect", true] },
-                    "approved",
-                    {
-                      $cond: [
-                        { $ne: ["$status", "defective"] },
-                        "approved",
-                        { $ifNull: ["$$rev.decision", "pending"] },
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-            isPaid: {
-              $cond: [
-                { $isArray: "$paidDepartments" },
-                {
-                  $gt: [
-                    {
-                      $size: {
-                        $filter: {
-                          input: "$paidDepartments",
-                          as: "pd",
-                          cond: { $eq: ["$$pd.department", department] },
-                        },
-                      },
-                    },
-                    0,
-                  ],
-                },
-                false,
-              ],
-            },
-            rate: {
-              $let: {
-                vars: {
-                  itemRate: {
-                    $arrayElemAt: [
-                      {
-                        $filter: {
-                          input: { $ifNull: ["$departmentRates", []] },
-                          as: "r",
-                          cond: {
-                            $and: [
-                              { $eq: ["$$r.department", department] },
-                              { $eq: ["$$r.item", "$item"] },
-                            ],
-                          },
-                        },
-                      },
-                      0,
-                    ],
-                  },
-                  deptRate: {
-                    $arrayElemAt: [
-                      {
-                        $filter: {
-                          input: { $ifNull: ["$departmentRates", []] },
-                          as: "r",
-                          cond: { $eq: ["$$r.department", department] },
-                        },
-                      },
-                      0,
-                    ],
-                  },
-                },
-                in: {
-                  $ifNull: [
-                    "$$itemRate.ratePerPiece",
-                    { $ifNull: ["$$deptRate.ratePerPiece", fallbackRate] },
-                  ],
-                },
-              },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+          defectiveInfo: true,
+          adminDefectReview: {
+            include: {
+              departmentReviews: true,
             },
           },
         },
-        { $match: { workerName: { $ne: null } } },
-        { $sort: { scannedAt: -1 } },
-      ]);
+      });
+
+      for (const barcode of barcodes) {
+        const defectiveInfo = barcode.defectiveInfo as any;
+        const adminDefectReview = barcode.adminDefectReview as any;
+        const isDefectiveOrDamaged = barcode.status === "defective" || barcode.status === "damaged";
+        const isCompanionDefect = !!defectiveInfo?.isCompanionDefect;
+
+        const deptReviews = adminDefectReview?.departmentReviews || [];
+        const currentDeptReview = deptReviews.find((dr: any) => dr.department === department);
+        const reviewDecision = currentDeptReview?.decision;
+
+        let shouldInclude = false;
+        if (!isDefectiveOrDamaged) {
+          shouldInclude = true;
+        } else if (isCompanionDefect) {
+          shouldInclude = true;
+        } else if (barcode.status === "defective" && ["approved", "cancelled", "adjusted"].includes(reviewDecision)) {
+          shouldInclude = true;
+        }
+
+        if (!shouldInclude) continue;
+
+        let defectDecision: string | null = null;
+        if (isCompanionDefect) {
+          defectDecision = "approved";
+        } else if (reviewDecision) {
+          defectDecision = reviewDecision;
+        }
+
+        const matchingScans = barcode.departmentHistory.filter((h) => h.department === department);
+        for (const scan of matchingScans) {
+          if (!scan.scannedBy) continue;
+
+          const isPaid = barcode.paidDepartments.some((pd) => pd.department === department);
+          const itemRateMatch = barcode.departmentRates.find(
+            (r) => r.department === department && r.item === barcode.item
+          );
+          const deptRateMatch = barcode.departmentRates.find(
+            (r) => r.department === department
+          );
+          const rate = itemRateMatch?.ratePerPiece ?? deptRateMatch?.ratePerPiece ?? fallbackRate;
+
+          pieces.push({
+            _id: barcode.id,
+            design: barcode.design,
+            item: barcode.item,
+            size: barcode.size,
+            suitType: barcode.suitType,
+            unitNumber: barcode.unitNumber,
+            workerName: scan.scannedBy,
+            scannedAt: scan.scannedAt,
+            status: barcode.status,
+            defectiveInfo,
+            adminDefectReview,
+            defectDecision,
+            isPaid,
+            rate,
+          });
+        }
+      }
     }
 
-    // Group pieces by worker
+    pieces.sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime());
+
     const workerMap: Record<string, any> = {};
 
     for (const piece of pieces) {
       const workerName = piece.workerName;
-
       if (!workerMap[workerName]) {
         workerMap[workerName] = {
           workerName,
+          department,
           totalPieces: 0,
           totalPaid: 0,
           totalPending: 0,
@@ -314,36 +158,34 @@ export async function GET(request: NextRequest) {
           pendingAmount: 0,
           totalAdjusted: 0,
           adjustedAmount: 0,
-          adjustments: [],
           totalCancelled: 0,
           cancelledAmount: 0,
-          cancelled: [],
           designs: {},
+          adjustments: [],
+          cancelledPieces: [],
         };
       }
 
       const worker = workerMap[workerName];
-      const decision = piece.defectDecision || "approved";
+      const decision = piece.defectDecision;
 
-      // Case 1: Cancelled by Admin (unpaid piece cancelled due to defect)
       if (decision === "cancelled") {
         worker.totalCancelled++;
         worker.cancelledAmount += piece.rate;
-        worker.cancelled.push({
+        worker.cancelledPieces.push({
           _id: piece._id,
           design: piece.design,
           item: piece.item,
           size: piece.size,
           unitNumber: piece.unitNumber,
           rate: piece.rate,
-          reason: piece.defectiveInfo?.reason || "Defect",
+          reason: piece.defectiveInfo?.reason || "Cancelled",
           notes: piece.defectiveInfo?.notes || "",
-          decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
+          cancelledAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
         });
-        continue; // Exclude from normal active pieces
+        continue;
       }
 
-      // Case 2: Adjusted by Admin (piece was already paid, so deduction applies to future payout)
       if (decision === "adjusted") {
         worker.totalAdjusted++;
         worker.adjustedAmount += piece.rate;
@@ -358,10 +200,8 @@ export async function GET(request: NextRequest) {
           notes: piece.defectiveInfo?.notes || "",
           decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
         });
-        // Still marked as paid in history, but deducted from future pending earnings
       }
 
-      // Normal active / approved pieces
       worker.totalPieces++;
 
       if (piece.isPaid) {
@@ -372,7 +212,6 @@ export async function GET(request: NextRequest) {
         worker.pendingAmount += piece.rate;
       }
 
-      // Group by design
       if (!worker.designs[piece.design]) {
         worker.designs[piece.design] = {
           design: piece.design,
@@ -405,7 +244,6 @@ export async function GET(request: NextRequest) {
         designGroup.pendingAmount += piece.rate;
       }
 
-      // Breakdown by item type (Shalwar, Qameez, Dupatta)
       const itemKey = piece.item || "Other";
       if (!designGroup.itemsBreakdown[itemKey]) {
         designGroup.itemsBreakdown[itemKey] = {
@@ -438,7 +276,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Convert to array format with sorted item breakdowns and net pending
     const itemOrder = ["Qameez", "Shalwar", "Dupatta", "Final Sticker"];
     const workers = Object.values(workerMap).map((worker: any) => {
       const netPendingAmount = Math.max(0, worker.pendingAmount - worker.adjustedAmount);
@@ -450,33 +287,17 @@ export async function GET(request: NextRequest) {
           const items = Object.values(d.itemsBreakdown).sort((a: any, b: any) => {
             const idxA = itemOrder.indexOf(a.item);
             const idxB = itemOrder.indexOf(b.item);
-            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-            if (idxA !== -1) return -1;
-            if (idxB !== -1) return 1;
-            return a.item.localeCompare(b.item);
+            return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
           });
 
-          const allUnpaidPieceIds = d.pieces
-            .filter((p: any) => !p.isPaid)
-            .map((p: any) => p._id);
-
           return {
-            design: d.design,
-            totalPieces: d.pieces.length,
-            totalAmount: d.paidAmount + d.pendingAmount,
-            paidCount: d.paidCount,
-            paidAmount: d.paidAmount,
-            pendingCount: d.pendingCount,
-            pendingAmount: d.pendingAmount,
-            items,
-            pieces: d.pieces,
-            unpaidPieceIds: allUnpaidPieceIds,
+            ...d,
+            itemsBreakdown: items,
           };
         }),
       };
     });
 
-    // Sort workers by pending amount (highest first)
     workers.sort((a: any, b: any) => b.netPendingAmount - a.netPendingAmount);
 
     const totalAdjustedSum = workers.reduce((sum: number, w: any) => sum + w.adjustedAmount, 0);
@@ -514,11 +335,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Mark a piece or batch of pieces as paid for a department
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { pieceId, pieceIds, department, paidBy } = await request.json();
 
     if ((!pieceId && (!pieceIds || !Array.isArray(pieceIds) || pieceIds.length === 0)) || !department) {
@@ -529,95 +347,98 @@ export async function POST(request: NextRequest) {
     }
 
     const usesFinalStickers = FINAL_STICKER_DEPARTMENTS.includes(department);
-    const Model = usesFinalStickers ? FinalSticker : Barcode;
-
-    const rateDoc = await Rate.findOne({ department });
+    const rateDoc = await prisma.rate.findUnique({ where: { department } });
     const fallbackRate = rateDoc?.ratePerUnit || 0;
 
-    // Helper to resolve rate for a piece
-    const getPieceRate = (piece: any) => {
-      const itemRateMatch = piece.departmentRates?.find(
-        (r: any) => r.department === department && r.item === piece.item
-      );
-      if (itemRateMatch && typeof itemRateMatch.ratePerPiece === "number") {
-        return itemRateMatch.ratePerPiece;
-      }
-      const deptRateMatch = piece.departmentRates?.find(
-        (r: any) => r.department === department
-      );
-      if (deptRateMatch && typeof deptRateMatch.ratePerPiece === "number") {
-        return deptRateMatch.ratePerPiece;
-      }
-      return fallbackRate;
-    };
+    const idsToPay: string[] = pieceIds && Array.isArray(pieceIds) ? pieceIds : [pieceId];
 
-    // Batch payment
-    if (Array.isArray(pieceIds) && pieceIds.length > 0) {
-      const targetPieces = await Model.find({ _id: { $in: pieceIds } });
-      let totalAmountPaid = 0;
-      let countPaid = 0;
+    let totalAmountPaid = 0;
+    let countPaid = 0;
 
-      for (const piece of targetPieces) {
-        const alreadyPaid = piece.paidDepartments?.some((pd: any) => pd.department === department);
+    if (usesFinalStickers) {
+      const stickers = await prisma.finalSticker.findMany({
+        where: { id: { in: idsToPay } },
+        include: { departmentRates: true, paidDepartments: true },
+      });
+
+      for (const sticker of stickers) {
+        const alreadyPaid = sticker.paidDepartments.some((pd) => pd.department === department);
         if (!alreadyPaid) {
-          const rate = getPieceRate(piece);
-          await Model.findByIdAndUpdate(piece._id, {
-            $push: {
-              paidDepartments: {
+          const matchedRate = sticker.departmentRates.find((r) => r.department === department);
+          const rate = matchedRate?.ratePerPiece ?? fallbackRate;
+
+          try {
+            await prisma.finalStickerPayment.create({
+              data: {
+                finalStickerId: sticker.id,
                 department,
-                paidAt: new Date(),
-                paidBy: paidBy || "Admin",
                 amount: rate,
+                paidBy: paidBy || "Admin",
+                paidAt: new Date(),
               },
-            },
-          });
-          totalAmountPaid += rate;
-          countPaid++;
+            });
+            totalAmountPaid += rate;
+            countPaid++;
+          } catch {
+            // Already paid concurrently
+          }
         }
       }
+    } else {
+      const barcodes = await prisma.barcode.findMany({
+        where: { id: { in: idsToPay } },
+        include: { departmentRates: true, paidDepartments: true },
+      });
 
+      for (const barcode of barcodes) {
+        const alreadyPaid = barcode.paidDepartments.some((pd) => pd.department === department);
+        if (!alreadyPaid) {
+          const itemRateMatch = barcode.departmentRates.find(
+            (r) => r.department === department && r.item === barcode.item
+          );
+          const deptRateMatch = barcode.departmentRates.find(
+            (r) => r.department === department
+          );
+          const rate = itemRateMatch?.ratePerPiece ?? deptRateMatch?.ratePerPiece ?? fallbackRate;
+
+          try {
+            await prisma.barcodePayment.create({
+              data: {
+                barcodeId: barcode.id,
+                department,
+                amount: rate,
+                paidBy: paidBy || "Admin",
+                paidAt: new Date(),
+              },
+            });
+            totalAmountPaid += rate;
+            countPaid++;
+          } catch {
+            // Already paid concurrently
+          }
+        }
+      }
+    }
+
+    if (!pieceIds || !Array.isArray(pieceIds)) {
+      if (countPaid === 0) {
+        return NextResponse.json(
+          { success: false, message: "This piece is already paid for this department" },
+          { status: 400 }
+        );
+      }
       return NextResponse.json({
         success: true,
-        message: `Successfully marked ${countPaid} pieces as paid (₨${totalAmountPaid.toLocaleString()})`,
-        count: countPaid,
+        message: `Piece marked as paid (₨${totalAmountPaid})`,
         amount: totalAmountPaid,
       });
     }
 
-    // Single piece payment
-    const piece = await Model.findById(pieceId);
-    if (!piece) {
-      return NextResponse.json(
-        { success: false, message: "Piece not found" },
-        { status: 404 }
-      );
-    }
-
-    const alreadyPaid = piece.paidDepartments?.some((pd: any) => pd.department === department);
-    if (alreadyPaid) {
-      return NextResponse.json(
-        { success: false, message: "This piece is already paid for this department" },
-        { status: 400 }
-      );
-    }
-
-    const rate = getPieceRate(piece);
-
-    await Model.findByIdAndUpdate(pieceId, {
-      $push: {
-        paidDepartments: {
-          department,
-          paidAt: new Date(),
-          paidBy: paidBy || "Admin",
-          amount: rate,
-        },
-      },
-    });
-
     return NextResponse.json({
       success: true,
-      message: `Piece marked as paid (₨${rate})`,
-      amount: rate,
+      message: `Successfully marked ${countPaid} pieces as paid (₨${totalAmountPaid.toLocaleString()})`,
+      count: countPaid,
+      amount: totalAmountPaid,
     });
   } catch (error: any) {
     console.error("Error marking piece as paid:", error);

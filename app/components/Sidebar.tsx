@@ -21,7 +21,8 @@ import {
   Layers,
   FileOutput,
   Receipt,
-  Store
+  Store,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import Link from "next/link";
@@ -85,6 +86,16 @@ export default function Sidebar({ active, setActive }: any) {
               icon={<LayoutDashboard size={18} />}
               label="Dashboard"
               active={pathname === "/"}
+            />
+          </Link>
+        )}
+
+        {(user.role === "admin" || user.role === "accountant") && (
+          <Link href="/accounting" onClick={closeSidebar}>
+            <SidebarItem
+              icon={<Building2 size={18} className="text-emerald-600" />}
+              label="Accounting Dept"
+              active={pathname.startsWith("/accounting")}
             />
           </Link>
         )}

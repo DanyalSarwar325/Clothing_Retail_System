@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FinalSticker, { DEPARTMENTS, Department } from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// POST - Scan a final sticker
+export const DEPARTMENTS = [
+  "Cutting",
+  "Sewing",
+  "Handmade",
+  "Patching",
+  "Press",
+  "Overlock",
+  "Clipping",
+  "Adda Work",
+  "Quality",
+  "Packing",
+  "Store",
+] as const;
+
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { barcodeData, department, scannedBy } = body;
 
@@ -17,8 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse barcode data to check if it's a final sticker
-    let parsedData;
+    let parsedData: any;
     try {
       parsedData = JSON.parse(barcodeData);
     } catch {
@@ -28,7 +37,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if this is a final sticker barcode
     if (parsedData.type !== "final") {
       return NextResponse.json(
         { success: false, message: "This is not a final sticker barcode", isFinalSticker: false },
@@ -36,8 +44,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the final sticker
-    const sticker = await FinalSticker.findOne({ barcodeData });
+    const sticker = await prisma.finalSticker.findUnique({
+      where: { barcodeData },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
+    });
 
     if (!sticker) {
       return NextResponse.json(
@@ -46,18 +60,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If department is provided, update the sticker
+    const formatSticker = (s: typeof sticker) => ({
+      ...s,
+      _id: s.id,
+      departmentHistory: s.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+      paidDepartments: s.paidDepartments.map((p) => ({
+        _id: p.id,
+        department: p.department,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        paidBy: p.paidBy,
+      })),
+    });
+
     if (department) {
-      if (!DEPARTMENTS.includes(department as Department)) {
+      if (!DEPARTMENTS.includes(department)) {
         return NextResponse.json(
           { success: false, message: "Invalid department" },
           { status: 400 }
         );
       }
 
-      // Check if already scanned by this department
       const alreadyScanned = sticker.departmentHistory.some(
-        (scan: any) => scan.department === department
+        (scan) => scan.department === department
       );
 
       if (alreadyScanned) {
@@ -65,39 +100,47 @@ export async function POST(request: NextRequest) {
           success: false,
           message: `This suit was already scanned by ${department}`,
           alreadyScanned: true,
-          sticker,
+          sticker: formatSticker(sticker),
         });
       }
 
-      // Update sticker
-      // Set status based on department
+      let newStatus = "scanned";
       if (department === "Store") {
-        sticker.status = "in_store";
+        newStatus = "in_store";
       } else if (department === "Packing") {
-        sticker.status = "packed";
-      } else {
-        sticker.status = "scanned";
+        newStatus = "packed";
       }
-      sticker.currentDepartment = department as Department;
-      sticker.departmentHistory.push({
-        department: department as Department,
-        scannedAt: new Date(),
-        scannedBy: scannedBy || undefined,
-      });
 
-      await sticker.save();
+      const updatedSticker = await prisma.finalSticker.update({
+        where: { id: sticker.id },
+        data: {
+          status: newStatus,
+          currentDepartment: department,
+          departmentHistory: {
+            create: {
+              department,
+              scannedAt: new Date(),
+              scannedBy: scannedBy || undefined,
+            },
+          },
+        },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+        },
+      });
 
       return NextResponse.json({
         success: true,
         message: `Suit scanned at ${department}`,
-        sticker,
+        sticker: formatSticker(updatedSticker),
       });
     }
 
-    // Just return sticker info without updating
     return NextResponse.json({
       success: true,
-      sticker,
+      sticker: formatSticker(sticker),
       isFinalSticker: true,
     });
   } catch (error: any) {

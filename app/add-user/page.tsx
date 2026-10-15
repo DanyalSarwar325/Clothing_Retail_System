@@ -6,6 +6,7 @@ import { UserPlus, Users, Phone, Lock, User, Search, Trash2 } from "lucide-react
 
 const DEPARTMENTS = [
   "Admin",
+  "Accounting",
   "Sewing",
   "Quality",
   "Handmade",

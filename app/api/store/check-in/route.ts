@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FinalSticker from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// POST - Check-in a final sticker to store
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { barcodeData, scannedBy } = body;
 
@@ -17,8 +13,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse barcode data to check if it's a final sticker
-    let parsedData;
+    let parsedData: any;
     try {
       parsedData = JSON.parse(barcodeData);
     } catch {
@@ -28,7 +23,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if this is a final sticker barcode
     if (parsedData.type !== "final") {
       return NextResponse.json(
         { success: false, message: "This is not a final sticker barcode", isFinalSticker: false },
@@ -36,13 +30,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the final sticker
-    let sticker = await FinalSticker.findOne({ barcodeData });
+    let sticker = await prisma.finalSticker.findUnique({
+      where: { barcodeData },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
+    });
+
     if (!sticker && parsedData.design && parsedData.size && parsedData.unitNumber) {
-      sticker = await FinalSticker.findOne({
-        design: parsedData.design,
-        size: parsedData.size,
-        unitNumber: parsedData.unitNumber,
+      sticker = await prisma.finalSticker.findFirst({
+        where: {
+          design: parsedData.design,
+          size: parsedData.size,
+          unitNumber: parsedData.unitNumber,
+        },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+        },
       });
     }
 
@@ -53,34 +61,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if already in store
+    const formatSticker = (s: typeof sticker) => ({
+      ...s,
+      _id: s.id,
+      departmentHistory: s.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+      paidDepartments: s.paidDepartments.map((p) => ({
+        _id: p.id,
+        department: p.department,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        paidBy: p.paidBy,
+      })),
+    });
+
     if (sticker.status === "in_store") {
       return NextResponse.json({
         success: false,
         message: "This item is already in store",
         alreadyInStore: true,
-        sticker,
+        sticker: formatSticker(sticker),
       });
     }
 
-    // Update sticker status to in_store
-    sticker.status = "in_store";
-    sticker.currentDepartment = "Store";
-    sticker.departmentHistory.push({
-      department: "Store",
-      scannedAt: new Date(),
-      scannedBy: scannedBy || undefined,
+    const updatedSticker = await prisma.finalSticker.update({
+      where: { id: sticker.id },
+      data: {
+        status: "in_store",
+        currentDepartment: "Store",
+        dispatchInfo: undefined,
+        departmentHistory: {
+          create: {
+            department: "Store",
+            scannedAt: new Date(),
+            scannedBy: scannedBy || undefined,
+          },
+        },
+      },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
     });
-
-    // Clear dispatch info if returning
-    sticker.dispatchInfo = undefined;
-
-    await sticker.save();
 
     return NextResponse.json({
       success: true,
-      message: `Item checked in to store: ${sticker.design} - ${sticker.suitType} - Unit #${sticker.unitNumber}`,
-      sticker,
+      message: "Suit checked in to store successfully",
+      sticker: formatSticker(updatedSticker),
     });
   } catch (error: any) {
     return NextResponse.json(

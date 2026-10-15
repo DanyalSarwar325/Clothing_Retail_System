@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FinalSticker from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// POST - Return an item to store inventory
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { stickerId, barcodeData, returnedBy, remarks } = body;
 
@@ -20,9 +16,16 @@ export async function POST(request: NextRequest) {
     let sticker = null;
 
     if (stickerId) {
-      sticker = await FinalSticker.findById(stickerId);
+      sticker = await prisma.finalSticker.findUnique({
+        where: { id: stickerId },
+        include: {
+          departmentHistory: true,
+          departmentRates: true,
+          paidDepartments: true,
+        },
+      });
     } else if (barcodeData) {
-      let parsedData = null;
+      let parsedData: any = null;
       try {
         parsedData = JSON.parse(barcodeData);
       } catch {
@@ -30,20 +33,41 @@ export async function POST(request: NextRequest) {
       }
 
       if (parsedData && parsedData.type === "final") {
-        sticker = await FinalSticker.findOne({ barcodeData });
+        sticker = await prisma.finalSticker.findUnique({
+          where: { barcodeData },
+          include: {
+            departmentHistory: true,
+            departmentRates: true,
+            paidDepartments: true,
+          },
+        });
         if (!sticker && parsedData.design && parsedData.size && parsedData.unitNumber) {
-          sticker = await FinalSticker.findOne({
-            design: parsedData.design,
-            size: parsedData.size,
-            unitNumber: parsedData.unitNumber,
+          sticker = await prisma.finalSticker.findFirst({
+            where: {
+              design: parsedData.design,
+              size: parsedData.size,
+              unitNumber: parsedData.unitNumber,
+            },
+            include: {
+              departmentHistory: true,
+              departmentRates: true,
+              paidDepartments: true,
+            },
           });
         }
       } else {
-        sticker = await FinalSticker.findOne({
-          $or: [
-            { barcodeData },
-            ...(barcodeData.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: barcodeData }] : [])
-          ]
+        sticker = await prisma.finalSticker.findFirst({
+          where: {
+            OR: [
+              { barcodeData },
+              { id: barcodeData },
+            ],
+          },
+          include: {
+            departmentHistory: true,
+            departmentRates: true,
+            paidDepartments: true,
+          },
         });
       }
     }
@@ -56,44 +80,75 @@ export async function POST(request: NextRequest) {
     }
 
     const prevStatus = sticker.status;
-    const previouslyReceived = sticker.paymentInfo?.amountReceived || 0;
+    const paymentInfoObj = (sticker.paymentInfo as any) || {};
+    const previouslyReceived = paymentInfoObj.amountReceived || 0;
 
-    // Record return info
-    sticker.returnInfo = {
-      returnedAt: new Date(),
+    const returnInfo = {
+      returnedAt: new Date().toISOString(),
       returnedBy: returnedBy || "Store",
       remarks: remarks?.trim() || "Item returned to Store inventory",
       previousStatus: prevStatus,
     };
 
-    // Reset payment info and subtract/reverse any revenue recorded
-    sticker.paymentInfo = {
+    const paymentInfo = {
       isPaid: false,
       amountReceived: 0,
-      notes: previouslyReceived > 0 
+      notes: previouslyReceived > 0
         ? `Returned on ${new Date().toLocaleDateString()}. Reversed revenue of Rs. ${previouslyReceived}. Notes: ${remarks || ""}`
         : `Returned to store. Notes: ${remarks || ""}`,
     };
 
-    // Clear dispatch info so item is no longer marked dispatched or credited
-    sticker.dispatchInfo = undefined;
-
-    // Move back to store inventory
-    sticker.status = "in_store";
-    sticker.currentDepartment = "Store";
-    sticker.departmentHistory.push({
-      department: "Store",
-      scannedAt: new Date(),
-      scannedBy: `${returnedBy || "Store"} (Return to Inventory)`,
+    const updatedSticker = await prisma.finalSticker.update({
+      where: { id: sticker.id },
+      data: {
+        returnInfo,
+        paymentInfo,
+        dispatchInfo: undefined,
+        status: "in_store",
+        currentDepartment: "Store",
+        departmentHistory: {
+          create: {
+            department: "Store",
+            scannedAt: new Date(),
+            scannedBy: `${returnedBy || "Store"} (Return to Inventory)`,
+          },
+        },
+      },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
     });
 
-    await sticker.save();
+    const formatSticker = (s: typeof updatedSticker) => ({
+      ...s,
+      _id: s.id,
+      departmentHistory: s.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
+      departmentRates: s.departmentRates.map((r) => ({
+        _id: r.id,
+        department: r.department,
+        ratePerPiece: r.ratePerPiece,
+      })),
+      paidDepartments: s.paidDepartments.map((p) => ({
+        _id: p.id,
+        department: p.department,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        paidBy: p.paidBy,
+      })),
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Item returned to Store inventory: ${sticker.design} - ${sticker.suitType} - Unit #${sticker.unitNumber}. Inventory increased by 1 and revenue subtracted.`,
+      message: `Item returned to Store inventory: ${updatedSticker.design} - ${updatedSticker.suitType} - Unit #${updatedSticker.unitNumber}. Inventory increased by 1 and revenue subtracted.`,
       reversedRevenue: previouslyReceived,
-      sticker,
+      sticker: formatSticker(updatedSticker),
     });
   } catch (error: any) {
     return NextResponse.json(

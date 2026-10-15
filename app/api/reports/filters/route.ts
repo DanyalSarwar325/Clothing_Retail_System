@@ -1,28 +1,43 @@
 import { NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
 export async function GET() {
   try {
-    await DbConnect();
+    const barcodeDesigns = await prisma.barcode.findMany({
+      select: { design: true },
+      distinct: ["design"],
+      orderBy: { design: "asc" },
+    });
+    const designs = barcodeDesigns.map((b) => b.design);
 
-    // Get unique designs
-    const designs = await Barcode.distinct("design");
+    const scans = await prisma.barcodeScan.findMany({
+      where: { scannedBy: { not: null } },
+      select: { scannedBy: true },
+      distinct: ["scannedBy"],
+      orderBy: { scannedBy: "asc" },
+    });
 
-    // Get unique scanners (workers)
-    const scanners = await Barcode.aggregate([
-      { $unwind: "$departmentHistory" },
-      { $match: { "departmentHistory.scannedBy": { $exists: true, $ne: null } } },
-      { $group: { _id: "$departmentHistory.scannedBy" } },
-      { $sort: { _id: 1 } },
-    ]);
+    const stickerScans = await prisma.finalStickerScan.findMany({
+      where: { scannedBy: { not: null } },
+      select: { scannedBy: true },
+      distinct: ["scannedBy"],
+      orderBy: { scannedBy: "asc" },
+    });
 
-    const workers = scanners.map((s) => s._id).filter(Boolean);
+    const allWorkers = new Set<string>();
+    scans.forEach((s) => {
+      if (s.scannedBy) allWorkers.add(s.scannedBy);
+    });
+    stickerScans.forEach((s) => {
+      if (s.scannedBy) allWorkers.add(s.scannedBy);
+    });
+
+    const workers = Array.from(allWorkers).sort();
 
     return NextResponse.json({
       success: true,
       data: {
-        designs: designs.sort(),
+        designs,
         workers,
       },
     });

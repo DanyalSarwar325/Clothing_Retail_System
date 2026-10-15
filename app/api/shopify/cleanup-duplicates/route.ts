@@ -1,45 +1,31 @@
 import { NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import ShopifyOrder from "@/app/libs/models/shopifyOrder";
+import prisma from "@/app/libs/prisma";
 
 export const dynamic = "force-dynamic";
 
-/**
- * One-time cleanup: deduplicate existing orders by keeping only the first
- * record for each unique Shopify order ID (orderData.id).
- * 
- * Run once via: GET /api/shopify/cleanup-duplicates
- * Delete this file after running.
- */
 export async function GET() {
   try {
-    await DbConnect();
+    const allOrders = await prisma.shopifyOrder.findMany({
+      orderBy: { createdAt: "asc" },
+    });
 
-    const allOrders = await ShopifyOrder.find().sort({ createdAt: 1 }).lean();
-
-    const seenOrderIds = new Set<number>();
-    const duplicateIds: any[] = [];
+    const seenOrderIds = new Set<string>();
+    const duplicateIds: string[] = [];
 
     for (const order of allOrders) {
-      const shopifyId = order.shopifyOrderId || order.orderData?.id;
-      if (!shopifyId) continue;
+      const shopifyId = order.shopifyOrderId.toString();
 
       if (seenOrderIds.has(shopifyId)) {
-        duplicateIds.push(order._id);
+        duplicateIds.push(order.id);
       } else {
         seenOrderIds.add(shopifyId);
-        // Backfill shopifyOrderId if missing on the kept record
-        if (!order.shopifyOrderId && order.orderData?.id) {
-          await ShopifyOrder.updateOne(
-            { _id: order._id },
-            { $set: { shopifyOrderId: order.orderData.id } }
-          );
-        }
       }
     }
 
     if (duplicateIds.length > 0) {
-      await ShopifyOrder.deleteMany({ _id: { $in: duplicateIds } });
+      await prisma.shopifyOrder.deleteMany({
+        where: { id: { in: duplicateIds } },
+      });
     }
 
     return NextResponse.json({

@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import FulfillmentOrder from "@/app/libs/models/fulfillmentOrder";
-import InvoiceLog from "@/app/libs/models/invoiceLog";
+import prisma from "@/app/libs/prisma";
 
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const {
       trackingIds,
@@ -15,13 +11,6 @@ export async function POST(request: NextRequest) {
       extractedText,
     } = body;
 
-    console.log("[Invoice Upload API] Processing request...", {
-      totalTrackingIds: trackingIds?.length || 0,
-      deliveredTrackingIds: deliveredTrackingIds?.length || 0,
-      invoiceFilename,
-    });
-
-    // Validate input
     if (!deliveredTrackingIds || !Array.isArray(deliveredTrackingIds)) {
       return NextResponse.json(
         {
@@ -42,20 +31,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Process each tracking ID
     const updatedOrders: any[] = [];
     const failedMatches: any[] = [];
     const processedResults: any[] = [];
 
     for (const trackingId of deliveredTrackingIds) {
       try {
-        // Find fulfillment order by tracking number
-        const fulfillmentOrder = await FulfillmentOrder.findOne({
-          "fulfillment.trackingNumber": trackingId,
-        });
+        const allOrders = await prisma.fulfillmentOrder.findMany();
+        const fulfillmentOrder = allOrders.find(
+          (fo) => (fo.fulfillment as any)?.trackingNumber === trackingId
+        );
 
         if (!fulfillmentOrder) {
-          console.warn(`[Invoice Upload] Tracking ID not found: ${trackingId}`);
           failedMatches.push({
             trackingId,
             reason: "No matching order found",
@@ -68,32 +55,28 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Update payment status to "paid"
-        fulfillmentOrder.payment.status = "paid";
-        fulfillmentOrder.updatedAt = new Date();
-        
-        await fulfillmentOrder.save();
+        const paymentData = (fulfillmentOrder.payment as any) || {};
+        paymentData.status = "paid";
 
-        console.log(
-          `[Invoice Upload] Updated order ${fulfillmentOrder.orderNumber} (Tracking: ${trackingId}) to PAID`
-        );
+        await prisma.fulfillmentOrder.update({
+          where: { id: fulfillmentOrder.id },
+          data: {
+            payment: paymentData,
+          },
+        });
 
         updatedOrders.push({
           orderNumber: fulfillmentOrder.orderNumber || fulfillmentOrder.orderId,
           trackingId,
-          orderStatus: fulfillmentOrder.fulfillment?.status,
+          orderStatus: (fulfillmentOrder.fulfillment as any)?.status,
         });
 
         processedResults.push({
           trackingId,
           status: "MARKED_PAID",
-          orderStatus: fulfillmentOrder.fulfillment?.status,
+          orderStatus: (fulfillmentOrder.fulfillment as any)?.status,
         });
       } catch (error: any) {
-        console.error(
-          `[Invoice Upload] Error processing tracking ID ${trackingId}:`,
-          error
-        );
         failedMatches.push({
           trackingId,
           reason: error.message,
@@ -106,45 +89,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Log to InvoiceLog collection
     try {
-      await InvoiceLog.create({
-        fileName: invoiceFilename || "unknown.pdf",
-        fileSize: extractedText?.length || 0,
-        uploadedBy: "admin",
-        extractedText: extractedText || "",
-        trackingIdsFound: trackingIds?.length || 0,
-        trackingIds: trackingIds || [],
-        processedResults,
-        processingSummary: {
-          totalTracking: deliveredTrackingIds.length,
-          markedPaid: updatedOrders.length,
-          skipped: 0,
-          notFound: failedMatches.filter((m) => m.reason === "No matching order found").length,
-          errors: failedMatches.filter((m) => m.reason !== "No matching order found").length,
+      await prisma.invoiceLog.create({
+        data: {
+          fileName: invoiceFilename || "unknown.pdf",
+          fileSize: extractedText?.length || 0,
+          uploadedBy: "admin",
+          extractedText: extractedText || "",
+          trackingIdsFound: trackingIds?.length || 0,
+          trackingIds: trackingIds || [],
+          processedResults,
+          processingSummary: {
+            totalTracking: deliveredTrackingIds.length,
+            markedPaid: updatedOrders.length,
+            skipped: 0,
+            notFound: failedMatches.filter((m) => m.reason === "No matching order found").length,
+            errors: failedMatches.filter((m) => m.reason !== "No matching order found").length,
+          },
         },
       });
-      console.log("[Invoice Upload] Logged to InvoiceLog collection");
     } catch (logError: any) {
       console.error("[Invoice Upload] Error logging to InvoiceLog:", logError);
     }
 
-    // Return success response
-    return NextResponse.json(
-      {
-        success: true,
-        message: `Successfully marked ${updatedOrders.length} orders as paid`,
-        summary: {
-          totalTrackingIds: trackingIds?.length || 0,
-          deliveredTrackingIds: deliveredTrackingIds.length,
-          successfulUpdates: updatedOrders.length,
-          failedMatches: failedMatches.length,
-        },
-        updatedOrders,
-        failedMatches,
+    return NextResponse.json({
+      success: true,
+      message: `Successfully marked ${updatedOrders.length} orders as paid`,
+      summary: {
+        totalTrackingIds: trackingIds?.length || 0,
+        deliveredTrackingIds: deliveredTrackingIds.length,
+        successfulUpdates: updatedOrders.length,
+        failedMatches: failedMatches.length,
       },
-      { status: 200 }
-    );
+      updatedOrders,
+      failedMatches,
+    });
   } catch (error: any) {
     console.error("[Invoice Upload API] Fatal error:", error);
     return NextResponse.json(

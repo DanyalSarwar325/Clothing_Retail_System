@@ -7,8 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import dbConnect from '@/app/libs/dbConnect';
-import InvoiceLog from '@/app/libs/models/invoiceLog';
+import prisma from '@/app/libs/prisma';
 
 // Configure PDF service URL
 const PDF_SERVICE_URL = process.env.PDF_SERVICE_URL || 'http://127.0.0.1:8000';
@@ -36,115 +35,67 @@ export async function POST(request: NextRequest) {
   try {
     console.log('[PDF Processing] Starting invoice processing');
     
-    await dbConnect();
-    console.log('[PDF Processing] Database connected');
-
+    // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
 
-    // Validate file
-    if (!file || file.size === 0) {
+    if (!file) {
       return NextResponse.json(
         { error: 'No file provided' },
         { status: 400 }
       );
     }
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
       return NextResponse.json(
-        { error: 'File must be a PDF' },
+        { error: 'Invalid file type. Please upload a PDF file.' },
         { status: 400 }
       );
     }
 
     console.log(`[PDF Processing] Processing file: ${file.name} (${file.size} bytes)`);
 
-    // Forward to Python service
-    console.log(`[PDF Processing] Calling PDF service at ${PDF_SERVICE_URL}`);
-    
-    const pdfFormData = new FormData();
-    pdfFormData.append('file', file);
+    // Prepare form data for Python service
+    const serviceFormData = new FormData();
+    serviceFormData.append('file', file);
 
-    let pdfResponse: Response;
+    // Call Python PDF service
+    console.log(`[PDF Processing] Calling PDF service at ${PDF_SERVICE_URL}/extract-tracking`);
+    
+    let pdfResult: PDFExtractionResult;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
-      pdfResponse = await fetch(`${PDF_SERVICE_URL}/extract-tracking-ids`, {
+      const response = await fetch(`${PDF_SERVICE_URL}/extract-tracking`, {
         method: 'POST',
-        body: pdfFormData,
-        signal: controller.signal,
+        body: serviceFormData,
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[PDF Processing] Service error (${response.status}):`, errorText);
+        throw new Error(`PDF service returned status ${response.status}: ${errorText}`);
+      }
+
+      pdfResult = await response.json();
+    } catch (fetchErr) {
+      console.error('[PDF Processing] Failed to call PDF service:', fetchErr);
       
-      clearTimeout(timeoutId);
-    } catch (fetchError: any) {
-      console.error('[PDF Processing] Failed to connect to PDF service:', fetchError.message);
+      // Fallback: Check if service is running
       return NextResponse.json(
         {
-          error: 'PDF processing service is not available',
-          details: `Could not connect to ${PDF_SERVICE_URL}. Make sure the Python service is running.`,
-          suggestion: 'Start the service: cd services/invoice_pdf_service && ./run.sh',
+          error: 'PDF processing service is unavailable. Please ensure the Python service is running on port 8000.',
+          details: fetchErr instanceof Error ? fetchErr.message : 'Connection failed',
+          instructions: 'Run: cd services/invoice_pdf_service && python main.py',
         },
         { status: 503 }
       );
     }
 
-    if (!pdfResponse.ok) {
-      const errorData = await pdfResponse.json().catch(() => ({}));
-      console.error('[PDF Processing] PDF service error:', errorData);
-      
-      return NextResponse.json(
-        {
-          error: errorData.error || 'PDF processing failed',
-          details: errorData.detail || errorData,
-        },
-        { status: pdfResponse.status }
-      );
-    }
-
-    const pdfResult: PDFExtractionResult = await pdfResponse.json();
-    console.log('[PDF Processing] PDF service response received');
-    console.log(`[PDF Processing] Tracking IDs found: ${pdfResult.tracking_ids.length}`);
-    console.log(`[PDF Processing] Extraction method: ${pdfResult.debug?.extraction_method}`);
-
-    // Handle extraction failure
     if (!pdfResult.success) {
-      console.warn('[PDF Processing] PDF extraction was not successful');
-      
-      // Save error log
-      try {
-        const errorLog = new InvoiceLog({
-          fileName: file.name,
-          fileSize: file.size,
-          uploadedBy: 'admin',
-          trackingIdsFound: 0,
-          trackingIds: [],
-          processedResults: [],
-          processingSummary: {
-            totalTracking: 0,
-            markedPaid: 0,
-            skipped: 0,
-            notFound: 0,
-            errors: 0,
-          },
-          parsingStatus: 'error',
-          parsingMethod: 'pypdf2-service',
-          errorMessage: pdfResult.error || 'Unknown extraction error',
-        });
-        await errorLog.save();
-      } catch (logErr) {
-        console.error('[PDF Processing] Failed to save error log:', logErr);
-      }
-
+      console.error('[PDF Processing] Extraction failed:', pdfResult.error);
       return NextResponse.json(
-        {
-          error: pdfResult.error || 'Unable to extract text from PDF',
-          suggestions: [
-            'Ensure the PDF contains a "Tracking Number" column',
-            'Verify tracking numbers are visible in the PDF (not image-based/scanned)',
-            'Check that the PDF is not encrypted or corrupted',
-            'Supported formats: CPR-XXXXX, TRK-XXXXX, or alphanumeric codes (8-30 characters)',
-          ],
+        { 
+          error: pdfResult.error || 'Failed to extract tracking IDs from PDF',
           debug: pdfResult.debug,
         },
         { status: 400 }
@@ -156,25 +107,26 @@ export async function POST(request: NextRequest) {
       console.warn('[PDF Processing] No tracking IDs found in PDF');
       
       try {
-        const errorLog = new InvoiceLog({
-          fileName: file.name,
-          fileSize: file.size,
-          uploadedBy: 'admin',
-          trackingIdsFound: 0,
-          trackingIds: [],
-          extractedText: pdfResult.extracted_text.substring(0, 10000),
-          processedResults: [],
-          processingSummary: {
-            totalTracking: 0,
-            markedPaid: 0,
-            skipped: 0,
-            notFound: 0,
-            errors: 0,
+        await prisma.invoiceLog.create({
+          data: {
+            fileName: file.name,
+            fileSize: file.size,
+            uploadedBy: 'admin',
+            trackingIdsFound: 0,
+            trackingIds: [],
+            extractedText: pdfResult.extracted_text.substring(0, 10000),
+            processedResults: [],
+            processingSummary: {
+              totalTracking: 0,
+              markedPaid: 0,
+              skipped: 0,
+              notFound: 0,
+              errors: 0,
+            },
+            parsingStatus: 'no-tracking-ids',
+            parsingMethod: 'pypdf2-service',
           },
-          parsingStatus: 'no-tracking-ids',
-          parsingMethod: 'pypdf2-service',
         });
-        await errorLog.save();
       } catch (logErr) {
         console.error('[PDF Processing] Failed to save log:', logErr);
       }
@@ -196,11 +148,6 @@ export async function POST(request: NextRequest) {
 
     console.log(`[PDF Processing] Processing ${pdfResult.tracking_ids.length} tracking IDs`);
 
-    // Import the fulfillment model
-    const FulfillmentOrder = 
-      require('@/app/libs/models/fulfillmentOrder').default || 
-      require('@/app/libs/models/fulfillmentOrder');
-
     // Update orders with matching tracking IDs
     const processedOrders: any[] = [];
     let markedPaidCount = 0;
@@ -208,17 +155,29 @@ export async function POST(request: NextRequest) {
     let notFoundCount = 0;
     let errorCount = 0;
 
+    const allFulfillments = await prisma.fulfillmentOrder.findMany();
+
     for (const trackingId of pdfResult.tracking_ids) {
       try {
-        const fulfillment = await FulfillmentOrder.findOne({
-          'fulfillment.trackingNumber': trackingId,
-        });
+        const fulfillment = allFulfillments.find(
+          (f: any) => f.fulfillment?.trackingNumber === trackingId
+        );
 
         if (fulfillment) {
+          const fData = (fulfillment.fulfillment as any) || {};
+          const pData = (fulfillment.payment as any) || {};
+
           // Only mark as paid if status is "delivered"
-          if (fulfillment.fulfillment?.status?.toLowerCase() === 'delivered') {
-            fulfillment.payment.status = 'paid';
-            await fulfillment.save();
+          if (fData?.status?.toLowerCase() === 'delivered') {
+            await prisma.fulfillmentOrder.update({
+              where: { id: fulfillment.id },
+              data: {
+                payment: {
+                  ...pData,
+                  status: 'paid',
+                },
+              },
+            });
             processedOrders.push({
               trackingId,
               status: 'MARKED PAID',
@@ -229,11 +188,11 @@ export async function POST(request: NextRequest) {
           } else {
             processedOrders.push({
               trackingId,
-              status: `SKIPPED (status: ${fulfillment.fulfillment?.status || 'unknown'})`,
-              orderStatus: fulfillment.fulfillment?.status || 'unknown',
+              status: `SKIPPED (status: ${fData?.status || 'unknown'})`,
+              orderStatus: fData?.status || 'unknown',
             });
             skippedCount++;
-            console.log(`[PDF Processing] ⊘ Skipped: ${trackingId} (status: ${fulfillment.fulfillment?.status})`);
+            console.log(`[PDF Processing] ⊘ Skipped: ${trackingId} (status: ${fData?.status})`);
           }
         } else {
           processedOrders.push({
@@ -256,30 +215,29 @@ export async function POST(request: NextRequest) {
 
     // Save invoice log
     try {
-      const invoiceLog = new InvoiceLog({
-        fileName: file.name,
-        fileSize: file.size,
-        uploadedBy: 'admin',
-        extractedText: pdfResult.extracted_text.substring(0, 50000), // Limit to 50KB
-        trackingIdsFound: pdfResult.tracking_ids.length,
-        trackingIds: pdfResult.tracking_ids,
-        processedResults: processedOrders,
-        processingSummary: {
-          totalTracking: pdfResult.tracking_ids.length,
-          markedPaid: markedPaidCount,
-          skipped: skippedCount,
-          notFound: notFoundCount,
-          errors: errorCount,
+      await prisma.invoiceLog.create({
+        data: {
+          fileName: file.name,
+          fileSize: file.size,
+          uploadedBy: 'admin',
+          extractedText: pdfResult.extracted_text.substring(0, 50000), // Limit to 50KB
+          trackingIdsFound: pdfResult.tracking_ids.length,
+          trackingIds: pdfResult.tracking_ids,
+          processedResults: processedOrders,
+          processingSummary: {
+            totalTracking: pdfResult.tracking_ids.length,
+            markedPaid: markedPaidCount,
+            skipped: skippedCount,
+            notFound: notFoundCount,
+            errors: errorCount,
+          },
+          parsingStatus: 'success',
+          parsingMethod: 'pypdf2-service',
         },
-        parsingStatus: 'success',
-        parsingMethod: 'pypdf2-service',
       });
-
-      await invoiceLog.save();
       console.log('[PDF Processing] Invoice log saved');
     } catch (logErr) {
       console.error('[PDF Processing] Failed to save invoice log:', logErr);
-      // Continue even if log save fails
     }
 
     const duration = Date.now() - startTime;

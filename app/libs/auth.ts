@@ -1,6 +1,18 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { UserRole } from "./models/user";
+export type UserRole =
+  | "admin"
+  | "accountant"
+  | "sewing"
+  | "quality"
+  | "handmade"
+  | "adda_work"
+  | "patching"
+  | "press"
+  | "overlock"
+  | "clipping"
+  | "packing"
+  | "store";
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "your-secret-key-change-in-production"
@@ -42,7 +54,32 @@ export async function getSession(): Promise<UserPayload | null> {
 
 // Role-based access configuration
 export const ROLE_ROUTES: Record<UserRole, string[]> = {
-  admin: ["/", "/print-barcodes", "/create-product", "/product", "/users", "/quality", "/sewing", "/handmade", "/adda-work", "/patching", "/press", "/packing", "/store", "/rates"],
+  admin: [
+    "/",
+    "/accounting",
+    "/print-barcodes",
+    "/create-product",
+    "/product",
+    "/users",
+    "/quality",
+    "/sewing",
+    "/handmade",
+    "/adda-work",
+    "/patching",
+    "/press",
+    "/packing",
+    "/store",
+    "/rates",
+  ],
+  accountant: [
+    "/accounting",
+    "/payments",
+    "/raw-materials",
+    "/job-costing",
+    "/revenue",
+    "/invoices",
+    "/reports",
+  ],
   sewing: ["/sewing"],
   quality: ["/quality"],
   handmade: ["/handmade"],
@@ -58,6 +95,7 @@ export const ROLE_ROUTES: Record<UserRole, string[]> = {
 // Default redirect route for each role after login
 export const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   admin: "/",
+  accountant: "/accounting",
   sewing: "/sewing",
   quality: "/quality",
   handmade: "/handmade",

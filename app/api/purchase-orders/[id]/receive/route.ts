@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import PurchaseOrder from "@/app/libs/models/purchaseOrder";
+import prisma from "@/app/libs/prisma";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -8,10 +7,16 @@ interface RouteParams {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    await DbConnect();
     const { id } = await params;
 
-    const po = await PurchaseOrder.findById(id);
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id },
+      include: {
+        departmentRates: true,
+        receivingLogs: { include: { items: true } },
+      },
+    });
+
     if (!po) {
       return NextResponse.json(
         { success: false, message: "Purchase Order not found" },
@@ -29,7 +34,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Filter valid positive items
     const validItems = items.filter(
       (it: any) =>
         ["S", "M", "L"].includes(it.size) &&
@@ -45,18 +49,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Aggregate requested quantities to handle potential duplicate items in the payload
     const requestedTotals: Record<string, number> = {};
     for (const it of validItems) {
       const key = `${it.size}_${it.item}`;
       requestedTotals[key] = (requestedTotals[key] || 0) + it.quantity;
     }
 
-    // STRICT VALIDATION: Ensure received pieces do not exceed remaining planned pieces
+    const plannedQuantities = (po.plannedQuantities as any) || {};
+    const receivedQuantities = (po.receivedQuantities as any) || {};
+
     for (const [key, qty] of Object.entries(requestedTotals)) {
       const [size, item] = key.split("_") as ["S" | "M" | "L", "Qameez" | "Shalwar" | "Dupatta"];
-      const planned = po.plannedQuantities?.[size]?.[item] || 0;
-      const currentReceived = po.receivedQuantities?.[size]?.[item] || 0;
+      const planned = plannedQuantities?.[size]?.[item] || 0;
+      const currentReceived = receivedQuantities?.[size]?.[item] || 0;
       const remainingAllowed = Math.max(0, planned - currentReceived);
 
       if (qty > remainingAllowed) {
@@ -79,42 +84,68 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Increment received quantities on the PO
     validItems.forEach((it: any) => {
       const size = it.size as "S" | "M" | "L";
       const item = it.item as "Qameez" | "Shalwar" | "Dupatta";
-      const current = po.receivedQuantities[size]?.[item] || 0;
-      po.receivedQuantities[size][item] = current + it.quantity;
+      if (!receivedQuantities[size]) receivedQuantities[size] = {};
+      const current = receivedQuantities[size]?.[item] || 0;
+      receivedQuantities[size][item] = current + it.quantity;
     });
 
-    // Append receiving log
-    po.receivingLogs.push({
-      receivedAt: new Date(),
-      receivedBy: receivedBy || "Admin",
-      cuttingPersonName: cuttingPersonName || "Cutting Master",
-      notes: notes || "",
-      items: validItems.map((it: any) => ({
-        size: it.size,
-        item: it.item,
-        quantity: it.quantity,
-      })),
+    const newStatus = po.status === "Open" ? "In Progress" : po.status;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.purchaseOrder.update({
+        where: { id: po.id },
+        data: {
+          receivedQuantities,
+          status: newStatus,
+          receivingLogs: {
+            create: {
+              receivedAt: new Date(),
+              receivedBy: receivedBy || "Admin",
+              cuttingPersonName: cuttingPersonName || "Cutting Master",
+              notes: notes || "",
+              items: {
+                create: validItems.map((it: any) => ({
+                  size: it.size,
+                  item: it.item,
+                  quantity: it.quantity,
+                })),
+              },
+            },
+          },
+        },
+      });
     });
 
-    // Update status to In Progress if currently Open
-    if (po.status === "Open") {
-      po.status = "In Progress";
-    }
+    const updatedPo = await prisma.purchaseOrder.findUnique({
+      where: { id: po.id },
+      include: {
+        departmentRates: true,
+        receivingLogs: { include: { items: true } },
+      },
+    });
 
-    po.markModified("receivedQuantities");
-    po.markModified("receivingLogs");
-    await po.save();
+    const formattedPo = updatedPo
+      ? {
+          ...updatedPo,
+          _id: updatedPo.id,
+          departmentRates: updatedPo.departmentRates.map((r) => ({ ...r, _id: r.id })),
+          receivingLogs: updatedPo.receivingLogs.map((l) => ({
+            ...l,
+            _id: l.id,
+            items: l.items.map((it) => ({ ...it, _id: it.id })),
+          })),
+        }
+      : null;
 
     const totalReceivedInThisBatch = validItems.reduce((acc, cur) => acc + cur.quantity, 0);
 
     return NextResponse.json({
       success: true,
       message: `Successfully received ${totalReceivedInThisBatch} cut pieces from cutting department`,
-      purchaseOrder: po,
+      purchaseOrder: formattedPo,
     });
   } catch (error: any) {
     console.error("Error logging received cut items:", error);

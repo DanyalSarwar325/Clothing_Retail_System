@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode, { Department } from "@/app/libs/models/barcode";
-import Rate from "@/app/libs/models/rate";
+import prisma from "@/app/libs/prisma";
 
-// Helper to resolve rate for a piece in a given department
 function getPieceRateForDept(piece: any, department: string, fallbackRate: number): number {
   const itemRateMatch = piece.departmentRates?.find(
     (r: any) => r.department === department && r.item === piece.item
@@ -20,104 +17,113 @@ function getPieceRateForDept(piece: any, department: string, fallbackRate: numbe
   return fallbackRate;
 }
 
-// GET - Fetch defective barcodes requiring admin review or already reviewed
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const searchParams = request.nextUrl.searchParams;
     const filterStatus = searchParams.get("status"); // "pending" | "reviewed" | "all"
     const searchDesign = searchParams.get("design");
 
-    const query: any = {
+    const where: any = {
       status: "defective",
     };
 
     if (searchDesign) {
-      query.design = { $regex: searchDesign, $options: "i" };
+      where.design = { contains: searchDesign, mode: "insensitive" };
     }
 
-    if (filterStatus === "pending") {
-      query.$or = [
-        { "adminDefectReview.status": "pending" },
-        { adminDefectReview: { $exists: false } },
-      ];
-    } else if (filterStatus === "reviewed") {
-      query["adminDefectReview.status"] = "reviewed";
-    }
+    const barcodes = await prisma.barcode.findMany({
+      where,
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+        defectiveInfo: true,
+        qualityCheckLogs: true,
+        adminDefectReview: {
+          include: {
+            departmentReviews: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-    const barcodes = await Barcode.find(query).sort({ "defectiveInfo.markedAt": -1 }).lean();
-
-    // Cache fallback rates by department
-    const rates = await Rate.find({}).lean();
+    const rates = await prisma.rate.findMany();
     const rateMap: Record<string, number> = {};
-    rates.forEach((r: any) => {
+    rates.forEach((r) => {
       rateMap[r.department] = r.ratePerUnit || 0;
     });
 
-    const items = barcodes.map((b: any) => {
-      const isCompanion = !!b.defectiveInfo?.isCompanionDefect;
-      const history = (b.departmentHistory || []).filter(
-        (h: any) => h.department !== "Quality" && h.department !== "Admin"
-      );
+    const items = barcodes
+      .map((b) => {
+        const defectiveInfo = b.defectiveInfo as any;
+        const adminDefectReview = b.adminDefectReview as any;
+        const isCompanion = !!defectiveInfo?.isCompanionDefect;
 
-      // Map departments that worked on this piece
-      const departments = history.map((h: any) => {
-        const dept = h.department;
-        const workerName = h.scannedBy || "Worker";
-        const rate = getPieceRateForDept(b, dept, rateMap[dept] || 0);
-        const previouslyPaid = (b.paidDepartments || []).some(
-          (pd: any) => pd.department === dept
+        const history = (b.departmentHistory || []).filter(
+          (h) => h.department !== "Quality" && h.department !== "Admin"
         );
 
-        // Check existing review decision
-        const existingReview = b.adminDefectReview?.departmentReviews?.find(
-          (r: any) => r.department === dept
-        );
+        const departments = history.map((h) => {
+          const dept = h.department;
+          const workerName = h.scannedBy || "Worker";
+          const rate = getPieceRateForDept(b, dept, rateMap[dept] || 0);
+          const previouslyPaid = (b.paidDepartments || []).some(
+            (pd) => pd.department === dept
+          );
 
-        // Cutting is always protected
-        const isCutting = dept === "Cutting";
+          const existingReview = adminDefectReview?.departmentReviews?.find(
+            (r: any) => r.department === dept
+          );
 
-        let currentDecision: "approved" | "cancelled" | "adjusted" | "pending" = "pending";
-        if (isCompanion || isCutting) {
-          currentDecision = "approved";
-        } else if (existingReview) {
-          currentDecision = existingReview.decision;
-        }
+          const isCutting = dept === "Cutting";
+
+          let currentDecision: "approved" | "cancelled" | "adjusted" | "pending" = "pending";
+          if (isCompanion || isCutting) {
+            currentDecision = "approved";
+          } else if (existingReview) {
+            currentDecision = existingReview.decision;
+          }
+
+          return {
+            department: dept,
+            workerName,
+            rate,
+            previouslyPaid,
+            isCutting,
+            isCompanion,
+            decision: currentDecision,
+          };
+        });
+
+        const reviewStatus = isCompanion
+          ? "reviewed"
+          : adminDefectReview?.status || "pending";
 
         return {
-          department: dept,
-          workerName,
-          rate,
-          previouslyPaid,
-          isCutting,
-          isCompanion,
-          decision: currentDecision,
+          _id: b.id,
+          id: b.id,
+          design: b.design,
+          size: b.size,
+          item: b.item,
+          unitNumber: b.unitNumber,
+          barcodeData: b.barcodeData,
+          status: b.status,
+          defectiveInfo: b.defectiveInfo,
+          qualityCheckInfo: b.qualityCheckLogs,
+          isCompanionDefect: isCompanion,
+          reviewStatus,
+          reviewedAt: adminDefectReview?.reviewedAt,
+          reviewedBy: adminDefectReview?.reviewedBy,
+          adminNotes: adminDefectReview?.notes,
+          departments,
         };
+      })
+      .filter((item) => {
+        if (filterStatus === "pending") return item.reviewStatus === "pending";
+        if (filterStatus === "reviewed") return item.reviewStatus === "reviewed";
+        return true;
       });
-
-      const reviewStatus = isCompanion
-        ? "reviewed"
-        : b.adminDefectReview?.status || "pending";
-
-      return {
-        _id: b._id,
-        design: b.design,
-        size: b.size,
-        item: b.item,
-        unitNumber: b.unitNumber,
-        barcodeData: b.barcodeData,
-        status: b.status,
-        defectiveInfo: b.defectiveInfo,
-        qualityCheckInfo: b.qualityCheckInfo,
-        isCompanionDefect: isCompanion,
-        reviewStatus,
-        reviewedAt: b.adminDefectReview?.reviewedAt,
-        reviewedBy: b.adminDefectReview?.reviewedBy,
-        adminNotes: b.adminDefectReview?.notes,
-        departments,
-      };
-    });
 
     const pendingCount = items.filter((it) => it.reviewStatus === "pending").length;
     const reviewedCount = items.filter((it) => it.reviewStatus === "reviewed").length;
@@ -142,11 +148,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Submit admin decision on defective piece departments
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { barcodeId, decisions, adminNotes, reviewedBy } = body;
 
@@ -157,7 +160,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const barcode = await Barcode.findById(barcodeId);
+    const barcode = await prisma.barcode.findUnique({
+      where: { id: barcodeId },
+      include: {
+        departmentRates: true,
+        paidDepartments: true,
+        defectiveInfo: true,
+      },
+    });
+
     if (!barcode) {
       return NextResponse.json(
         { success: false, message: "Barcode not found" },
@@ -165,31 +176,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rates = await Rate.find({}).lean();
+    const rates = await prisma.rate.findMany();
     const rateMap: Record<string, number> = {};
-    rates.forEach((r: any) => {
+    rates.forEach((r) => {
       rateMap[r.department] = r.ratePerUnit || 0;
     });
 
-    const isCompanion = !!barcode.defectiveInfo?.isCompanionDefect;
+    const defectiveInfo = barcode.defectiveInfo as any;
+    const isCompanion = !!defectiveInfo?.isCompanionDefect;
 
-    // Process each department decision
     const processedReviews = decisions.map((d: any) => {
       const dept = d.department;
       const workerName = d.workerName || "Worker";
       const rate = getPieceRateForDept(barcode, dept, rateMap[dept] || 0);
       const previouslyPaid = (barcode.paidDepartments || []).some(
-        (pd: any) => pd.department === dept
+        (pd) => pd.department === dept
       );
 
-      // Rule: Cutting master and Companion items are ALWAYS approved
       if (dept === "Cutting" || isCompanion) {
         return {
-          department: dept as Department,
+          department: dept,
           workerName,
           rate,
           previouslyPaid,
-          decision: "approved" as const,
+          decision: "approved",
           decidedAt: new Date(),
           decidedBy: reviewedBy || "Admin",
           notes: isCompanion ? "Companion scrap auto-approved" : "Cutting master protected",
@@ -200,14 +210,11 @@ export async function POST(request: NextRequest) {
       if (d.approved) {
         decision = "approved";
       } else {
-        // If unchecked:
-        // If already paid, it's an adjustment for the future
-        // If unpaid, it's cancelled
         decision = previouslyPaid ? "adjusted" : "cancelled";
       }
 
       return {
-        department: dept as Department,
+        department: dept,
         workerName,
         rate,
         previouslyPaid,
@@ -218,20 +225,48 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    barcode.adminDefectReview = {
-      reviewedAt: new Date(),
-      reviewedBy: reviewedBy || "Admin",
-      notes: adminNotes || "",
-      status: "reviewed",
-      departmentReviews: processedReviews,
-    };
+    const existingReview = await prisma.adminDefectReview.findUnique({
+      where: { barcodeId },
+    });
 
-    await barcode.save();
+    let savedReview;
+    if (existingReview) {
+      await prisma.defectDepartmentReview.deleteMany({
+        where: { adminReviewId: existingReview.id },
+      });
+      savedReview = await prisma.adminDefectReview.update({
+        where: { id: existingReview.id },
+        data: {
+          reviewedAt: new Date(),
+          reviewedBy: reviewedBy || "Admin",
+          notes: adminNotes || "",
+          status: "reviewed",
+          departmentReviews: {
+            create: processedReviews,
+          },
+        },
+        include: { departmentReviews: true },
+      });
+    } else {
+      savedReview = await prisma.adminDefectReview.create({
+        data: {
+          barcodeId,
+          reviewedAt: new Date(),
+          reviewedBy: reviewedBy || "Admin",
+          notes: adminNotes || "",
+          status: "reviewed",
+          departmentReviews: {
+            create: processedReviews,
+          },
+        },
+        include: { departmentReviews: true },
+      });
+    }
 
     return NextResponse.json({
       success: true,
       message: "Decision recorded successfully",
-      adminDefectReview: barcode.adminDefectReview,
+      adminDefectReview: savedReview,
     });
   } catch (error: any) {
     console.error("Error saving defect decision:", error);

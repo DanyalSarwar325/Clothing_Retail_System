@@ -1,5 +1,4 @@
-import DbConnect from "@/app/libs/dbConnect";
-import Product from "@/app/libs/models/product";
+import prisma from "@/app/libs/prisma";
 
 /**
  * CREATE PRODUCT
@@ -22,18 +21,18 @@ export async function POST(req: Request) {
       );
     }
 
-    await DbConnect();
-
-    const product = await Product.create({
-      name: body.name,
-      type: body.type,
-      createdAt: new Date(),
-      status: "checked-in",
+    const product = await prisma.product.create({
+      data: {
+        name: body.name,
+        type: body.type,
+        status: body.status || "checked-in",
+      },
     });
 
     return Response.json(
       {
-        productId: product._id.toString(),
+        productId: product.id,
+        _id: product.id,
         message: "Product created successfully",
       },
       { status: 201 }
@@ -52,15 +51,20 @@ export async function POST(req: Request) {
  */
 export async function GET() {
   try {
-    await DbConnect();
+    const products = await prisma.product.findMany({
+      orderBy: { createdAt: "desc" },
+    });
 
-    const products = await Product.find({}).sort({ createdAt: -1 });
+    const formatted = products.map((p) => ({
+      ...p,
+      _id: p.id,
+    }));
 
-    return Response.json(products);
+    return Response.json(formatted);
   } catch (error) {
     console.error("GET /api/products error:", error);
     return Response.json(
-      { error: "Failed to fetch products" },
+      { error: "Internal Server Error" },
       { status: 500 }
     );
   }

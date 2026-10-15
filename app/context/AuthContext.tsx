@@ -12,6 +12,7 @@ type UserRole =
   | "patching" 
   | "press" 
   | "overlock"
+  | "accountant"
   | "clipping"
   | "packing" 
   | "store";
@@ -20,6 +21,7 @@ type UserRole =
 const ROLE_ROUTES: Record<UserRole, string[]> = {
   admin: [
     "/",
+    "/accounting",
     "/generate-barcodes",
     "/purchase-orders",
     "/po-receipts",
@@ -48,6 +50,15 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
     "/admin/fulfillment-orders",
     "/invoices",
   ],
+  accountant: [
+    "/accounting",
+    "/payments",
+    "/raw-materials",
+    "/job-costing",
+    "/revenue",
+    "/invoices",
+    "/reports",
+  ],
   sewing: ["/sewing", "/orders"],
   quality: ["/quality", "/orders"],
   handmade: ["/handmade", "/orders"],
@@ -63,6 +74,7 @@ const ROLE_ROUTES: Record<UserRole, string[]> = {
 // Default redirect route for each role after login
 const ROLE_DEFAULT_ROUTE: Record<UserRole, string> = {
   admin: "/",
+  accountant: "/accounting",
   sewing: "/sewing",
   quality: "/quality",
   handmade: "/handmade",

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
 // GET - Get single barcode by ID
 export async function GET(
@@ -8,10 +7,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await DbConnect();
-
     const { id } = await params;
-    const barcode = await Barcode.findById(id);
+    const barcode = await prisma.barcode.findUnique({
+      where: { id },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        defectiveInfo: true,
+        qualityCheckLogs: {
+          orderBy: { checkedAt: "desc" },
+          take: 1,
+        },
+      },
+    });
 
     if (!barcode) {
       return NextResponse.json(
@@ -22,7 +30,10 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      barcode,
+      barcode: {
+        ...barcode,
+        _id: barcode.id,
+      },
     });
   } catch (error: any) {
     console.error("Error fetching barcode:", error);
@@ -39,8 +50,6 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await DbConnect();
-
     const { id } = await params;
     const body = await request.json();
     const { status } = body;
@@ -57,23 +66,18 @@ export async function PATCH(
       updateData.soldAt = new Date();
     }
 
-    const barcode = await Barcode.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    );
-
-    if (!barcode) {
-      return NextResponse.json(
-        { success: false, message: "Barcode not found" },
-        { status: 404 }
-      );
-    }
+    const barcode = await prisma.barcode.update({
+      where: { id },
+      data: updateData,
+    });
 
     return NextResponse.json({
       success: true,
       message: `Barcode status updated to ${status}`,
-      barcode,
+      barcode: {
+        ...barcode,
+        _id: barcode.id,
+      },
     });
   } catch (error: any) {
     console.error("Error updating barcode:", error);
@@ -90,17 +94,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await DbConnect();
-
     const { id } = await params;
-    const barcode = await Barcode.findByIdAndDelete(id);
-
-    if (!barcode) {
-      return NextResponse.json(
-        { success: false, message: "Barcode not found" },
-        { status: 404 }
-      );
-    }
+    await prisma.barcode.delete({
+      where: { id },
+    });
 
     return NextResponse.json({
       success: true,

@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import Packet from "@/app/libs/models/packet";
-import { v4 as uuidv4 } from "uuid";
+import prisma from "@/app/libs/prisma";
 
 // POST - Create a packet from 3 scanned barcodes
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { barcodeDataList, packedBy } = body;
 
@@ -28,8 +23,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Find all 3 barcodes
-    const barcodes = await Barcode.find({
-      barcodeData: { $in: barcodeDataList }
+    const barcodes = await prisma.barcode.findMany({
+      where: {
+        barcodeData: { in: barcodeDataList },
+      },
     });
 
     if (barcodes.length !== 3) {
@@ -49,15 +46,15 @@ export async function POST(request: NextRequest) {
 
     if (!allSameUnit) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           message: "All 3 items must be from the same unit (same design, size, and unit number)",
-          details: barcodes.map(b => ({
+          details: barcodes.map((b) => ({
             item: b.item,
             design: b.design,
             size: b.size,
-            unitNumber: b.unitNumber
-          }))
+            unitNumber: b.unitNumber,
+          })),
         },
         { status: 400 }
       );
@@ -71,11 +68,11 @@ export async function POST(request: NextRequest) {
     if (JSON.stringify(items) !== JSON.stringify(sortedRequiredItems)) {
       const missingItems = sortedRequiredItems.filter((item) => !items.includes(item));
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           message: `Missing items: ${missingItems.join(", ")}. A packet must contain Shalwar, Qameez, and Dupatta.`,
           scannedItems: items,
-          missingItems
+          missingItems,
         },
         { status: 400 }
       );
@@ -85,23 +82,25 @@ export async function POST(request: NextRequest) {
     const alreadyPacked = barcodes.filter((b) => b.status === "packed");
     if (alreadyPacked.length > 0) {
       return NextResponse.json(
-        { 
-          success: false, 
-          message: `${alreadyPacked.length} item(s) already packed: ${alreadyPacked.map(b => b.item).join(", ")}`,
-          alreadyPacked: alreadyPacked.map(b => b.item)
+        {
+          success: false,
+          message: `${alreadyPacked.length} item(s) already packed: ${alreadyPacked.map((b) => b.item).join(", ")}`,
+          alreadyPacked: alreadyPacked.map((b) => b.item),
         },
         { status: 400 }
       );
     }
 
     // Check if a packet already exists for this unit
-    const existingPacket = await Packet.findOne({ design, size, unitNumber });
+    const existingPacket = await prisma.packet.findFirst({
+      where: { design, size, unitNumber },
+    });
     if (existingPacket) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           message: `Packet already exists for ${design} - Size ${size} - Unit #${unitNumber}`,
-          existingPacketId: existingPacket.packetId
+          existingPacketId: existingPacket.packetId,
         },
         { status: 400 }
       );
@@ -116,44 +115,55 @@ export async function POST(request: NextRequest) {
       size,
       unitNumber,
       items: ["Shalwar", "Qameez", "Dupatta"],
-      packedAt: new Date().toISOString()
+      packedAt: new Date().toISOString(),
     });
 
-    // Create packet
-    const packet = await Packet.create({
-      packetId,
-      design,
-      size,
-      unitNumber,
-      barcodeIds: barcodes.map((b) => b._id),
-      items: barcodes.map((b) => ({
-        item: b.item,
-        barcodeId: b._id,
-        barcodeData: b.barcodeData,
-      })),
-      packetBarcodeData,
-      status: "packed",
-      packedBy,
-      packedAt: new Date(),
-    });
+    const now = new Date();
 
-    // Update all barcodes to "packed" status and add to department history
-    await Barcode.updateMany(
-      { _id: { $in: barcodes.map((b) => b._id) } },
-      {
-        $set: { 
+    const packet = await prisma.$transaction(async (tx) => {
+      // Create packet
+      const pkt = await tx.packet.create({
+        data: {
+          packetId,
+          design,
+          size,
+          unitNumber,
+          barcodeIds: barcodes.map((b) => b.id),
+          items: barcodes.map((b) => ({
+            item: b.item,
+            barcodeId: b.id,
+            barcodeData: b.barcodeData,
+          })),
+          packetBarcodeData,
           status: "packed",
-          currentDepartment: "Packing"
+          packedBy,
+          packedAt: now,
         },
-        $push: {
-          departmentHistory: {
+      });
+
+      // Update all barcodes to "packed" status and record Packing scan
+      for (const b of barcodes) {
+        await tx.barcode.update({
+          where: { id: b.id },
+          data: {
+            status: "packed",
+            currentDepartment: "Packing",
+            scannedAt: now,
+          },
+        });
+
+        await tx.barcodeScan.create({
+          data: {
+            barcodeId: b.id,
             department: "Packing",
-            scannedAt: new Date(),
+            scannedAt: now,
             scannedBy: packedBy,
           },
-        },
+        });
       }
-    );
+
+      return pkt;
+    });
 
     return NextResponse.json({
       success: true,
@@ -163,10 +173,11 @@ export async function POST(request: NextRequest) {
         design: packet.design,
         size: packet.size,
         unitNumber: packet.unitNumber,
-        items: packet.items.map((i) => i.item),
+        items: (packet.items as any[]).map((i) => i.item),
         packetBarcodeData: packet.packetBarcodeData,
         packedBy: packet.packedBy,
         packedAt: packet.packedAt,
+        _id: packet.id,
       },
     });
   } catch (error: any) {
@@ -181,26 +192,26 @@ export async function POST(request: NextRequest) {
 // GET - Get all packets or filter by design/size
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
     const size = searchParams.get("size");
     const packedBy = searchParams.get("packedBy");
 
-    const filter: any = {};
-    if (design) filter.design = { $regex: design, $options: "i" };
-    if (size) filter.size = size;
-    if (packedBy) filter.packedBy = packedBy;
+    const where: any = {};
+    if (design) where.design = { contains: design, mode: "insensitive" };
+    if (size) where.size = size;
+    if (packedBy) where.packedBy = packedBy;
 
-    const packets = await Packet.find(filter)
-      .sort({ packedAt: -1 })
-      .limit(100);
+    const packets = await prisma.packet.findMany({
+      where,
+      orderBy: { packedAt: "desc" },
+      take: 100,
+    });
 
     return NextResponse.json({
       success: true,
       count: packets.length,
-      packets,
+      packets: packets.map((p) => ({ ...p, _id: p.id })),
     });
   } catch (error: any) {
     console.error("Error fetching packets:", error);

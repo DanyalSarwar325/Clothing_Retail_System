@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
 // POST - Create multiple barcodes
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { barcodes } = body;
 
@@ -17,14 +14,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert all barcodes
-    const insertedBarcodes = await Barcode.insertMany(barcodes);
+    const createdList: any[] = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const b of barcodes) {
+        const created = await tx.barcode.create({
+          data: {
+            design: b.design,
+            size: b.size,
+            suitType: b.suitType || "3pc",
+            item: b.item,
+            unitNumber: b.unitNumber,
+            sequenceNumber: b.sequenceNumber || 0,
+            totalUnitsInBatch: b.totalUnitsInBatch || 0,
+            barcodeData: b.barcodeData,
+            status: b.status || "generated",
+            currentDepartment: b.currentDepartment || "Cutting",
+            poNumber: b.poNumber || null,
+            departmentRates:
+              b.departmentRates && Array.isArray(b.departmentRates)
+                ? {
+                    create: b.departmentRates.map((r: any) => ({
+                      department: r.department,
+                      ratePerPiece: Number(r.ratePerPiece) || 0,
+                      item: r.item || null,
+                    })),
+                  }
+                : undefined,
+          },
+        });
+        createdList.push({
+          ...created,
+          _id: created.id,
+        });
+      }
+    });
 
     return NextResponse.json({
       success: true,
-      message: `${insertedBarcodes.length} barcodes created successfully`,
-      count: insertedBarcodes.length,
-      barcodes: insertedBarcodes,
+      message: `${createdList.length} barcodes created successfully`,
+      count: createdList.length,
+      barcodes: createdList,
     });
   } catch (error: any) {
     console.error("Error creating barcodes:", error);
@@ -38,25 +68,35 @@ export async function POST(request: NextRequest) {
 // GET - Get all barcodes with optional filters
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
     const size = searchParams.get("size");
     const status = searchParams.get("status");
 
-    // Build filter
-    const filter: any = {};
-    if (design) filter.design = { $regex: design, $options: "i" };
-    if (size) filter.size = size;
-    if (status) filter.status = status;
+    const where: any = {};
+    if (design) where.design = { contains: design, mode: "insensitive" };
+    if (size) where.size = size;
+    if (status) where.status = status;
 
-    const barcodes = await Barcode.find(filter).sort({ createdAt: -1 });
+    const barcodes = await prisma.barcode.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        defectiveInfo: true,
+      },
+    });
+
+    const formatted = barcodes.map((b) => ({
+      ...b,
+      _id: b.id,
+    }));
 
     return NextResponse.json({
       success: true,
-      count: barcodes.length,
-      barcodes,
+      count: formatted.length,
+      barcodes: formatted,
     });
   } catch (error: any) {
     console.error("Error fetching barcodes:", error);
@@ -70,8 +110,6 @@ export async function GET(request: NextRequest) {
 // DELETE - Delete barcodes by design name
 export async function DELETE(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
 
@@ -82,13 +120,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Delete all barcodes with matching design name
-    const result = await Barcode.deleteMany({ design: design });
+    const result = await prisma.barcode.deleteMany({
+      where: { design },
+    });
 
     return NextResponse.json({
       success: true,
-      message: `${result.deletedCount} barcodes deleted successfully`,
-      deletedCount: result.deletedCount,
+      message: `${result.count} barcodes deleted successfully`,
+      deletedCount: result.count,
     });
   } catch (error: any) {
     console.error("Error deleting barcodes:", error);

@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Payment from "@/app/libs/models/payment";
+import prisma from "@/app/libs/prisma";
 
 // GET - Get payment history for a specific worker
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const workerName = request.nextUrl.searchParams.get("workerName");
     const department = request.nextUrl.searchParams.get("department");
 
@@ -17,25 +14,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const query: any = { workerName };
+    const where: any = { workerName };
     if (department) {
-      query.department = department;
+      where.department = department;
     }
 
-    const payments = await Payment.find(query)
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean();
+    const payments = await prisma.workerPayoutRecord.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
 
-    // Calculate total paid
     const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    const formattedPayments = payments.map((p) => ({
+      ...p,
+      _id: p.id,
+    }));
 
     return NextResponse.json({
       success: true,
       data: {
         workerName,
         department: department || "all",
-        payments,
+        payments: formattedPayments,
         totalPaid,
         count: payments.length,
       },

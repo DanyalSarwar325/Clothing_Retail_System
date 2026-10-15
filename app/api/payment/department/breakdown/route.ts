@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import Rate from "@/app/libs/models/rate";
+import prisma from "@/app/libs/prisma";
 
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const department = request.nextUrl.searchParams.get("department");
 
     if (!department) {
@@ -16,56 +12,63 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const rateDoc = await Rate.findOne({ department });
+    const rateDoc = await prisma.rate.findUnique({ where: { department } });
     const fallbackRate = rateDoc?.ratePerUnit || 0;
 
-    // Aggregate scans by design for this department with design-specific rates
-    const breakdown = await Barcode.aggregate([
-      { $unwind: "$departmentHistory" },
-      { $match: { "departmentHistory.department": department } },
-      {
-        $project: {
-          design: 1,
-          departmentRates: 1,
-          // Find the rate for this specific department
-          designRate: {
-            $let: {
-              vars: {
-                matchedRate: {
-                  $arrayElemAt: [
-                    {
-                      $filter: {
-                        input: { $ifNull: ["$departmentRates", []] },
-                        as: "rate",
-                        cond: { $eq: ["$$rate.department", department] },
-                      },
-                    },
-                    0,
-                  ],
-                },
-              },
-              in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] },
-            },
-          },
+    const barcodes = await prisma.barcode.findMany({
+      where: {
+        departmentHistory: {
+          some: { department },
         },
       },
-      {
-        $group: {
-          _id: "$design",
-          scanCount: { $sum: 1 },
-          totalAmount: { $sum: "$designRate" },
-          ratePerPiece: { $first: "$designRate" },
-        },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
       },
-      { $sort: { scanCount: -1 } },
-    ]);
+    });
 
-    const designBreakdown = breakdown.map((item) => ({
-      design: item._id,
-      scanCount: item.scanCount,
-      ratePerPiece: item.ratePerPiece,
-      amount: item.totalAmount,
-    }));
+    const designMap: Record<
+      string,
+      {
+        scanCount: number;
+        totalAmount: number;
+        ratePerPiece: number;
+      }
+    > = {};
+
+    for (const barcode of barcodes) {
+      const matchingScans = barcode.departmentHistory.filter((h) => h.department === department);
+      if (matchingScans.length === 0) continue;
+
+      const itemRateMatch = barcode.departmentRates.find(
+        (r) => r.department === department && r.item === barcode.item
+      );
+      const deptRateMatch = barcode.departmentRates.find(
+        (r) => r.department === department
+      );
+      const rate = itemRateMatch?.ratePerPiece ?? deptRateMatch?.ratePerPiece ?? fallbackRate;
+
+      if (!designMap[barcode.design]) {
+        designMap[barcode.design] = {
+          scanCount: 0,
+          totalAmount: 0,
+          ratePerPiece: rate,
+        };
+      }
+
+      const count = matchingScans.length;
+      designMap[barcode.design].scanCount += count;
+      designMap[barcode.design].totalAmount += count * rate;
+    }
+
+    const designBreakdown = Object.entries(designMap)
+      .map(([design, val]) => ({
+        design,
+        scanCount: val.scanCount,
+        ratePerPiece: val.ratePerPiece,
+        amount: val.totalAmount,
+      }))
+      .sort((a, b) => b.scanCount - a.scanCount);
 
     const totalScans = designBreakdown.reduce((sum, item) => sum + item.scanCount, 0);
     const totalAmount = designBreakdown.reduce((sum, item) => sum + item.amount, 0);

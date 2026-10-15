@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import DbConnect from "@/app/libs/dbConnect";
-import User, { UserRole } from "@/app/libs/models/user";
-import { createToken, ROLE_DEFAULT_ROUTE } from "@/app/libs/auth";
+import prisma from "@/app/libs/prisma";
+import { createToken, ROLE_DEFAULT_ROUTE, UserRole } from "@/app/libs/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { username, password } = await request.json();
 
     if (!username || !password) {
@@ -17,8 +14,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find user by username
-    const user = await User.findOne({ username: username.toLowerCase(), isActive: true });
+    // Find user by username using Prisma
+    const user = await prisma.user.findFirst({
+      where: {
+        username: username.toLowerCase().trim(),
+        isActive: true,
+      },
+    });
 
     if (!user) {
       return NextResponse.json(
@@ -39,22 +41,23 @@ export async function POST(request: NextRequest) {
 
     // Create JWT token
     const token = await createToken({
-      id: user._id.toString(),
+      id: user.id,
       username: user.username,
       name: user.name,
       role: user.role as UserRole,
-      department: user.department,
+      department: user.department || "General",
     });
 
     // Get default redirect route for this role
-    const userRole: UserRole = user.role;
+    const userRole = user.role as UserRole;
     const redirectTo = ROLE_DEFAULT_ROUTE[userRole] || "/";
 
     // Create response with cookie
     const response = NextResponse.json({
       success: true,
       user: {
-        id: user._id,
+        id: user.id,
+        _id: user.id, // Ensure backwards compatibility with any frontend checking _id
         username: user.username,
         name: user.name,
         role: user.role,

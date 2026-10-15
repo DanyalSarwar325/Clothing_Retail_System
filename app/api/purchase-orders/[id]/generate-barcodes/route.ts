@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import PurchaseOrder from "@/app/libs/models/purchaseOrder";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -15,10 +13,19 @@ const ITEM_TO_SUIT_TYPE: Record<string, "1pc" | "2pc" | "3pc"> = {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    await DbConnect();
     const { id } = await params;
 
-    const po = await PurchaseOrder.findById(id);
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id },
+      include: {
+        departmentRates: true,
+        receivingLogs: {
+          include: { items: true },
+          orderBy: { receivedAt: "desc" },
+        },
+      },
+    });
+
     if (!po) {
       return NextResponse.json(
         { success: false, message: "Purchase Order not found" },
@@ -27,7 +34,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    // Accept either a single item { size, item, quantity } or an array of items [{ size, item, quantity }]
     let requestItems: Array<{ size: "S" | "M" | "L"; item: "Qameez" | "Shalwar" | "Dupatta"; quantity: number }> = [];
 
     if (body.size && body.item && typeof body.quantity === "number") {
@@ -41,7 +47,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Filter valid entries with quantity > 0
     requestItems = requestItems.filter(
       (it) =>
         ["S", "M", "L"].includes(it.size) &&
@@ -56,10 +61,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // STRICT CHECK: Verify each item does not exceed received - alreadyBarcoded
+    const receivedQuantities = (po.receivedQuantities as any) || {};
+    const barcodedQuantities = (po.barcodedQuantities as any) || {};
+    const plannedQuantities = (po.plannedQuantities as any) || {};
+
     for (const req of requestItems) {
-      const received = po.receivedQuantities[req.size]?.[req.item] || 0;
-      const alreadyBarcoded = po.barcodedQuantities[req.size]?.[req.item] || 0;
+      const received = receivedQuantities[req.size]?.[req.item] || 0;
+      const alreadyBarcoded = barcodedQuantities[req.size]?.[req.item] || 0;
       const available = Math.max(0, received - alreadyBarcoded);
 
       if (req.quantity > available) {
@@ -73,33 +81,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Rates are inherited directly from the PO (never asked again)
     const rates = po.departmentRates || [];
-
     const barcodesToInsert: any[] = [];
 
-    // Calculate total planned for the design per item for totalUnits display
+    const cuttingPerson = po.receivingLogs.find((l) => l.cuttingPersonName)?.cuttingPersonName || "Cutting Master";
+
     for (const req of requestItems) {
       const suitType = ITEM_TO_SUIT_TYPE[req.item] || "1pc";
 
-      // Count existing barcodes for this design and item to continue sequence numbering
-      const existingItemBarcodesCount = await Barcode.countDocuments({
-        design: po.design,
-        item: req.item,
+      const existingItemBarcodesCount = await prisma.barcode.count({
+        where: {
+          design: po.design,
+          item: req.item,
+        },
       });
 
-      // Count existing barcodes for this specific size and item for unitNumber
-      const existingSizeUnitCount = await Barcode.countDocuments({
-        design: po.design,
-        size: req.size,
-        item: req.item,
+      const existingSizeUnitCount = await prisma.barcode.count({
+        where: {
+          design: po.design,
+          size: req.size,
+          item: req.item,
+        },
       });
 
-      // Planned total for this item across all sizes in the PO
       const totalPlannedForItem =
-        (po.plannedQuantities.S?.[req.item] || 0) +
-        (po.plannedQuantities.M?.[req.item] || 0) +
-        (po.plannedQuantities.L?.[req.item] || 0);
+        (plannedQuantities.S?.[req.item] || 0) +
+        (plannedQuantities.M?.[req.item] || 0) +
+        (plannedQuantities.L?.[req.item] || 0);
 
       const totalItemDisplay = totalPlannedForItem > 0 ? totalPlannedForItem : existingItemBarcodesCount + req.quantity;
 
@@ -117,7 +125,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         };
         const barcodeDataStr = JSON.stringify(payload);
 
-        const cuttingPerson = po.receivingLogs?.slice().reverse().find((l: any) => l.cuttingPersonName)?.cuttingPersonName || "Cutting Master";
         barcodesToInsert.push({
           design: po.design,
           size: req.size,
@@ -129,33 +136,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           barcodeData: barcodeDataStr,
           status: "generated",
           currentDepartment: "Cutting",
-          departmentHistory: [
-            {
-              department: "Cutting",
-              scannedAt: new Date(),
-              scannedBy: cuttingPerson,
-            },
-            {
-              department: "Admin",
-              scannedAt: new Date(),
-              scannedBy: "Admin",
-            },
-          ],
-          departmentRates: rates, // Inherited from PO
-          poId: po._id,
+          poId: po.id,
           poNumber: po.poNumber,
+          cuttingPerson,
         });
       }
 
-      // Update barcodedQuantities on the PO
-      const currentBarcoded = po.barcodedQuantities[req.size]?.[req.item] || 0;
-      po.barcodedQuantities[req.size][req.item] = currentBarcoded + req.quantity;
+      if (!barcodedQuantities[req.size]) barcodedQuantities[req.size] = {};
+      const currentBarcoded = barcodedQuantities[req.size]?.[req.item] || 0;
+      barcodedQuantities[req.size][req.item] = currentBarcoded + req.quantity;
     }
 
-    // Insert barcodes
-    const createdBarcodes = await Barcode.insertMany(barcodesToInsert);
-
-    // Check if PO is completed
     const SIZES = ["S", "M", "L"] as const;
     const ITEMS = ["Qameez", "Shalwar", "Dupatta"] as const;
 
@@ -163,8 +154,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let anyPlanned = false;
     for (const size of SIZES) {
       for (const item of ITEMS) {
-        const planned = po.plannedQuantities[size]?.[item] || 0;
-        const barcoded = po.barcodedQuantities[size]?.[item] || 0;
+        const planned = plannedQuantities[size]?.[item] || 0;
+        const barcoded = barcodedQuantities[size]?.[item] || 0;
         if (planned > 0) {
           anyPlanned = true;
           if (barcoded < planned) {
@@ -174,21 +165,90 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    if (anyPlanned && allPlannedMet) {
-      po.status = "Completed";
-    } else {
-      po.status = "In Progress";
-    }
+    const newStatus = anyPlanned && allPlannedMet ? "Completed" : "In Progress";
 
-    po.markModified("barcodedQuantities");
-    await po.save();
+    // Perform database operations in a transaction
+    const createdBarcodes = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const b of barcodesToInsert) {
+        const newBarcode = await tx.barcode.create({
+          data: {
+            design: b.design,
+            size: b.size,
+            suitType: b.suitType,
+            item: b.item,
+            unitNumber: b.unitNumber,
+            sequenceNumber: b.sequenceNumber,
+            totalUnitsInBatch: b.totalUnitsInBatch,
+            barcodeData: b.barcodeData,
+            status: b.status,
+            currentDepartment: b.currentDepartment,
+            poId: b.poId,
+            poNumber: b.poNumber,
+            departmentHistory: {
+              create: [
+                {
+                  department: "Cutting",
+                  scannedAt: new Date(),
+                  scannedBy: b.cuttingPerson,
+                },
+                {
+                  department: "Admin",
+                  scannedAt: new Date(),
+                  scannedBy: "Admin",
+                },
+              ],
+            },
+            departmentRates: {
+              create: rates.map((r) => ({
+                department: r.department,
+                ratePerPiece: r.ratePerPiece,
+                item: r.item,
+              })),
+            },
+          },
+        });
+        created.push({ ...newBarcode, _id: newBarcode.id });
+      }
+
+      await tx.purchaseOrder.update({
+        where: { id: po.id },
+        data: {
+          barcodedQuantities,
+          status: newStatus,
+        },
+      });
+
+      return created;
+    });
+
+    const updatedPo = await prisma.purchaseOrder.findUnique({
+      where: { id: po.id },
+      include: {
+        departmentRates: true,
+        receivingLogs: { include: { items: true } },
+      },
+    });
+
+    const formattedPo = updatedPo
+      ? {
+          ...updatedPo,
+          _id: updatedPo.id,
+          departmentRates: updatedPo.departmentRates.map((r) => ({ ...r, _id: r.id })),
+          receivingLogs: updatedPo.receivingLogs.map((l) => ({
+            ...l,
+            _id: l.id,
+            items: l.items.map((it) => ({ ...it, _id: it.id })),
+          })),
+        }
+      : null;
 
     return NextResponse.json({
       success: true,
       message: `${createdBarcodes.length} barcodes generated successfully for PO ${po.poNumber}`,
       count: createdBarcodes.length,
       barcodes: createdBarcodes,
-      purchaseOrder: po,
+      purchaseOrder: formattedPo,
     });
   } catch (error: any) {
     console.error("Error generating barcodes from PO:", error);

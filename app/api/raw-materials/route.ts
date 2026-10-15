@@ -1,34 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import RawMaterial from "@/app/libs/models/rawMaterial";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
-// GET - Get all raw materials or for a specific design
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const searchParams = request.nextUrl.searchParams;
     const design = searchParams.get("design");
 
     if (design) {
-      const rawMaterial = await RawMaterial.findOne({ design });
+      const rawMaterial = await prisma.rawMaterial.findUnique({
+        where: { design },
+        include: { items: true },
+      });
+
+      const formatted = rawMaterial
+        ? {
+            ...rawMaterial,
+            _id: rawMaterial.id,
+            items: rawMaterial.items.map((it) => ({ ...it, _id: it.id })),
+          }
+        : null;
+
       return NextResponse.json({
         success: true,
-        data: rawMaterial || null,
+        data: formatted,
       });
     }
 
-    // Get all raw materials
-    const rawMaterials = await RawMaterial.find({}).sort({ design: 1 });
+    const rawMaterials = await prisma.rawMaterial.findMany({
+      include: { items: true },
+      orderBy: { design: "asc" },
+    });
 
-    // Get all unique designs from barcodes
-    const designs = await Barcode.distinct("design");
+    const formattedMaterials = rawMaterials.map((rm) => ({
+      ...rm,
+      _id: rm.id,
+      items: rm.items.map((it) => ({ ...it, _id: it.id })),
+    }));
+
+    const barcodeDesigns = await prisma.barcode.findMany({
+      select: { design: true },
+      distinct: ["design"],
+      orderBy: { design: "asc" },
+    });
+    const designs = barcodeDesigns.map((b) => b.design);
 
     return NextResponse.json({
       success: true,
       data: {
-        rawMaterials,
+        rawMaterials: formattedMaterials,
         designs,
       },
     });
@@ -41,11 +60,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create or update raw material for a design
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const { design, items } = body;
 
@@ -63,7 +79,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate items
     for (const item of items) {
       if (!item.item || typeof item.price !== "number") {
         return NextResponse.json(
@@ -73,26 +88,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Find existing or create new
-    let rawMaterial = await RawMaterial.findOne({ design });
+    const totalCost = items.reduce((acc: number, it: any) => acc + (it.price || 0), 0);
 
-    if (rawMaterial) {
-      // Update existing
-      rawMaterial.items = items;
-      await rawMaterial.save();
-    } else {
-      // Create new
-      rawMaterial = new RawMaterial({
-        design,
-        items,
+    const rawMaterial = await prisma.$transaction(async (tx) => {
+      await tx.rawMaterial.deleteMany({ where: { design } });
+
+      return tx.rawMaterial.create({
+        data: {
+          design,
+          totalCost,
+          items: {
+            create: items.map((it: any) => ({
+              item: it.item,
+              price: it.price,
+            })),
+          },
+        },
+        include: { items: true },
       });
-      await rawMaterial.save();
-    }
+    });
+
+    const formatted = {
+      ...rawMaterial,
+      _id: rawMaterial.id,
+      items: rawMaterial.items.map((it) => ({ ...it, _id: it.id })),
+    };
 
     return NextResponse.json({
       success: true,
       message: "Raw materials saved successfully",
-      data: rawMaterial,
+      data: formatted,
     });
   } catch (error: any) {
     console.error("Error saving raw materials:", error);
@@ -103,11 +128,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Delete raw material for a design
 export async function DELETE(request: NextRequest) {
   try {
-    await DbConnect();
-
     const searchParams = request.nextUrl.searchParams;
     const design = searchParams.get("design");
 
@@ -118,7 +140,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await RawMaterial.deleteOne({ design });
+    await prisma.rawMaterial.deleteMany({
+      where: { design },
+    });
 
     return NextResponse.json({
       success: true,

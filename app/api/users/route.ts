@@ -1,26 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import dbConnect from "@/app/libs/dbConnect";
-import User from "@/app/libs/models/user";
+import prisma from "@/app/libs/prisma";
 import bcrypt from "bcryptjs";
 
 // GET all users
 export async function GET(request: NextRequest) {
   try {
-    await dbConnect();
-
     const { searchParams } = new URL(request.url);
     const department = searchParams.get("department");
 
-    const query: any = {};
+    const where: any = {};
     if (department) {
-      query.department = department;
+      where.department = department;
     }
 
-    const users = await User.find(query)
-      .select("-password")
-      .sort({ createdAt: -1 });
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        department: true,
+        contactNo: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-    return NextResponse.json({ success: true, users });
+    // Provide both _id and id for 100% frontend compatibility
+    const formattedUsers = users.map((u) => ({
+      ...u,
+      _id: u.id,
+    }));
+
+    return NextResponse.json({ success: true, users: formattedUsers });
   } catch (error) {
     console.error("Error fetching users:", error);
     return NextResponse.json(
@@ -33,8 +48,6 @@ export async function GET(request: NextRequest) {
 // POST - Create new user
 export async function POST(request: NextRequest) {
   try {
-    await dbConnect();
-
     const body = await request.json();
     const { username, password, name, department, contactNo } = body;
 
@@ -47,7 +60,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if username already exists
-    const existingUser = await User.findOne({ username: username.toLowerCase() });
+    const existingUser = await prisma.user.findUnique({
+      where: { username: username.toLowerCase().trim() },
+    });
+
     if (existingUser) {
       return NextResponse.json(
         { success: false, error: "Username already exists" },
@@ -57,15 +73,16 @@ export async function POST(request: NextRequest) {
 
     // Determine role based on department
     const departmentToRole: Record<string, string> = {
-      "Admin": "admin",
-      "Sewing": "sewing",
-      "Quality": "quality",
-      "Handmade": "handmade",
+      Admin: "admin",
+      Accounting: "accountant",
+      Sewing: "sewing",
+      Quality: "quality",
+      Handmade: "handmade",
       "Adda Work": "adda_work",
-      "Patching": "patching",
-      "Press": "press",
-      "Packing": "packing",
-      "Store": "store",
+      Patching: "patching",
+      Press: "press",
+      Packing: "packing",
+      Store: "store",
     };
 
     const role = departmentToRole[department] || "store";
@@ -74,19 +91,22 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    const user = await User.create({
-      username: username.toLowerCase(),
-      password: hashedPassword,
-      name,
-      role,
-      department,
-      contactNo: contactNo || "",
-      isActive: true,
+    const user = await prisma.user.create({
+      data: {
+        username: username.toLowerCase().trim(),
+        password: hashedPassword,
+        name: name.trim(),
+        role,
+        department,
+        contactNo: contactNo || "",
+        isActive: true,
+      },
     });
 
     // Return user without password
     const userResponse = {
-      _id: user._id,
+      id: user.id,
+      _id: user.id,
       username: user.username,
       name: user.name,
       role: user.role,
@@ -109,8 +129,6 @@ export async function POST(request: NextRequest) {
 // DELETE - Delete a user
 export async function DELETE(request: NextRequest) {
   try {
-    await dbConnect();
-
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("id");
 
@@ -121,7 +139,10 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const user = await User.findById(userId);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
     if (!user) {
       return NextResponse.json(
         { success: false, error: "User not found" },
@@ -137,7 +158,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await User.findByIdAndDelete(userId);
+    await prisma.user.delete({
+      where: { id: userId },
+    });
 
     return NextResponse.json({ success: true, message: "User deleted successfully" });
   } catch (error) {

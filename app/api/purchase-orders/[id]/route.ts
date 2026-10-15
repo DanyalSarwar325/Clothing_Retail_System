@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import PurchaseOrder from "@/app/libs/models/purchaseOrder";
-import Barcode from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -10,10 +8,18 @@ interface RouteParams {
 // GET - Single Purchase Order details
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    await DbConnect();
     const { id } = await params;
 
-    const po = await PurchaseOrder.findById(id);
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id },
+      include: {
+        departmentRates: true,
+        receivingLogs: {
+          include: { items: true },
+        },
+      },
+    });
+
     if (!po) {
       return NextResponse.json(
         { success: false, message: "Purchase Order not found" },
@@ -28,18 +34,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     let totalReceived = 0;
     let totalBarcoded = 0;
 
+    const plannedObj = (po.plannedQuantities as any) || {};
+    const receivedObj = (po.receivedQuantities as any) || {};
+    const barcodedObj = (po.barcodedQuantities as any) || {};
+
     for (const size of SIZES) {
       for (const item of ITEMS) {
-        totalPlanned += po.plannedQuantities?.[size]?.[item] || 0;
-        totalReceived += po.receivedQuantities?.[size]?.[item] || 0;
-        totalBarcoded += po.barcodedQuantities?.[size]?.[item] || 0;
+        totalPlanned += plannedObj[size]?.[item] || 0;
+        totalReceived += receivedObj[size]?.[item] || 0;
+        totalBarcoded += barcodedObj[size]?.[item] || 0;
       }
     }
 
     return NextResponse.json({
       success: true,
       purchaseOrder: {
-        ...po.toObject(),
+        ...po,
+        _id: po.id,
         totalPlanned,
         totalReceived,
         totalBarcoded,
@@ -55,13 +66,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE - Delete a Purchase Order (only allowed if no barcodes were generated yet)
+// DELETE - Delete a Purchase Order (only allowed if no barcodes were generated yet or cascade)
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    await DbConnect();
     const { id } = await params;
 
-    const po = await PurchaseOrder.findById(id);
+    const po = await prisma.purchaseOrder.findUnique({ where: { id } });
     if (!po) {
       return NextResponse.json(
         { success: false, message: "Purchase Order not found" },
@@ -69,14 +79,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Check if any barcodes exist for this PO
-    const barcodeCount = await Barcode.countDocuments({ poId: po._id });
+    const barcodeCount = await prisma.barcode.count({ where: { poId: po.id } });
     const cascade = request.nextUrl.searchParams.get("cascade") === "true";
 
     if (barcodeCount > 0) {
       if (cascade) {
-        // Delete all associated barcodes
-        await Barcode.deleteMany({ poId: po._id });
+        await prisma.barcode.deleteMany({ where: { poId: po.id } });
       } else {
         return NextResponse.json(
           {
@@ -90,7 +98,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    await PurchaseOrder.findByIdAndDelete(id);
+    await prisma.purchaseOrder.delete({ where: { id } });
 
     return NextResponse.json({
       success: true,

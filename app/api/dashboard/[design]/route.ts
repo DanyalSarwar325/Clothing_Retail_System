@@ -1,33 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import FinalSticker from "@/app/libs/models/finalSticker";
+import prisma from "@/app/libs/prisma";
 
-// GET - Get all products for a specific design with their department history
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ design: string }> }
 ) {
   try {
-    await DbConnect();
-
     const { design } = await params;
     const decodedDesign = decodeURIComponent(design);
 
-    // Get all barcodes for this design
-    const barcodes = await Barcode.find({ design: decodedDesign })
-      .sort({ size: 1, item: 1, unitNumber: 1 })
-      .lean();
+    const barcodes = await prisma.barcode.findMany({
+      where: { design: decodedDesign },
+      include: {
+        departmentHistory: { orderBy: { scannedAt: "asc" } },
+      },
+      orderBy: [{ size: "asc" }, { item: "asc" }, { unitNumber: "asc" }],
+    });
 
-    // Get all final stickers for this design
-    const finalStickers = await FinalSticker.find({ design: decodedDesign })
-      .sort({ size: 1, unitNumber: 1 })
-      .lean();
+    const finalStickers = await prisma.finalSticker.findMany({
+      where: { design: decodedDesign },
+      include: {
+        departmentHistory: { orderBy: { scannedAt: "asc" } },
+      },
+      orderBy: [{ size: "asc" }, { unitNumber: "asc" }],
+    });
 
-    // Group barcodes by unit
     const units: Record<string, any> = {};
 
-    barcodes.forEach((barcode: any) => {
+    barcodes.forEach((barcode) => {
       const unitKey = `${barcode.size}-${barcode.unitNumber}`;
       if (!units[unitKey]) {
         units[unitKey] = {
@@ -37,11 +37,17 @@ export async function GET(
         };
       }
       units[unitKey].items.push({
-        id: barcode._id,
+        id: barcode.id,
+        _id: barcode.id,
         item: barcode.item,
         currentDepartment: barcode.currentDepartment,
         status: barcode.status,
-        departmentHistory: barcode.departmentHistory || [],
+        departmentHistory: barcode.departmentHistory.map((h) => ({
+          _id: h.id,
+          department: h.department,
+          scannedAt: h.scannedAt,
+          scannedBy: h.scannedBy,
+        })),
         createdAt: barcode.createdAt,
         scannedAt: barcode.scannedAt,
         sequenceNumber: barcode.sequenceNumber,
@@ -49,16 +55,21 @@ export async function GET(
       });
     });
 
-    // Map final stickers as individual cards
-    const finalStickerCards = finalStickers.map((sticker: any) => ({
-      id: sticker._id,
+    const finalStickerCards = finalStickers.map((sticker) => ({
+      id: sticker.id,
+      _id: sticker.id,
       size: sticker.size,
       unitNumber: sticker.unitNumber,
       suitType: sticker.suitType,
       sellingPrice: sticker.sellingPrice,
       currentDepartment: sticker.currentDepartment,
       status: sticker.status,
-      departmentHistory: sticker.departmentHistory || [],
+      departmentHistory: sticker.departmentHistory.map((h) => ({
+        _id: h.id,
+        department: h.department,
+        scannedAt: h.scannedAt,
+        scannedBy: h.scannedBy,
+      })),
       createdAt: sticker.createdAt,
     }));
 

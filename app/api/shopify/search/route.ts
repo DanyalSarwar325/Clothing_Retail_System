@@ -1,88 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
-import dbConnect from "@/app/libs/dbConnect";
-import FulfillmentOrder from "@/app/libs/models/fulfillmentOrder";
+import prisma from "@/app/libs/prisma";
 
 export async function GET(request: NextRequest) {
   try {
-    await dbConnect();
-
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get("q") || "";
-    const type = searchParams.get("type") || "fulfillment"; // "creation" or "fulfillment"
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "25");
     const skip = (page - 1) * limit;
 
     if (!query.trim()) {
-      return NextResponse.json({
-        success: false,
-        error: "Search query required",
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Search query required",
+        },
+        { status: 400 }
+      );
     }
 
-    const searchQuery = query.toLowerCase();
+    const searchQuery = query.trim();
 
-    // Build MongoDB search filter
-    const filter: any = {
-      $or: [
-        { orderName: { $regex: searchQuery, $options: "i" } },
-        { shopifyOrderId: { $regex: searchQuery, $options: "i" } },
-        { customerName: { $regex: searchQuery, $options: "i" } },
-        { email: { $regex: searchQuery, $options: "i" } },
-        { phone: { $regex: searchQuery, $options: "i" } },
-        { "fulfillment.trackingNumber": { $regex: searchQuery, $options: "i" } },
+    const where: any = {
+      OR: [
+        { orderNumber: { contains: searchQuery, mode: "insensitive" } },
+        { shopifyOrderId: { contains: searchQuery, mode: "insensitive" } },
+        { orderId: { contains: searchQuery, mode: "insensitive" } },
       ],
     };
 
-    // If searching for creation orders, filter by financialStatus
-    if (type === "creation") {
-      filter["payment.status"] = { $ne: "refunded" };
-    }
-
-    // Get total count for pagination
-    const total = await FulfillmentOrder.countDocuments(filter);
-
-    // Search across ALL orders in database
-    const orders = await FulfillmentOrder.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ receivedAt: -1 })
-      .lean();
+    const [orders, total] = await Promise.all([
+      prisma.fulfillmentOrder.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.fulfillmentOrder.count({ where }),
+    ]);
 
     const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
       success: true,
-      orders: orders.map(order => ({
-        _id: order._id,
-        orderName: order.orderName,
-        shopifyOrderId: order.shopifyOrderId,
-        customerName: order.customer?.name || "N/A",
-        totalPrice: order.pricing?.total.toFixed(2) || "0",
-        currency: order.pricing?.currency || "PKR",
-        email: order.customer?.email || "N/A",
-        phone: order.customer?.phone || "N/A",
-        address: order.shippingAddress?.address || "N/A",
-        financialStatus: order.payment?.status,
-        fulfillmentStatus: order.fulfillment?.status,
-        trackingNumber: order.fulfillment?.trackingNumber,
-        trackingCompany: order.fulfillment?.trackingCompany,
-        receivedAt: order.createdAt,
-      })),
+      orders: orders.map((order) => {
+        const customer = (order.customer as any) || {};
+        const fulfillment = (order.fulfillment as any) || {};
+        const payment = (order.payment as any) || {};
+        const pricing = (order.pricing as any) || {};
+
+        return {
+          _id: order.id,
+          id: order.id,
+          orderName: order.orderNumber,
+          shopifyOrderId: order.shopifyOrderId,
+          customerName: customer.name || "N/A",
+          totalPrice: pricing.total || "0.00",
+          currency: pricing.currency || "PKR",
+          email: customer.email || "N/A",
+          phone: customer.phone || "N/A",
+          financialStatus: payment.status || "N/A",
+          fulfillmentStatus: fulfillment.status || "unfulfilled",
+          trackingNumber: fulfillment.trackingNumber || "N/A",
+          trackingCompany: fulfillment.trackingCompany || "N/A",
+        };
+      }),
       pagination: {
-        total,
         page,
         limit,
+        total,
         totalPages,
       },
     });
   } catch (error: any) {
-    console.error("[Search Orders] Error:", error);
+    console.error("Shopify search error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to search orders",
-      },
+      { success: false, error: error.message || "Failed to search orders" },
       { status: 500 }
     );
   }

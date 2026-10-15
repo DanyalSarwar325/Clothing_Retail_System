@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode, { DEPARTMENTS, Department, DEFECT_REASONS, DefectReason } from "@/app/libs/models/barcode";
+import prisma from "@/app/libs/prisma";
+export const DEPARTMENTS = [
+  "Cutting",
+  "Sewing",
+  "Quality",
+  "Handmade",
+  "Adda Work",
+  "Patching",
+  "Press",
+  "Overlock",
+  "Clipping",
+  "Packing",
+  "Store",
+] as const;
+
+export type Department = (typeof DEPARTMENTS)[number];
 
 // POST - Mark a barcode as defective (Only Quality department can do this)
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const body = await request.json();
     const {
       barcodeId,
@@ -26,7 +38,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only Quality department can mark items as defective
     if (department !== "Quality") {
       return NextResponse.json(
         { success: false, message: "Only Quality department can mark items as defective" },
@@ -56,7 +67,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the barcode
-    const barcode = await Barcode.findById(barcodeId);
+    const barcode = await prisma.barcode.findUnique({
+      where: { id: barcodeId },
+      include: {
+        departmentHistory: true,
+        paidDepartments: true,
+      },
+    });
 
     if (!barcode) {
       return NextResponse.json(
@@ -65,7 +82,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if already marked as defective
     if (barcode.status === "defective" || barcode.status === "damaged") {
       return NextResponse.json(
         { success: false, message: "This barcode is already marked as defective/damaged" },
@@ -73,77 +89,143 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update barcode status and defectiveInfo
-    barcode.status = "defective";
-    barcode.currentDepartment = "Quality";
-    barcode.scannedAt = new Date();
-
-    barcode.defectiveInfo = {
-      markedAt: new Date(),
-      markedBy,
-      department: "Quality",
-      reason: reason.trim(),
-      notes: notes?.trim() || (isCompanionDefect ? "Scrapped as companion piece to complete broken suit set" : undefined),
-      isCompanionDefect: !!isCompanionDefect,
-      defectiveReferenceBarcode: defectiveReferenceBarcode || undefined,
-      companionReason: companionReason || undefined,
-    };
-
-    // Add Quality to department history if not already present
-    if (!barcode.departmentHistory) {
-      barcode.departmentHistory = [];
-    }
-    barcode.departmentHistory.push({
-      department: "Quality",
-      scannedAt: new Date(),
-      scannedBy: markedBy,
-    });
-
-    // Initialize Admin Defect Decision review
-    if (isCompanionDefect) {
-      // Auto-approve all previous departments for companion pieces
-      barcode.adminDefectReview = {
-        reviewedAt: new Date(),
-        reviewedBy: "System (Companion Protection)",
-        notes: "Suit companion piece scrapped to complete broken suit. All workers receive full payment.",
-        status: "reviewed",
-        departmentReviews: (barcode.departmentHistory || [])
-          .filter((h: any) => h.department !== "Quality" && h.department !== "Admin")
-          .map((h: any) => ({
-            department: h.department,
-            workerName: h.scannedBy || "Worker",
-            rate: 0,
-            previouslyPaid: barcode.paidDepartments?.some((pd: any) => pd.department === h.department) || false,
-            decision: "approved",
-            decidedAt: new Date(),
-            decidedBy: "System",
-            notes: "Companion piece auto-approved",
-          })),
-      };
-    } else {
-      barcode.adminDefectReview = {
-        reviewedAt: new Date(),
-        reviewedBy: "Pending Admin Review",
-        notes: notes?.trim() || "",
-        status: "pending",
-        departmentReviews: [],
-      };
-    }
+    const now = new Date();
 
     // Automatically detect suitType for this design:
-    // If barcode is 1pc, keep 1pc. If any barcode in this design has item === "Dupatta", it is 3pc; otherwise 2pc!
-    let suitType: "1pc" | "2pc" | "3pc" = (barcode.suitType as "1pc" | "2pc" | "3pc") || "2pc";
+    let suitType = barcode.suitType || "2pc";
     if (suitType !== "1pc") {
-      const hasDupatta = await Barcode.exists({ design: barcode.design, item: "Dupatta" });
+      const hasDupatta = await prisma.barcode.findFirst({
+        where: { design: barcode.design, item: "Dupatta" },
+      });
       suitType = hasDupatta ? "3pc" : "2pc";
     }
 
-    barcode.suitType = suitType;
-    await barcode.save();
+    let updatedBarcode: any = null;
+    let defectInfoData: any = null;
 
-    const fullSuitItems = suitType === "1pc"
-      ? ["Qameez"]
-      : suitType === "2pc"
+    await prisma.$transaction(async (tx) => {
+      // 1. Record / upsert defect info
+      defectInfoData = {
+        department: "Quality",
+        markedBy,
+        reason: reason.trim(),
+        notes:
+          notes?.trim() ||
+          (isCompanionDefect ? "Scrapped as companion piece to complete broken suit set" : null),
+        isCompanionDefect: !!isCompanionDefect,
+        defectiveReferenceBarcode: defectiveReferenceBarcode || null,
+        companionReason: companionReason || null,
+        markedAt: now,
+      };
+
+      await tx.barcodeDefect.upsert({
+        where: { barcodeId: barcode.id },
+        create: {
+          barcodeId: barcode.id,
+          ...defectInfoData,
+        },
+        update: {
+          ...defectInfoData,
+        },
+      });
+
+      // 2. Add quality check audit log
+      await tx.qualityCheckLog.create({
+        data: {
+          barcodeId: barcode.id,
+          status: "defective",
+          checkedBy: markedBy,
+          department: "Quality",
+          notes: defectInfoData.notes,
+          checkedAt: now,
+        },
+      });
+
+      // 3. Add Quality to department scan history
+      await tx.barcodeScan.create({
+        data: {
+          barcodeId: barcode.id,
+          department: "Quality",
+          scannedAt: now,
+          scannedBy: markedBy,
+        },
+      });
+
+      // 4. Handle Admin defect review (auto-approve companion pieces)
+      if (isCompanionDefect) {
+        const adminReview = await tx.adminDefectReview.upsert({
+          where: { barcodeId: barcode.id },
+          create: {
+            barcodeId: barcode.id,
+            reviewedAt: now,
+            reviewedBy: "System (Companion Protection)",
+            notes: "Suit companion piece scrapped to complete broken suit. All workers receive full payment.",
+            status: "reviewed",
+          },
+          update: {
+            reviewedAt: now,
+            reviewedBy: "System (Companion Protection)",
+            notes: "Suit companion piece scrapped to complete broken suit. All workers receive full payment.",
+            status: "reviewed",
+          },
+        });
+
+        // Add reviews for previous departments
+        const deptsToReview = (barcode.departmentHistory || []).filter(
+          (h) => h.department !== "Quality" && h.department !== "Admin"
+        );
+
+        for (const h of deptsToReview) {
+          const previouslyPaid = barcode.paidDepartments.some((pd) => pd.department === h.department);
+          await tx.defectDepartmentReview.create({
+            data: {
+              adminReviewId: adminReview.id,
+              department: h.department,
+              workerName: h.scannedBy || "Worker",
+              rate: 0,
+              previouslyPaid,
+              decision: "approved",
+              decidedAt: now,
+              decidedBy: "System",
+              notes: "Companion piece auto-approved",
+            },
+          });
+        }
+      } else {
+        await tx.adminDefectReview.upsert({
+          where: { barcodeId: barcode.id },
+          create: {
+            barcodeId: barcode.id,
+            reviewedAt: now,
+            reviewedBy: "Pending Admin Review",
+            notes: notes?.trim() || "",
+            status: "pending",
+          },
+          update: {
+            reviewedAt: now,
+            reviewedBy: "Pending Admin Review",
+            notes: notes?.trim() || "",
+            status: "pending",
+          },
+        });
+      }
+
+      // 5. Update master barcode status
+      updatedBarcode = await tx.barcode.update({
+        where: { id: barcode.id },
+        data: {
+          status: "defective",
+          currentDepartment: "Quality",
+          scannedAt: now,
+          suitType,
+        },
+      });
+    });
+
+    const fullSuitItems =
+      suitType === "1pc"
+        ? ["Qameez"]
+        : suitType === "2pc"
         ? ["Qameez", "Shalwar"]
         : ["Qameez", "Shalwar", "Dupatta"];
     const companionItems = fullSuitItems.filter((it) => it !== barcode.item);
@@ -154,14 +236,15 @@ export async function POST(request: NextRequest) {
         ? `Companion piece (${barcode.item} - ${barcode.size}) marked as defective`
         : `Barcode (${barcode.item} - ${barcode.size}) marked as defective`,
       barcode: {
-        id: barcode._id,
-        design: barcode.design,
-        size: barcode.size,
-        suitType: barcode.suitType,
-        item: barcode.item,
-        unitNumber: barcode.unitNumber,
-        status: barcode.status,
-        defectiveInfo: barcode.defectiveInfo,
+        id: updatedBarcode.id,
+        _id: updatedBarcode.id,
+        design: updatedBarcode.design,
+        size: updatedBarcode.size,
+        suitType: updatedBarcode.suitType,
+        item: updatedBarcode.item,
+        unitNumber: updatedBarcode.unitNumber,
+        status: updatedBarcode.status,
+        defectiveInfo: defectInfoData,
       },
       companionInfo: {
         suitType,
@@ -182,35 +265,38 @@ export async function POST(request: NextRequest) {
 // GET - Get all defective barcodes with optional filters
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
     const department = searchParams.get("department");
     const groupByWorker = searchParams.get("groupByWorker") === "true";
 
-    // Build query - include both defective and damaged status
-    const query: any = {
-      status: { $in: ["defective", "damaged"] },
+    const where: any = {
+      status: { in: ["defective", "damaged"] },
     };
 
     if (design) {
-      query.design = design;
+      where.design = design;
     }
 
     if (department && DEPARTMENTS.includes(department as Department)) {
-      // Check both defectiveInfo and qualityCheckInfo for department
-      query.$or = [
-        { "defectiveInfo.department": department },
-        { "qualityCheckInfo.department": department }
+      where.OR = [
+        { defectiveInfo: { department } },
+        { qualityCheckLogs: { some: { department } } },
       ];
     }
 
-    const defectiveBarcodes = await Barcode.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    const defectiveBarcodes = await prisma.barcode.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        defectiveInfo: true,
+        qualityCheckLogs: {
+          orderBy: { checkedAt: "desc" },
+          take: 1,
+        },
+      },
+    });
 
-    // Group by worker if requested
     if (groupByWorker) {
       const workerStats: Record<string, {
         name: string;
@@ -221,18 +307,18 @@ export async function GET(request: NextRequest) {
         recentDefects: any[];
       }> = {};
 
-      defectiveBarcodes.forEach((b: any) => {
-        // For quality-checked damaged items, use responsiblePerson if available, otherwise use checkedBy
-        // For defective items (from defective modal), use markedBy
-        const workerName = b.qualityCheckInfo?.responsiblePerson
-          || b.defectiveInfo?.markedBy
-          || b.qualityCheckInfo?.checkedBy
-          || "Unknown";
+      defectiveBarcodes.forEach((b) => {
+        const latestQualityLog = b.qualityCheckLogs[0];
+        const workerName =
+          latestQualityLog?.responsiblePerson ||
+          b.defectiveInfo?.markedBy ||
+          latestQualityLog?.checkedBy ||
+          "Unknown";
 
-        // Get department from either qualityCheckInfo or defectiveInfo
-        const dept = b.qualityCheckInfo?.department
-          || b.defectiveInfo?.department
-          || "Unknown";
+        const dept =
+          latestQualityLog?.department ||
+          b.defectiveInfo?.department ||
+          "Unknown";
 
         const workerKey = `${workerName}-${dept}`;
 
@@ -248,13 +334,13 @@ export async function GET(request: NextRequest) {
         }
 
         workerStats[workerKey].totalDefective++;
-        workerStats[workerKey].byDesign[b.design] = (workerStats[workerKey].byDesign[b.design] || 0) + 1;
+        workerStats[workerKey].byDesign[b.design] =
+          (workerStats[workerKey].byDesign[b.design] || 0) + 1;
 
-        // Get reason from defectiveInfo or notes from qualityCheckInfo
-        const reason = b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue";
-        workerStats[workerKey].byReason[reason] = (workerStats[workerKey].byReason[reason] || 0) + 1;
+        const reason = b.defectiveInfo?.reason || latestQualityLog?.notes || "Quality Issue";
+        workerStats[workerKey].byReason[reason] =
+          (workerStats[workerKey].byReason[reason] || 0) + 1;
 
-        // Keep last 10 recent defects with full piece info
         if (workerStats[workerKey].recentDefects.length < 10) {
           workerStats[workerKey].recentDefects.push({
             design: b.design,
@@ -262,17 +348,18 @@ export async function GET(request: NextRequest) {
             size: b.size,
             suitType: b.suitType,
             unitNumber: b.unitNumber,
-            reason: b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue",
-            markedAt: b.qualityCheckInfo?.checkedAt || b.defectiveInfo?.markedAt,
-            markedBy: b.qualityCheckInfo?.checkedBy || b.defectiveInfo?.markedBy,
-            responsiblePerson: b.qualityCheckInfo?.responsiblePerson || b.defectiveInfo?.markedBy || "Unknown",
-            responsibleDepartment: b.qualityCheckInfo?.department || b.defectiveInfo?.department || "Unknown",
+            reason,
+            markedAt: latestQualityLog?.checkedAt || b.defectiveInfo?.markedAt,
+            markedBy: latestQualityLog?.checkedBy || b.defectiveInfo?.markedBy,
+            responsiblePerson: latestQualityLog?.responsiblePerson || b.defectiveInfo?.markedBy || "Unknown",
+            responsibleDepartment: latestQualityLog?.department || b.defectiveInfo?.department || "Unknown",
           });
         }
       });
 
-      // Convert to array and sort by total defective count
-      const workerReport = Object.values(workerStats).sort((a, b) => b.totalDefective - a.totalDefective);
+      const workerReport = Object.values(workerStats).sort(
+        (a, b) => b.totalDefective - a.totalDefective
+      );
 
       return NextResponse.json({
         success: true,
@@ -289,28 +376,26 @@ export async function GET(request: NextRequest) {
       byReason: Record<string, number>;
     }> = {};
 
-    // Get total generated for each design
-    const allDesigns = [...new Set(defectiveBarcodes.map((b: any) => b.design))];
+    const allDesigns = [...new Set(defectiveBarcodes.map((b) => b.design))];
 
     for (const designName of allDesigns) {
-      const totalGenerated = await Barcode.countDocuments({ design: designName });
-      const defectiveCount = defectiveBarcodes.filter((b: any) => b.design === designName).length;
+      const totalGenerated = await prisma.barcode.count({ where: { design: designName } });
+      const designDefects = defectiveBarcodes.filter((b) => b.design === designName);
 
       const byDepartment: Record<string, number> = {};
       const byReason: Record<string, number> = {};
 
-      defectiveBarcodes
-        .filter((b: any) => b.design === designName)
-        .forEach((b: any) => {
-          const dept = b.qualityCheckInfo?.department || b.defectiveInfo?.department || "Unknown";
-          const reason = b.defectiveInfo?.reason || b.qualityCheckInfo?.notes || "Quality Issue";
-          byDepartment[dept] = (byDepartment[dept] || 0) + 1;
-          byReason[reason] = (byReason[reason] || 0) + 1;
-        });
+      designDefects.forEach((b) => {
+        const latestQualityLog = b.qualityCheckLogs[0];
+        const dept = latestQualityLog?.department || b.defectiveInfo?.department || "Unknown";
+        const reason = b.defectiveInfo?.reason || latestQualityLog?.notes || "Quality Issue";
+        byDepartment[dept] = (byDepartment[dept] || 0) + 1;
+        byReason[reason] = (byReason[reason] || 0) + 1;
+      });
 
       summaryByDesign[designName] = {
         total: totalGenerated,
-        defective: defectiveCount,
+        defective: designDefects.length,
         byDepartment,
         byReason,
       };
@@ -320,18 +405,31 @@ export async function GET(request: NextRequest) {
       success: true,
       count: defectiveBarcodes.length,
       summary: summaryByDesign,
-      barcodes: defectiveBarcodes.map((b: any) => ({
-        id: b._id,
-        design: b.design,
-        size: b.size,
-        suitType: b.suitType,
-        item: b.item,
-        unitNumber: b.unitNumber,
-        status: b.status,
-        defectiveInfo: b.defectiveInfo,
-        qualityCheckInfo: b.qualityCheckInfo,
-        createdAt: b.createdAt,
-      })),
+      barcodes: defectiveBarcodes.map((b) => {
+        const latestQualityLog = b.qualityCheckLogs[0];
+        return {
+          id: b.id,
+          _id: b.id,
+          design: b.design,
+          size: b.size,
+          suitType: b.suitType,
+          item: b.item,
+          unitNumber: b.unitNumber,
+          status: b.status,
+          defectiveInfo: b.defectiveInfo,
+          qualityCheckInfo: latestQualityLog
+            ? {
+                checkedAt: latestQualityLog.checkedAt,
+                checkedBy: latestQualityLog.checkedBy,
+                status: latestQualityLog.status,
+                department: latestQualityLog.department || undefined,
+                responsiblePerson: latestQualityLog.responsiblePerson || undefined,
+                notes: latestQualityLog.notes || undefined,
+              }
+            : undefined,
+          createdAt: b.createdAt,
+        };
+      }),
     });
   } catch (error: any) {
     console.error("Error fetching defective barcodes:", error);

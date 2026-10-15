@@ -1,5 +1,4 @@
-import DbConnect from "@/app/libs/dbConnect";
-import Product from "@/app/libs/models/product";
+import prisma from "@/app/libs/prisma";
 import { NextRequest } from "next/server";
 
 /**
@@ -12,15 +11,15 @@ export async function GET(
   try {
     const { id } = await params;
 
-    await DbConnect();
-
-    const product = await Product.findById(id);
+    const product = await prisma.product.findUnique({
+      where: { id },
+    });
 
     if (!product) {
       return Response.json({ error: "Product not found" }, { status: 404 });
     }
 
-    return Response.json(product);
+    return Response.json({ ...product, _id: product.id });
   } catch (error) {
     console.error("GET /api/products/[id] error:", error);
     return Response.json(
@@ -41,19 +40,16 @@ export async function PUT(
     const { id } = await params;
     const body = await req.json();
 
-    await DbConnect();
+    const product = await prisma.product.update({
+      where: { id },
+      data: {
+        name: body.name,
+        type: body.type,
+        status: body.status,
+      },
+    });
 
-    const product = await Product.findByIdAndUpdate(
-      id,
-      { ...body, updatedAt: new Date() },
-      { new: true }
-    );
-
-    if (!product) {
-      return Response.json({ error: "Product not found" }, { status: 404 });
-    }
-
-    return Response.json(product);
+    return Response.json({ ...product, _id: product.id });
   } catch (error) {
     console.error("PUT /api/products/[id] error:", error);
     return Response.json(
@@ -73,13 +69,9 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    await DbConnect();
-
-    const product = await Product.findByIdAndDelete(id);
-
-    if (!product) {
-      return Response.json({ error: "Product not found" }, { status: 404 });
-    }
+    await prisma.product.delete({
+      where: { id },
+    });
 
     return Response.json({ message: "Product deleted successfully" });
   } catch (error) {

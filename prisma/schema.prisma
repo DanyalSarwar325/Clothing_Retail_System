@@ -1,0 +1,630 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 1. AUTH & USERS
+// ==========================================
+model User {
+  id         String   @id @default(uuid())
+  username   String   @unique
+  password   String
+  name       String
+  role       String   // admin, accountant, sewing, quality, handmade, adda_work, patching, press, overlock, clipping, packing, store
+  department String?  @default("General")
+  contactNo  String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  createdParties   Party[]             @relation("PartyCreatedBy")
+  createdVouchers  Voucher[]           @relation("VoucherCreatedBy")
+  createdBills     Bill[]              @relation("BillCreatedBy")
+  allocations      PaymentAllocation[] @relation("AllocationCreatedBy")
+  auditLogs        AuditLog[]
+}
+
+// ==========================================
+// 2. PARTIES (Suppliers, Contractors, Workers, Customers)
+// ==========================================
+model Party {
+  id                 String   @id @default(uuid())
+  name               String
+  normalizedName     String
+  type               String   // supplier, contractor, worker, customer, serviceProvider
+  phone              String?
+  address            String?
+  notes              String?
+  openingBalance     Float    @default(0)
+  openingBalanceType String   @default("none") // payable, receivable, none
+  status             String   @default("active") // active, inactive
+  createdById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  createdBy   User?               @relation("PartyCreatedBy", fields: [createdById], references: [id])
+  vouchers    Voucher[]
+  bills       Bill[]
+  allocations PaymentAllocation[]
+  journalLines JournalLine[]
+
+  @@index([type, status])
+  @@index([normalizedName])
+}
+
+// ==========================================
+// 3. MASTER RATES & RAW MATERIALS
+// ==========================================
+model Rate {
+  id          String   @id @default(uuid())
+  department  String   @unique // Cutting, Sewing, Quality, etc.
+  ratePerUnit Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RawMaterial {
+  id        String             @id @default(uuid())
+  design    String             @unique
+  totalCost Float              @default(0)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  items     RawMaterialItem[]
+}
+
+model RawMaterialItem {
+  id            String      @id @default(uuid())
+  rawMaterialId String
+  item          String
+  price         Float
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 4. PRODUCTS & PURCHASE ORDERS
+// ==========================================
+model Product {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  status    String   @default("checked-in")
+  createdAt DateTime @default(now())
+  barcodes  Barcode[]
+}
+
+model PurchaseOrder {
+  id                 String             @id @default(uuid())
+  poNumber           String             @unique
+  design             String
+  status             String             @default("Open") // Open, In Progress, Completed, Cancelled
+  plannedQuantities  Json               @default("{\"S\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"M\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"L\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0}}")
+  receivedQuantities Json               @default("{\"S\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"M\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"L\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0}}")
+  barcodedQuantities Json               @default("{\"S\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"M\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0},\"L\":{\"Qameez\":0,\"Shalwar\":0,\"Dupatta\":0}}")
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  departmentRates    PODepartmentRate[]
+  receivingLogs      POReceivingLog[]
+  barcodes           Barcode[]
+
+  @@index([poNumber])
+  @@index([design])
+  @@index([status])
+}
+
+model PODepartmentRate {
+  id           String        @id @default(uuid())
+  poId         String
+  department   String
+  ratePerPiece Float
+  item         String?       // Qameez, Shalwar, Dupatta
+  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+}
+
+model POReceivingLog {
+  id                String                 @id @default(uuid())
+  poId              String
+  receivedAt        DateTime               @default(now())
+  receivedBy        String                 @default("Admin")
+  cuttingPersonName String?
+  notes             String?
+  po                PurchaseOrder          @relation(fields: [poId], references: [id], onDelete: Cascade)
+  items             POReceivingLogItem[]
+}
+
+model POReceivingLogItem {
+  id             String         @id @default(uuid())
+  receivingLogId String
+  size           String         // S, M, L
+  item           String         // Qameez, Shalwar, Dupatta
+  quantity       Int
+  receivingLog   POReceivingLog @relation(fields: [receivingLogId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 5. BARCODES & SCANNING WORKFLOW
+// ==========================================
+model Barcode {
+  id                 String               @id @default(uuid())
+  design             String
+  size               String               // S, M, L
+  suitType           String               // 1pc, 2pc, 3pc
+  item               String               // Shalwar, Qameez, Dupatta
+  unitNumber         Int
+  sequenceNumber     Int                  @default(0)
+  totalUnitsInBatch  Int                  @default(0)
+  barcodeData        String               @unique
+  status             String               @default("generated") // generated, scanned, available, sold, returned, packed, defective, quality_ok, damaged
+  currentDepartment  String               @default("Cutting")
+  productId          String?
+  poId               String?
+  poNumber           String?
+  createdAt          DateTime             @default(now())
+  scannedAt          DateTime?
+  soldAt             DateTime?
+
+  product            Product?             @relation(fields: [productId], references: [id])
+  purchaseOrder      PurchaseOrder?       @relation(fields: [poId], references: [id])
+
+  departmentHistory  BarcodeScan[]
+  departmentRates    BarcodeDesignRate[]
+  paidDepartments    BarcodePayment[]
+  defectiveInfo      BarcodeDefect?
+  qualityCheckLogs   QualityCheckLog[]
+  adminDefectReview  AdminDefectReview?
+
+  @@index([design, size, suitType, item, unitNumber])
+  @@index([barcodeData])
+  @@index([status])
+  @@index([currentDepartment])
+  @@index([design])
+}
+
+// Individual scan history event
+model BarcodeScan {
+  id          String   @id @default(uuid())
+  barcodeId   String
+  department  String
+  scannedAt   DateTime @default(now())
+  scannedBy   String?
+  barcode     Barcode  @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+
+  @@index([barcodeId, department])
+}
+
+// Design rates linked to barcode
+model BarcodeDesignRate {
+  id           String   @id @default(uuid())
+  barcodeId    String
+  department   String
+  ratePerPiece Float
+  item         String?
+  barcode      Barcode  @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+}
+
+// Payment tracking per department (Strict uniqueness to prevent double payment!)
+model BarcodePayment {
+  id         String   @id @default(uuid())
+  barcodeId  String
+  department String
+  paidAt     DateTime @default(now())
+  paidBy     String?
+  amount     Float
+  barcode    Barcode  @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+
+  @@unique([barcodeId, department]) // CRITICAL: Only 1 payout per department per barcode
+}
+
+// Current active defect info
+model BarcodeDefect {
+  id                        String   @id @default(uuid())
+  barcodeId                 String   @unique
+  department                String   @default("Quality")
+  markedBy                  String
+  reason                    String
+  notes                     String?
+  isCompanionDefect         Boolean  @default(false)
+  defectiveReferenceBarcode String?
+  companionReason           String?
+  markedAt                  DateTime @default(now())
+  barcode                   Barcode  @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+}
+
+// Audit trail of quality checks (Allows OK -> Defective -> OK transitions!)
+model QualityCheckLog {
+  id                String   @id @default(uuid())
+  barcodeId         String
+  status            String   // quality_ok, damaged, defective
+  checkedBy         String
+  department        String?  // Responsible department if damaged
+  responsiblePerson String?
+  notes             String?
+  checkedAt         DateTime @default(now())
+  barcode           Barcode  @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+
+  @@index([barcodeId, checkedAt])
+}
+
+// Admin defect reviews
+model AdminDefectReview {
+  id                String                  @id @default(uuid())
+  barcodeId         String                  @unique
+  reviewedAt        DateTime                @default(now())
+  reviewedBy        String
+  notes             String?
+  status            String                  @default("pending") // pending, reviewed
+  barcode           Barcode                 @relation(fields: [barcodeId], references: [id], onDelete: Cascade)
+  departmentReviews DefectDepartmentReview[]
+}
+
+model DefectDepartmentReview {
+  id             String            @id @default(uuid())
+  adminReviewId  String
+  department     String
+  workerName     String
+  rate           Float
+  previouslyPaid Boolean           @default(false)
+  decision       String            // approved, cancelled, adjusted
+  decidedAt      DateTime          @default(now())
+  decidedBy      String
+  notes          String?
+  adminReview    AdminDefectReview @relation(fields: [adminReviewId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 6. FINAL STICKERS & PACKETS
+// ==========================================
+model FinalSticker {
+  id                  String               @id @default(uuid())
+  design              String
+  size                String               // S, M, L
+  suitType            String               // 1pc, 2pc, 3pc
+  category            String               @default("A") // A, B
+  categoryLabel       String               @default("Category A - OK Quality")
+  isDefective         Boolean              @default(false)
+  defectSummary       String?
+  componentBarcodeIds String[]             @default([])
+  unitNumber          Int
+  barcodeData         String               @unique
+  sellingPrice        Float                @default(0)
+  status              String               @default("generated") // generated, scanned, packed, in_store, dispatched, delivered, returned
+  currentDepartment   String               @default("Press")
+  dispatchInfo        Json?
+  returnInfo          Json?
+  paymentInfo         Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  departmentRates     FinalStickerRate[]
+  paidDepartments     FinalStickerPayment[]
+  departmentHistory   FinalStickerScan[]
+
+  @@index([design, category, size, unitNumber])
+  @@index([status])
+}
+
+model FinalStickerRate {
+  id             String       @id @default(uuid())
+  finalStickerId String
+  department     String       // Packing, Store
+  ratePerPiece   Float        @default(0)
+  finalSticker   FinalSticker @relation(fields: [finalStickerId], references: [id], onDelete: Cascade)
+}
+
+model FinalStickerPayment {
+  id             String       @id @default(uuid())
+  finalStickerId String
+  department     String       // Packing, Store
+  paidAt         DateTime     @default(now())
+  paidBy         String?
+  amount         Float
+  finalSticker   FinalSticker @relation(fields: [finalStickerId], references: [id], onDelete: Cascade)
+
+  @@unique([finalStickerId, department])
+}
+
+model FinalStickerScan {
+  id             String       @id @default(uuid())
+  finalStickerId String
+  department     String
+  scannedAt      DateTime     @default(now())
+  scannedBy      String?
+  finalSticker   FinalSticker @relation(fields: [finalStickerId], references: [id], onDelete: Cascade)
+}
+
+model Packet {
+  id                String   @id @default(uuid())
+  packetId          String   @unique
+  design            String
+  size              String   // S, M, L
+  unitNumber        Int
+  barcodeIds        String[] @default([])
+  items             Json
+  packetBarcodeData String
+  status            String   @default("packed") // packed, sold, returned
+  packedBy          String
+  packedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@index([design, size, unitNumber])
+  @@index([packedBy])
+}
+
+// ==========================================
+// 7. ACCOUNTING & GENERAL LEDGER
+// ==========================================
+model Account {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  title           String
+  rootType        String   // asset, liability, equity, revenue, directExpense, indirectExpense
+  parentAccountId String?
+  accountRole     String   @default("general") // cash, bank, rawMaterialInventory, wipInventory, finishedGoodsInventory, accountsPayable, contractorPayable, accountsReceivable, wagesPayable, workerAdvance, salesRevenue, costOfGoodsSold, ownerCapital, general
+  isSystem        Boolean  @default(false)
+  status          String   @default("active") // active, inactive
+  description     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parentAccount   Account?      @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  subAccounts     Account[]     @relation("AccountHierarchy")
+  journalLines    JournalLine[]
+  billLines       BillLine[]
+
+  @@index([rootType, status])
+  @@index([accountRole])
+}
+
+model FinancialYear {
+  id          String         @id @default(uuid())
+  name        String         @unique // "FY 2026-27"
+  startDate   DateTime
+  endDate     DateTime
+  status      String         @default("open") // open, closing, closed
+  isCurrent   Boolean        @default(false)
+  closedAt    DateTime?
+  closedById  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  vouchers    Voucher[]
+  journalEntries JournalEntry[]
+  bills       Bill[]
+
+  @@index([status])
+  @@index([isCurrent])
+}
+
+model Voucher {
+  id                String             @id @default(uuid())
+  voucherNumber     String             @unique
+  type              String             // CPV, BPV, CRV, BRV, JV
+  transactionDate   DateTime
+  financialYearId   String
+  partyId           String?
+  sourceType        String?            // bill, wage, advance, direct_expense, manual
+  sourceId          String?
+  description       String
+  totalAmount       Float
+  paymentMode       String             @default("cash") // cash, bank, cheque, online
+  referenceNumber   String?
+  status            String             @default("posted") // draft, posted, reversed
+  createdById       String
+  postedById        String?
+  postedAt          DateTime?
+  reversedById      String?
+  reversedAt        DateTime?
+  reversalReason    String?
+  reversalVoucherId String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  financialYear     FinancialYear      @relation(fields: [financialYearId], references: [id])
+  party             Party?             @relation(fields: [partyId], references: [id])
+  createdBy         User               @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+  journalEntry      JournalEntry?
+  allocations       PaymentAllocation[]
+
+  @@index([transactionDate, type])
+  @@index([partyId, transactionDate])
+}
+
+model JournalEntry {
+  id              String        @id @default(uuid())
+  voucherId       String        @unique
+  financialYearId String
+  transactionDate DateTime
+  description     String
+  totalDebit      Float
+  totalCredit     Float
+  status          String        @default("posted") // posted, reversed
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  voucher         Voucher       @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  financialYear   FinancialYear @relation(fields: [financialYearId], references: [id])
+  lines           JournalLine[]
+
+  @@index([financialYearId, status])
+  @@index([transactionDate])
+}
+
+model JournalLine {
+  id             String       @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  partyId        String?
+  debit          Float        @default(0)
+  credit         Float        @default(0)
+  description    String?
+
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account        Account      @relation(fields: [accountId], references: [id])
+  party          Party?       @relation(fields: [partyId], references: [id])
+
+  @@index([accountId, journalEntryId])
+  @@index([partyId])
+}
+
+model Bill {
+  id                    String              @id @default(uuid())
+  billNumber            String              @unique
+  supplierInvoiceNumber String?
+  partyId               String
+  billDate              DateTime
+  dueDate               DateTime?
+  financialYearId       String
+  billType              String              @default("purchase") // purchase, service, other
+  subtotal              Float
+  taxAmount             Float               @default(0)
+  otherCharges          Float               @default(0)
+  totalAmount           Float
+  paidAmount            Float               @default(0)
+  paymentStatus         String              @default("unpaid") // unpaid, partially_paid, paid
+  status                String              @default("posted") // draft, posted, cancelled
+  voucherId             String?
+  notes                 String?
+  createdById           String
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  party                 Party               @relation(fields: [partyId], references: [id])
+  financialYear         FinancialYear       @relation(fields: [financialYearId], references: [id])
+  createdBy             User                @relation("BillCreatedBy", fields: [createdById], references: [id])
+  lines                 BillLine[]
+  allocations           PaymentAllocation[]
+
+  @@index([partyId, paymentStatus])
+  @@index([billDate])
+}
+
+model BillLine {
+  id          String   @id @default(uuid())
+  billId      String
+  description String
+  quantity    Float    @default(1)
+  unit        String?
+  rate        Float    @default(0)
+  accountId   String
+  amount      Float
+
+  bill        Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  account     Account  @relation(fields: [accountId], references: [id])
+}
+
+model PaymentAllocation {
+  id               String   @id @default(uuid())
+  paymentVoucherId String
+  billId           String
+  partyId          String
+  amount           Float
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  voucher          Voucher  @relation(fields: [paymentVoucherId], references: [id], onDelete: Cascade)
+  bill             Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  party            Party    @relation(fields: [partyId], references: [id])
+  createdBy        User     @relation("AllocationCreatedBy", fields: [createdById], references: [id])
+
+  @@index([billId, paymentVoucherId])
+}
+
+// Direct worker piece-rate cash payout history (from payment.ts)
+model WorkerPayoutRecord {
+  id         String   @id @default(uuid())
+  department String
+  workerName String
+  amount     Float
+  note       String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([department, workerName])
+  @@index([workerName])
+}
+
+// ==========================================
+// 8. LOGS, COUNTERS & FULFILLMENTS
+// ==========================================
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  userName   String?
+  action     String
+  entityType String
+  entityId   String
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Counter {
+  id  String @id @default(uuid())
+  key String @unique
+  seq Int    @default(0)
+}
+
+model FulfillmentOrder {
+  id              String   @id @default(uuid())
+  orderId         String   @unique
+  orderNumber     String?
+  customer        Json?
+  shippingAddress Json?
+  product         Json?
+  payment         Json?
+  fulfillment     Json?
+  pricing         Json?
+  shopifyOrderId  String?
+  rawPayload      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  @@index([orderNumber])
+}
+
+model InvoiceLog {
+  id                String   @id @default(uuid())
+  fileName          String
+  fileSize          Int
+  uploadedBy        String   @default("admin")
+  extractedText     String?
+  trackingIdsFound  Int      @default(0)
+  trackingIds       String[] @default([])
+  processedResults  Json?
+  processingSummary Json?
+  parsingStatus     String   @default("success") // success, partial, error
+  parsingMethod     String?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+}
+
+model ShopifyOrder {
+  id             String   @id @default(uuid())
+  shopifyOrderId BigInt   @unique
+  receivedAt     String
+  orderData      Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ShopifyFulfillment {
+  id             String   @id @default(uuid())
+  shopifyOrderId BigInt   @unique
+  receivedAt     String
+  orderData      Json
+  rawPayload     Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import DbConnect from "@/app/libs/dbConnect";
-import Barcode from "@/app/libs/models/barcode";
-import FinalSticker from "@/app/libs/models/finalSticker";
-import Rate from "@/app/libs/models/rate";
-import Payment from "@/app/libs/models/payment";
+import prisma from "@/app/libs/prisma";
 
 const DEPARTMENTS = [
   "Cutting",
@@ -19,7 +15,6 @@ const DEPARTMENTS = [
   "Store",
 ];
 
-// Departments that have item-based rates (Qameez, Shalwar, Dupatta)
 const ITEM_BASED_DEPARTMENTS = [
   "Cutting",
   "Sewing",
@@ -32,212 +27,86 @@ const ITEM_BASED_DEPARTMENTS = [
   "Clipping",
 ];
 
-// Departments that use FinalSticker model
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
 async function calculateForDepartment(department: string) {
-  const rateDoc = await Rate.findOne({ department });
+  const rateDoc = await prisma.rate.findUnique({ where: { department } });
   const fallbackRate = rateDoc?.ratePerUnit || 0;
-  
-  // Special handling for Packing and Store - uses FinalSticker model
+
   if (FINAL_STICKER_DEPARTMENTS.includes(department)) {
-    // First get all final stickers scanned in this department
-    const scansAgg = await FinalSticker.aggregate([
-      {
-        $match: {
-          "departmentHistory.department": department,
-        },
-      },
-      { $unwind: "$departmentHistory" },
-      { $match: { "departmentHistory.department": department } },
-      {
-        $addFields: {
-          // Check if this piece is already paid for this department
-          isPaid: {
-            $cond: [
-              { $isArray: "$paidDepartments" },
-              {
-                $gt: [
-                  {
-                    $size: {
-                      $filter: {
-                        input: "$paidDepartments",
-                        as: "pd",
-                        cond: { $eq: ["$$pd.department", department] },
-                      },
-                    },
-                  },
-                  0,
-                ],
-              },
-              false,
-            ],
-          },
-          // Get rate for this department from departmentRates array
-          deptRate: {
-            $let: {
-              vars: {
-                matchedRate: {
-                  $arrayElemAt: [
-                    {
-                      $filter: {
-                        input: { $ifNull: ["$departmentRates", []] },
-                        as: "rate",
-                        cond: { $eq: ["$$rate.department", department] }
-                      }
-                    },
-                    0
-                  ]
-                }
-              },
-              in: { $ifNull: ["$$matchedRate.ratePerPiece", fallbackRate] }
-            }
+    const scans = await prisma.finalStickerScan.findMany({
+      where: { department },
+      include: {
+        finalSticker: {
+          include: {
+            departmentRates: { where: { department } },
+            paidDepartments: { where: { department } },
           },
         },
       },
-      {
-        $group: {
-          _id: null,
-          totalScans: { $sum: 1 },
-          totalDue: { $sum: "$deptRate" },
-          // Calculate paid amount (sum of rates for paid pieces)
-          totalPaid: {
-            $sum: {
-              $cond: [{ $eq: ["$isPaid", true] }, "$deptRate", 0],
-            },
-          },
-          // Calculate pending amount (sum of rates for unpaid pieces)
-          pending: {
-            $sum: {
-              $cond: [{ $eq: ["$isPaid", false] }, "$deptRate", 0],
-            },
-          },
-          paidCount: {
-            $sum: { $cond: [{ $eq: ["$isPaid", true] }, 1, 0] },
-          },
-          pendingCount: {
-            $sum: { $cond: [{ $eq: ["$isPaid", false] }, 1, 0] },
-          },
-          ratePerUnit: { $first: "$deptRate" },
-        },
-      },
-    ]);
+    });
+
+    let totalDue = 0;
+    let totalPaid = 0;
+    let pending = 0;
+
+    for (const s of scans) {
+      const rate = s.finalSticker.departmentRates[0]?.ratePerPiece ?? fallbackRate;
+      totalDue += rate;
+      if (s.finalSticker.paidDepartments.length > 0) {
+        totalPaid += rate;
+      } else {
+        pending += rate;
+      }
+    }
 
     return {
       department,
-      ratePerUnit: scansAgg?.[0]?.ratePerUnit || fallbackRate,
-      totalScans: scansAgg?.[0]?.totalScans || 0,
-      totalPaid: scansAgg?.[0]?.totalPaid || 0,
-      totalDue: scansAgg?.[0]?.totalDue || 0,
-      pending: scansAgg?.[0]?.pending || 0,
+      ratePerUnit: fallbackRate,
+      totalScans: scans.length,
+      totalPaid,
+      totalDue,
+      pending,
     };
   }
 
+  // Standard piece rate departments
   const usesItemBasedRates = ITEM_BASED_DEPARTMENTS.includes(department);
-
-  // Count all scans for the department and calculate paid/pending based on paidDepartments
-  const matchStage: any = {};
-
-  // Aggregate with design-specific rates and payment status
-  const scansAgg = await Barcode.aggregate([
-    { $match: matchStage },
-    { $unwind: "$departmentHistory" },
-    { $match: { "departmentHistory.department": department } },
-    {
-      $addFields: {
-        // Check if this piece is already paid for this department
-        isPaid: {
-          $cond: [
-            { $isArray: "$paidDepartments" },
-            {
-              $gt: [
-                {
-                  $size: {
-                    $filter: {
-                      input: "$paidDepartments",
-                      as: "pd",
-                      cond: { $eq: ["$$pd.department", department] },
-                    },
-                  },
-                },
-                0,
-              ],
-            },
-            false,
-          ],
-        },
-        // Find the rate for this specific department (and item for item-based depts)
-        // Use $reduce to properly access document's $item field
-        designRate: usesItemBasedRates
-          ? {
-              $reduce: {
-                input: { $ifNull: ["$departmentRates", []] },
-                initialValue: fallbackRate,
-                in: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $eq: ["$$this.department", department] },
-                        { $eq: ["$$this.item", "$item"] },
-                      ],
-                    },
-                    "$$this.ratePerPiece",
-                    "$$value",
-                  ],
-                },
-              },
-            }
-          : {
-              $reduce: {
-                input: { $ifNull: ["$departmentRates", []] },
-                initialValue: fallbackRate,
-                in: {
-                  $cond: [
-                    { $eq: ["$$this.department", department] },
-                    "$$this.ratePerPiece",
-                    "$$value",
-                  ],
-                },
-              },
-            },
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        totalScans: { $sum: 1 },
-        totalDue: { $sum: "$designRate" },
-        // Calculate paid amount (sum of rates for paid pieces)
-        totalPaid: {
-          $sum: {
-            $cond: [{ $eq: ["$isPaid", true] }, "$designRate", 0],
-          },
-        },
-        // Calculate pending amount (sum of rates for unpaid pieces)
-        pending: {
-          $sum: {
-            $cond: [{ $eq: ["$isPaid", false] }, "$designRate", 0],
-          },
-        },
-        paidCount: {
-          $sum: { $cond: [{ $eq: ["$isPaid", true] }, 1, 0] },
-        },
-        pendingCount: {
-          $sum: { $cond: [{ $eq: ["$isPaid", false] }, 1, 0] },
+  const scans = await prisma.barcodeScan.findMany({
+    where: { department },
+    include: {
+      barcode: {
+        include: {
+          departmentRates: { where: { department } },
+          paidDepartments: { where: { department } },
         },
       },
     },
-  ]);
+  });
 
-  const totalScans = scansAgg?.[0]?.totalScans || 0;
-  const totalDue = scansAgg?.[0]?.totalDue || 0;
-  const totalPaid = scansAgg?.[0]?.totalPaid || 0;
-  const pending = scansAgg?.[0]?.pending || 0;
+  let totalDue = 0;
+  let totalPaid = 0;
+  let pending = 0;
+
+  for (const s of scans) {
+    const b = s.barcode;
+    const matchedRate = usesItemBasedRates
+      ? b.departmentRates.find((r) => r.item === b.item) || b.departmentRates[0]
+      : b.departmentRates[0];
+    const rate = matchedRate ? matchedRate.ratePerPiece : fallbackRate;
+
+    totalDue += rate;
+    if (b.paidDepartments.length > 0) {
+      totalPaid += rate;
+    } else {
+      pending += rate;
+    }
+  }
 
   return {
     department,
     ratePerUnit: fallbackRate,
-    totalScans,
+    totalScans: scans.length,
     totalPaid,
     totalDue,
     pending,
@@ -246,8 +115,6 @@ async function calculateForDepartment(department: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    await DbConnect();
-
     const department = request.nextUrl.searchParams.get("department");
 
     if (department) {
@@ -268,8 +135,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await DbConnect();
-
     const { department, amount, note, createdBy } = await request.json();
 
     if (!department || amount === undefined) {
@@ -279,21 +144,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!amount || amount <= 0) {
+    if (!amount || Number(amount) <= 0) {
       return NextResponse.json(
         { success: false, message: "Amount must be greater than 0" },
         { status: 400 }
       );
     }
 
-    const payment = await Payment.create({ department, amount, note, createdBy });
+    const payment = await prisma.workerPayoutRecord.create({
+      data: {
+        department,
+        workerName: department,
+        amount: Number(amount),
+        note: note || null,
+        createdBy: createdBy || null,
+      },
+    });
 
     const data = await calculateForDepartment(department);
 
     return NextResponse.json({
       success: true,
       message: "Payment recorded",
-      payment,
+      payment: {
+        ...payment,
+        _id: payment.id,
+      },
       data,
     });
   } catch (error: any) {

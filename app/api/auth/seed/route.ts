@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import DbConnect from "@/app/libs/dbConnect";
-import User from "@/app/libs/models/user";
+import prisma from "@/app/libs/prisma";
 
 // Default users for each department
 const defaultUsers = [
@@ -19,15 +18,15 @@ const defaultUsers = [
 
 export async function POST() {
   try {
-    await DbConnect();
-
     const createdUsers = [];
     const skippedUsers = [];
 
     for (const userData of defaultUsers) {
       // Check if user already exists
-      const existingUser = await User.findOne({ username: userData.username });
-      
+      const existingUser = await prisma.user.findUnique({
+        where: { username: userData.username },
+      });
+
       if (existingUser) {
         skippedUsers.push(userData.username);
         continue;
@@ -37,12 +36,18 @@ export async function POST() {
       const hashedPassword = await bcrypt.hash(userData.password, 10);
 
       // Create user
-      const user = await User.create({
-        ...userData,
-        password: hashedPassword,
+      const user = await prisma.user.create({
+        data: {
+          username: userData.username,
+          password: hashedPassword,
+          name: userData.name,
+          role: userData.role,
+          department: userData.department,
+        },
       });
 
       createdUsers.push({
+        id: user.id,
         username: user.username,
         name: user.name,
         role: user.role,
@@ -65,12 +70,12 @@ export async function POST() {
   }
 }
 
-// GET endpoint to show available credentials (for development only)
+// GET endpoint to show available credentials
 export async function GET() {
   return NextResponse.json({
     message: "Default login credentials",
     note: "POST to this endpoint to create these users in the database",
-    users: defaultUsers.map(u => ({
+    users: defaultUsers.map((u) => ({
       username: u.username,
       password: u.password,
       role: u.role,
