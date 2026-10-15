@@ -290,8 +290,15 @@ export async function GET(request: NextRequest) {
             return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
           });
 
+          const totalPieces = (d.paidCount || 0) + (d.pendingCount || 0);
+          const totalAmount = (d.paidAmount || 0) + (d.pendingAmount || 0);
+          const unpaidPieceIds = items.flatMap((it: any) => it.unpaidPieceIds || []);
+
           return {
             ...d,
+            totalPieces,
+            totalAmount,
+            unpaidPieceIds,
             itemsBreakdown: items,
           };
         }),

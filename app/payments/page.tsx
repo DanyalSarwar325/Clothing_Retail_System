@@ -842,7 +842,7 @@ export default function PaymentsPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-gray-900">
-                        {departmentData.totals.totalPieces.toLocaleString()}
+                        {(departmentData.totals.totalPieces ?? 0).toLocaleString()}
                       </p>
                       <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
                         Total Pieces
@@ -858,10 +858,10 @@ export default function PaymentsPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-emerald-600">
-                        ₨{departmentData.totals.paidAmount.toLocaleString()}
+                        ₨{(departmentData.totals.paidAmount ?? 0).toLocaleString()}
                       </p>
                       <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                        Total Paid ({departmentData.totals.totalPaid.toLocaleString()} pcs)
+                        Total Paid ({(departmentData.totals.totalPaid ?? 0).toLocaleString()} pcs)
                       </p>
                     </div>
                   </div>
@@ -874,10 +874,10 @@ export default function PaymentsPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-amber-600">
-                        ₨{(departmentData.totals.netPendingAmount ?? departmentData.totals.pendingAmount).toLocaleString()}
+                        ₨{(departmentData.totals.netPendingAmount ?? departmentData.totals.pendingAmount ?? 0).toLocaleString()}
                       </p>
                       <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                        Net Payable ({departmentData.totals.totalPending.toLocaleString()} pcs)
+                        Net Payable ({(departmentData.totals.totalPending ?? 0).toLocaleString()} pcs)
                       </p>
                     </div>
                   </div>
@@ -941,33 +941,33 @@ export default function PaymentsPage() {
                           </div>
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-1">
                             <span className="text-gray-600 font-medium">
-                              Total: <strong className="text-gray-900">{worker.totalPieces.toLocaleString()}</strong> pieces
+                              Total: <strong className="text-gray-900">{(worker.totalPieces ?? 0).toLocaleString()}</strong> pieces
                             </span>
                             <span className="text-emerald-700 font-medium">
-                              Paid: ₨{worker.paidAmount.toLocaleString()} ({worker.totalPaid})
+                              Paid: ₨{(worker.paidAmount ?? 0).toLocaleString()} ({worker.totalPaid ?? 0})
                             </span>
                             <span className="text-amber-700 font-bold">
-                              Gross Due: ₨{worker.pendingAmount.toLocaleString()} ({worker.totalPending})
+                              Gross Due: ₨{(worker.pendingAmount ?? 0).toLocaleString()} ({worker.totalPending ?? 0})
                             </span>
 
                             {/* Adjustment Badge on Worker Header */}
-                            {worker.adjustedAmount > 0 && (
+                            {(worker.adjustedAmount ?? 0) > 0 && (
                               <span className="px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                                Adjustments / Deductions: -₨{worker.adjustedAmount.toLocaleString()}
+                                Adjustments / Deductions: -₨{(worker.adjustedAmount ?? 0).toLocaleString()}
                               </span>
                             )}
 
                             {/* Cancelled Badge on Worker Header */}
-                            {worker.cancelledAmount > 0 && (
+                            {(worker.cancelledAmount ?? 0) > 0 && (
                               <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
-                                Cancelled: {worker.totalCancelled} pcs (-₨{worker.cancelledAmount.toLocaleString()})
+                                Cancelled: {worker.totalCancelled ?? 0} pcs (-₨{(worker.cancelledAmount ?? 0).toLocaleString()})
                               </span>
                             )}
 
                             {/* Net Payable */}
-                            {worker.adjustedAmount > 0 && (
+                            {(worker.adjustedAmount ?? 0) > 0 && (
                               <span className="text-emerald-700 font-extrabold text-sm underline">
-                                Net Payable: ₨{worker.netPendingAmount.toLocaleString()}
+                                Net Payable: ₨{(worker.netPendingAmount ?? 0).toLocaleString()}
                               </span>
                             )}
                           </div>
@@ -991,7 +991,7 @@ export default function PaymentsPage() {
                             <div className="flex items-center gap-2 mb-2">
                               <AlertTriangle size={16} className="text-rose-700" />
                               <h5 className="font-bold text-rose-900 text-xs uppercase tracking-wider">
-                                Future Payment Adjustments / Deductions (-₨{worker.adjustedAmount.toLocaleString()})
+                                Future Payment Adjustments / Deductions (-₨{(worker.adjustedAmount ?? 0).toLocaleString()})
                               </h5>
                             </div>
                             <p className="text-xs text-rose-700 mb-3">
@@ -1023,7 +1023,7 @@ export default function PaymentsPage() {
                             <div className="flex items-center gap-2 mb-2">
                               <XCircle size={16} className="text-gray-600" />
                               <h5 className="font-bold text-gray-700 text-xs uppercase tracking-wider">
-                                Cancelled Defective Pieces ({worker.totalCancelled} pcs — ₨{worker.cancelledAmount.toLocaleString()})
+                                Cancelled Defective Pieces ({worker.totalCancelled ?? 0} pcs — ₨{(worker.cancelledAmount ?? 0).toLocaleString()})
                               </h5>
                             </div>
                             <p className="text-xs text-gray-500 mb-3">
@@ -1068,21 +1068,21 @@ export default function PaymentsPage() {
                                   <div>
                                     <h4 className="font-bold text-gray-900 text-base">{design.design}</h4>
                                     <p className="text-xs text-gray-500">
-                                      Total: {design.totalPieces} pieces | Total Amount: ₨{design.totalAmount.toLocaleString()}
+                                      Total: {design.totalPieces ?? 0} pieces | Total Amount: ₨{(design.totalAmount ?? 0).toLocaleString()}
                                     </p>
                                   </div>
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2 text-xs">
                                   <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold rounded-md">
-                                    Paid: ₨{design.paidAmount.toLocaleString()} ({design.paidCount})
+                                    Paid: ₨{(design.paidAmount ?? 0).toLocaleString()} ({design.paidCount ?? 0})
                                   </span>
                                   <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 font-bold rounded-md">
-                                    Due: ₨{design.pendingAmount.toLocaleString()} ({design.pendingCount})
+                                    Due: ₨{(design.pendingAmount ?? 0).toLocaleString()} ({design.pendingCount ?? 0})
                                   </span>
 
                                   {/* Pay Entire Design Remaining Button */}
-                                  {design.pendingCount > 0 && design.unpaidPieceIds && (
+                                  {(design.pendingCount ?? 0) > 0 && design.unpaidPieceIds && (
                                     <button
                                       onClick={() => handlePayBatch(design.unpaidPieceIds || [], `design_${designKey}`)}
                                       disabled={payingKey === `design_${designKey}`}
@@ -1096,7 +1096,7 @@ export default function PaymentsPage() {
                                       ) : (
                                         <>
                                           <CheckCheck size={14} />
-                                          Pay Design Remaining (₨{design.pendingAmount.toLocaleString()})
+                                          Pay Design Remaining (₨{(design.pendingAmount ?? 0).toLocaleString()})
                                         </>
                                       )}
                                     </button>
@@ -1143,19 +1143,19 @@ export default function PaymentsPage() {
                                               ₨{item.rate}
                                             </td>
                                             <td className="py-3 px-4 text-center font-mono text-xs text-gray-600 bg-gray-50/50">
-                                              {item.count} pcs × ₨{item.rate} = <strong className="text-gray-900">₨{item.totalAmount.toLocaleString()}</strong>
+                                              {item.count} pcs × ₨{item.rate} = <strong className="text-gray-900">₨{(item.totalAmount ?? 0).toLocaleString()}</strong>
                                             </td>
                                             <td className="py-3 px-3 text-right font-semibold text-gray-900">
-                                              ₨{item.totalAmount.toLocaleString()}
+                                              ₨{(item.totalAmount ?? 0).toLocaleString()}
                                             </td>
                                             <td className="py-3 px-3 text-right font-medium text-emerald-600">
-                                              ₨{item.paidAmount.toLocaleString()} <span className="text-xs text-gray-400">({item.paidCount})</span>
+                                              ₨{(item.paidAmount ?? 0).toLocaleString()} <span className="text-xs text-gray-400">({item.paidCount ?? 0})</span>
                                             </td>
                                             <td className="py-3 px-3 text-right font-bold text-amber-600">
-                                              ₨{item.pendingAmount.toLocaleString()} <span className="text-xs text-gray-400 font-normal">({item.pendingCount})</span>
+                                              ₨{(item.pendingAmount ?? 0).toLocaleString()} <span className="text-xs text-gray-400 font-normal">({item.pendingCount ?? 0})</span>
                                             </td>
                                             <td className="py-3 px-4 text-center">
-                                              {item.pendingCount === 0 ? (
+                                              {(item.pendingCount ?? 0) === 0 ? (
                                                 <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-semibold px-2 py-0.5 bg-emerald-50 rounded">
                                                   <Check size={12} />
                                                   Paid
@@ -1169,7 +1169,7 @@ export default function PaymentsPage() {
                                                   {payingKey === `item_${itemKey}` ? (
                                                     <RefreshCw size={12} className="animate-spin inline" />
                                                   ) : (
-                                                    `Pay ₨${item.pendingAmount.toLocaleString()}`
+                                                    `Pay ₨${(item.pendingAmount ?? 0).toLocaleString()}`
                                                   )}
                                                 </button>
                                               )}
@@ -1182,20 +1182,20 @@ export default function PaymentsPage() {
                                       <tr className="bg-gray-100/80 font-bold border-t-2 border-gray-300">
                                         <td className="py-3 px-4 text-gray-900">Total</td>
                                         <td className="py-3 px-3 text-center text-gray-900">
-                                          {design.totalPieces}
+                                          {design.totalPieces ?? 0}
                                         </td>
                                         <td className="py-3 px-3 text-right text-gray-400">—</td>
                                         <td className="py-3 px-4 text-center text-xs text-gray-500">
                                           Sum of items above
                                         </td>
                                         <td className="py-3 px-3 text-right text-gray-900">
-                                          ₨{design.totalAmount.toLocaleString()}
+                                          ₨{(design.totalAmount ?? 0).toLocaleString()}
                                         </td>
                                         <td className="py-3 px-3 text-right text-emerald-700">
-                                          ₨{design.paidAmount.toLocaleString()}
+                                          ₨{(design.paidAmount ?? 0).toLocaleString()}
                                         </td>
                                         <td className="py-3 px-3 text-right text-amber-700">
-                                          ₨{design.pendingAmount.toLocaleString()}
+                                          ₨{(design.pendingAmount ?? 0).toLocaleString()}
                                         </td>
                                         <td className="py-3 px-4 text-center text-xs text-gray-400">—</td>
                                       </tr>
