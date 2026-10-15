@@ -94,14 +94,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Worker not specified" }, { status: 400 });
     }
 
-    const paidFromAccount = await prisma.account.findUnique({
-      where: { id: paidFromAccountId },
-    });
+    let paidFromAccount = paidFromAccountId
+      ? await prisma.account.findUnique({ where: { id: paidFromAccountId } })
+      : null;
     if (!paidFromAccount) {
-      return NextResponse.json(
-        { success: false, error: "Paid From cash/bank account not found" },
-        { status: 400 }
-      );
+      paidFromAccount = await prisma.account.findFirst({
+        where: { rootType: "asset", status: "active", accountRole: "cash" },
+      });
+      if (!paidFromAccount) {
+        paidFromAccount = await prisma.account.findFirst({
+          where: { rootType: "asset", status: "active" },
+        });
+      }
+      if (!paidFromAccount) {
+        paidFromAccount = await prisma.account.create({
+          data: {
+            code: "AS-CASH",
+            title: "Cash in Hand",
+            rootType: "asset",
+            accountRole: "cash",
+            description: "Default physical cash account",
+            status: "active",
+          },
+        });
+      }
     }
 
     if (action === "give_advance") {
@@ -129,6 +145,17 @@ export async function POST(request: NextRequest) {
       }
       if (!laborExpenseAccount) {
         laborExpenseAccount = await prisma.account.findFirst({ where: { rootType: "directExpense" } });
+      }
+      if (!laborExpenseAccount) {
+        laborExpenseAccount = await prisma.account.create({
+          data: {
+            code: "DE-WAGES",
+            title: "Direct Labor / Piece Wages",
+            rootType: "directExpense",
+            description: "Factory piece-rate wages and labor expense",
+            status: "active",
+          },
+        });
       }
 
       const voucherType: VoucherType = paymentMode === "cash" ? "CPV" : "BPV";
@@ -187,13 +214,13 @@ export async function POST(request: NextRequest) {
 
         // Synchronize operational piece status to Paid
         if (department === "Cutting") {
-          // 1. Mark PO receiving log items as paid for this cutting person
+          const nameToMatch = workerName?.trim() || workerParty.name;
           await tx.pOReceivingLogItem.updateMany({
             where: {
               isPaid: false,
               receivingLog: {
                 cuttingPersonName: {
-                  equals: workerParty.name,
+                  equals: nameToMatch,
                   mode: "insensitive",
                 },
               },

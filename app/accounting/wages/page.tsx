@@ -59,24 +59,25 @@ export default function WorkerWagesPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [wagesRes, accountsRes] = await Promise.all([
-        fetch(`/api/accounting/wages?department=${encodeURIComponent(selectedDept)}`),
+      const [piecesRes, accountsRes] = await Promise.all([
+        fetch(`/api/payment/worker-pieces?department=${encodeURIComponent(selectedDept)}`),
         fetch("/api/accounting/accounts"),
       ]);
 
-      const [wagesData, accountsData] = await Promise.all([
-        wagesRes.json(),
+      const [piecesData, accountsData] = await Promise.all([
+        piecesRes.json(),
         accountsRes.json(),
       ]);
 
-      if (wagesData.success) {
-        setWorkers(wagesData.data.workers || []);
-        setDepartmentData(wagesData.data.departmentData);
+      if (piecesData.success) {
+        setDepartmentData(piecesData.data);
+      } else {
+        setDepartmentData(null);
       }
 
       if (accountsData.success) {
         const cashBank = (accountsData.data.all || []).filter((a: any) =>
-          ["cash", "bank"].includes(a.accountRole || "")
+          ["cash", "bank"].includes(a.accountRole || "") || a.rootType === "asset"
         );
         setCashBankAccounts(cashBank);
         if (cashBank.length > 0 && !payFromAccountId) {
