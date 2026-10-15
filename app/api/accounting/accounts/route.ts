@@ -95,3 +95,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "Account ID is required." },
+        { status: 400 }
+      );
+    }
+
+    const account = await prisma.account.findUnique({ where: { id } });
+    if (!account) {
+      return NextResponse.json(
+        { success: false, error: "Account not found." },
+        { status: 404 }
+      );
+    }
+
+    // Safety check: is account used in any journal or bill lines?
+    const [hasJournal, hasBills] = await Promise.all([
+      prisma.journalLine.findFirst({ where: { accountId: id } }),
+      prisma.billLine.findFirst({ where: { accountId: id } }),
+    ]);
+
+    if (hasJournal || hasBills) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Cannot delete "${account.title}" (${account.code}) because financial transactions have already been recorded against it.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    await prisma.account.delete({ where: { id } });
+
+    return NextResponse.json({
+      success: true,
+      message: `Account head "${account.title}" (${account.code}) deleted successfully.`,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}

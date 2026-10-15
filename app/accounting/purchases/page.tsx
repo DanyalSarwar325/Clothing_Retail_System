@@ -102,7 +102,7 @@ function PurchasesContent() {
         const allAccs: Account[] = accountsData.data.all || [];
         setAccounts(allAccs);
         const cashBank = allAccs.filter((a) =>
-          ["cash", "bank"].includes((a as any).accountRole || "")
+          ["cash", "bank"].includes((a as any).accountRole || "") || a.rootType === "asset"
         );
         setCashBankAccounts(cashBank);
         setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));

@@ -12,6 +12,7 @@ import {
   PlusCircle,
   CheckCircle2,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -37,6 +38,7 @@ export default function ChartOfAccountsPage() {
   const [formTitle, setFormTitle] = useState("");
   const [formRootType, setFormRootType] = useState<Account["rootType"]>("directExpense");
   const [formCode, setFormCode] = useState("");
+  const [formAccountRole, setFormAccountRole] = useState("general");
   const [formDescription, setFormDescription] = useState("");
 
   const loadAccounts = useCallback(async () => {
@@ -76,16 +78,18 @@ export default function ChartOfAccountsPage() {
           title: formTitle,
           rootType: formRootType,
           code: formCode || undefined,
+          accountRole: formRootType === "asset" ? formAccountRole : "general",
           description: formDescription,
         }),
       });
 
       const data = await res.json();
       if (data.success) {
-        toast.success(data.message || "Account created successfully!");
+        toast.success(data.message || "Sub-heading created successfully!");
         setShowAddModal(false);
         setFormTitle("");
         setFormCode("");
+        setFormAccountRole("general");
         setFormDescription("");
         loadAccounts();
       } else {
@@ -98,13 +102,34 @@ export default function ChartOfAccountsPage() {
     }
   };
 
+  const handleDeleteAccount = async (id: string, title: string, code: string) => {
+    if (!confirm(`Are you sure you want to delete "${title}" (${code})?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/accounting/accounts?id=${id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || "Sub-heading deleted");
+        loadAccounts();
+      } else {
+        toast.error(data.error || "Failed to delete sub-heading");
+      }
+    } catch {
+      toast.error("Failed to connect to server");
+    }
+  };
+
   const categories = [
-    { id: "directExpense", label: "Direct Expenses", desc: "Fabric, Direct Piece Wages, Dyeing, Printing & Trims" },
-    { id: "indirectExpense", label: "Indirect Expenses", desc: "Factory Rent, Electricity, Generator Fuel, Machine Repairs" },
-    { id: "asset", label: "Assets", desc: "Cash in Hand, Bank Accounts, Fabric Inventory, Customer Receivables" },
-    { id: "liability", label: "Liabilities", desc: "Supplier Payables, Contractor Payables, Wages Accrued" },
-    { id: "revenue", label: "Revenue", desc: "Garment Retail Sales, Wholesale Orders, Scrap Sales" },
-    { id: "equity", label: "Equity / Capital", desc: "Owner Capital, Drawings, Retained Earnings" },
+    { id: "directExpense", label: "Direct Expense", desc: "Production & factory direct costs added by user" },
+    { id: "indirectExpense", label: "Indirect Expense", desc: "Overheads, utilities & running expenses added by user" },
+    { id: "asset", label: "Asset", desc: "Cash, bank accounts, inventory & receivables added by user" },
+    { id: "liability", label: "Liability", desc: "Supplier, contractor & accrued payables added by user" },
+    { id: "revenue", label: "Revenue", desc: "Garment sales, wholesale & other income heads added by user" },
+    { id: "equity", label: "Capital", desc: "Owner capital, drawings & investment added by user" },
   ];
 
   const currentAccounts = groupedAccounts[activeTab] || [];
@@ -180,9 +205,9 @@ export default function ChartOfAccountsPage() {
               <tr>
                 <th className="px-5 py-3.5">Account Code</th>
                 <th className="px-5 py-3.5">Sub-Heading Title</th>
-                <th className="px-5 py-3.5">System Role / Purpose</th>
+                <th className="px-5 py-3.5">Khata Type / Role</th>
                 <th className="px-5 py-3.5">Description</th>
-                <th className="px-5 py-3.5 text-center">Type</th>
+                <th className="px-5 py-3.5 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -197,7 +222,7 @@ export default function ChartOfAccountsPage() {
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center text-slate-400">
                     <FolderTree size={32} className="mx-auto mb-2 opacity-40" />
-                    No sub-headings added under this main heading yet. Click "Add New Sub-Heading".
+                    No sub-headings added under this heading yet. Click "Add New Sub-Heading" above.
                   </td>
                 </tr>
               ) : (
@@ -210,23 +235,26 @@ export default function ChartOfAccountsPage() {
                       {acc.title}
                     </td>
                     <td className="px-5 py-4">
-                      <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700">
-                        {acc.accountRole || "general"}
+                      <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 capitalize">
+                        {acc.accountRole === "cash"
+                          ? "Cash Account"
+                          : acc.accountRole === "bank"
+                          ? "Bank Account"
+                          : "General"}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-xs text-slate-500 max-w-sm">
                       {acc.description || "—"}
                     </td>
                     <td className="px-5 py-4 text-center">
-                      {acc.isSystem ? (
-                        <span className="text-[11px] px-2 py-0.5 rounded font-bold bg-blue-50 text-blue-700">
-                          System Default
-                        </span>
-                      ) : (
-                        <span className="text-[11px] px-2 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700">
-                          Custom Head
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAccount(acc._id, acc.title, acc.code)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Delete sub-heading"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -243,7 +271,7 @@ export default function ChartOfAccountsPage() {
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <h3 className="font-bold text-slate-900 text-lg">Add New Sub-Heading</h3>
-                <p className="text-xs text-slate-500">Create an account head under chosen category</p>
+                <p className="text-xs text-slate-500">Create an account head under chosen heading</p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -256,21 +284,38 @@ export default function ChartOfAccountsPage() {
             <form onSubmit={handleCreateAccount} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">
-                  Main Heading (Root Type) *
+                  Main Heading *
                 </label>
                 <select
                   value={formRootType}
                   onChange={(e) => setFormRootType(e.target.value as any)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none"
                 >
-                  <option value="directExpense">Direct Expense (Production Costs)</option>
-                  <option value="indirectExpense">Indirect Expense (Factory Overheads)</option>
-                  <option value="asset">Asset (Cash, Bank, Inventory, Receivables)</option>
-                  <option value="liability">Liability (Payables, Accrued Wages)</option>
-                  <option value="revenue">Revenue (Garment Sales, Wholesale)</option>
-                  <option value="equity">Equity (Owner Capital, Drawings)</option>
+                  <option value="directExpense">Direct Expense</option>
+                  <option value="indirectExpense">Indirect Expense</option>
+                  <option value="asset">Asset</option>
+                  <option value="liability">Liability</option>
+                  <option value="revenue">Revenue</option>
+                  <option value="equity">Capital</option>
                 </select>
               </div>
+
+              {formRootType === "asset" && (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">
+                    Asset Khata Type
+                  </label>
+                  <select
+                    value={formAccountRole}
+                    onChange={(e) => setFormAccountRole(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none"
+                  >
+                    <option value="general">General Asset (Receivables, Inventory, Equipment)</option>
+                    <option value="cash">Cash in Hand (Counter / Drawer Cash)</option>
+                    <option value="bank">Bank Account (Meezan, HBL, Bank Alfalah, etc.)</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">

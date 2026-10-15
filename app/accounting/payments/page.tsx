@@ -98,7 +98,7 @@ function PaymentsContent() {
       if (partiesData.success) setParties(partiesData.data || []);
       if (accountsData.success) {
         const cashBank = (accountsData.data.all || []).filter((a: any) =>
-          ["cash", "bank"].includes(a.accountRole || "")
+          ["cash", "bank"].includes(a.accountRole || "") || a.rootType === "asset"
         );
         setCashBankAccounts(cashBank);
         setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));

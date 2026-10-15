@@ -84,14 +84,14 @@ function ReceiptsContent() {
       if (accountsData.success) {
         const allAccs: Account[] = accountsData.data.all || [];
         const cashBank = allAccs.filter((a) =>
-          ["cash", "bank"].includes(a.accountRole || "")
+          ["cash", "bank"].includes(a.accountRole || "") || a.rootType === "asset"
         );
         setCashBankAccounts(cashBank);
         setDepositAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
 
-        // Accounts that can be credited (Receivables, Sales Revenue, Scrap, Capital)
+        // Accounts that can be credited (Revenue, Capital/Equity, Receivables/Assets)
         const creditList = allAccs.filter((a) =>
-          ["revenue", "equity"].includes(a.rootType) || a.accountRole === "accountsReceivable"
+          ["revenue", "equity", "asset"].includes(a.rootType)
         );
         setCreditAccounts(creditList);
         const defaultReceivable = creditList.find((a) => a.accountRole === "accountsReceivable");

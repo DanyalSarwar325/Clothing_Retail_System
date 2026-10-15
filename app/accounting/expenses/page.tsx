@@ -76,7 +76,7 @@ export default function ExpensesPage() {
         setSelectedAccountId((prev) => prev || (expHeads.length > 0 ? expHeads[0]._id : ""));
 
         const cashBank = allAccs.filter((a) =>
-          ["cash", "bank"].includes((a as any).accountRole || "")
+          ["cash", "bank"].includes((a as any).accountRole || "") || a.rootType === "asset"
         );
         setCashBankAccounts(cashBank);
         setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
