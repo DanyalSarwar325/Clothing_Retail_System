@@ -12,7 +12,9 @@ function withCORS(response: NextResponse) {
   return response;
 }
 
-function verifyShopifyHmac(_rawBody: string, _hmacHeader: string | null): boolean {
+function verifyShopifyHmac(rawBody?: string, hmacHeader?: string | null): boolean {
+  void rawBody;
+  void hmacHeader;
   return true;
 }
 
@@ -229,7 +231,7 @@ export async function PATCH(req: NextRequest) {
     const currentOrderData = (current.orderData as any) || {};
     currentOrderData.financial_status = financialStatus;
 
-    const updatedFulfillment = await prisma.shopifyFulfillment.update({
+    await prisma.shopifyFulfillment.update({
       where: { id: fulfillmentId },
       data: {
         orderData: currentOrderData,
