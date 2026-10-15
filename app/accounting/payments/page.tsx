@@ -101,16 +101,14 @@ function PaymentsContent() {
           ["cash", "bank"].includes(a.accountRole || "")
         );
         setCashBankAccounts(cashBank);
-        if (cashBank.length > 0 && !paidFromAccountId) {
-          setPaidFromAccountId(cashBank[0]._id);
-        }
+        setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
       }
     } catch {
       toast.error("Failed to load payments");
     } finally {
       setLoading(false);
     }
-  }, [paidFromAccountId]);
+  }, []);
 
   useEffect(() => {
     loadData();

@@ -87,9 +87,7 @@ function ReceiptsContent() {
           ["cash", "bank"].includes(a.accountRole || "")
         );
         setCashBankAccounts(cashBank);
-        if (cashBank.length > 0 && !depositAccountId) {
-          setDepositAccountId(cashBank[0]._id);
-        }
+        setDepositAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
 
         // Accounts that can be credited (Receivables, Sales Revenue, Scrap, Capital)
         const creditList = allAccs.filter((a) =>
@@ -97,8 +95,8 @@ function ReceiptsContent() {
         );
         setCreditAccounts(creditList);
         const defaultReceivable = creditList.find((a) => a.accountRole === "accountsReceivable");
-        if (defaultReceivable && !creditAccountId) {
-          setCreditAccountId(defaultReceivable._id);
+        if (defaultReceivable) {
+          setCreditAccountId((prev) => prev || defaultReceivable._id);
         }
       }
     } catch {
@@ -106,7 +104,7 @@ function ReceiptsContent() {
     } finally {
       setLoading(false);
     }
-  }, [depositAccountId, creditAccountId]);
+  }, []);
 
   useEffect(() => {
     loadData();

@@ -1,6 +1,22 @@
 import prisma from "@/app/libs/prisma";
 
+let isSeededCache = false;
+
 export async function ensureAccountingSeeded() {
+  if (isSeededCache) {
+    return { cached: true };
+  }
+
+  const existingAccountsCount = await prisma.account.count();
+  const existingFY = await prisma.financialYear.findFirst({
+    where: { isCurrent: true },
+  });
+
+  if (existingAccountsCount >= 30 && existingFY) {
+    isSeededCache = true;
+    return { activeFY: existingFY, seededAccountsCount: existingAccountsCount };
+  }
+
   const now = new Date();
   const currentYear = now.getFullYear();
   const isAfterJune = now.getMonth() >= 6; // July is index 6
@@ -8,9 +24,12 @@ export async function ensureAccountingSeeded() {
   const fyEndYear = fyStartYear + 1;
   const fyName = `FY ${fyStartYear}-${String(fyEndYear).slice(-2)}`;
 
-  let activeFY = await prisma.financialYear.findUnique({
-    where: { name: fyName },
-  });
+  let activeFY = existingFY;
+  if (!activeFY) {
+    activeFY = await prisma.financialYear.findUnique({
+      where: { name: fyName },
+    });
+  }
 
   if (!activeFY) {
     await prisma.financialYear.updateMany({
@@ -84,5 +103,6 @@ export async function ensureAccountingSeeded() {
     });
   }
 
+  isSeededCache = true;
   return { activeFY, seededAccountsCount: defaultAccounts.length };
 }

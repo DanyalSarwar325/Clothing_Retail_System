@@ -69,19 +69,17 @@ export default function ExpensesPage() {
 
       if (accountsData.success) {
         const allAccs: Account[] = accountsData.data.all || [];
-        const expHeads = allAccs.filter((a) => a.rootType === "indirectExpense");
+        const expHeads = allAccs.filter((a) =>
+          ["indirectExpense", "directExpense"].includes(a.rootType)
+        );
         setExpenseAccounts(expHeads);
-        if (expHeads.length > 0 && !selectedAccountId) {
-          setSelectedAccountId(expHeads[0]._id);
-        }
+        setSelectedAccountId((prev) => prev || (expHeads.length > 0 ? expHeads[0]._id : ""));
 
         const cashBank = allAccs.filter((a) =>
           ["cash", "bank"].includes((a as any).accountRole || "")
         );
         setCashBankAccounts(cashBank);
-        if (cashBank.length > 0 && !paidFromAccountId) {
-          setPaidFromAccountId(cashBank[0]._id);
-        }
+        setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
       }
 
       if (billsData.success) {
@@ -92,7 +90,7 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAccountId, paidFromAccountId]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -340,11 +338,37 @@ export default function ExpensesPage() {
                   onChange={(e) => setSelectedAccountId(e.target.value)}
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                 >
-                  {expenseAccounts.map((a) => (
-                    <option key={a._id} value={a._id}>
-                      {a.title} ({a.code})
-                    </option>
-                  ))}
+                  {loading && expenseAccounts.length === 0 ? (
+                    <option value="" disabled>Loading expense categories...</option>
+                  ) : expenseAccounts.length === 0 ? (
+                    <option value="" disabled>No expense heads found (add one in Chart of Accounts)</option>
+                  ) : (
+                    <>
+                      <option value="" disabled>-- Select Expense Head --</option>
+                      {expenseAccounts.some((a) => a.rootType === "indirectExpense") && (
+                        <optgroup label="Indirect Expenses (Factory Overheads & Admin)">
+                          {expenseAccounts
+                            .filter((a) => a.rootType === "indirectExpense")
+                            .map((a) => (
+                              <option key={a._id} value={a._id}>
+                                {a.title} ({a.code})
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {expenseAccounts.some((a) => a.rootType === "directExpense") && (
+                        <optgroup label="Direct Expenses (Production / Factory Operations)">
+                          {expenseAccounts
+                            .filter((a) => a.rootType === "directExpense")
+                            .map((a) => (
+                              <option key={a._id} value={a._id}>
+                                {a.title} ({a.code})
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
                 </select>
               </div>
 

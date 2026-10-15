@@ -105,16 +105,14 @@ function PurchasesContent() {
           ["cash", "bank"].includes((a as any).accountRole || "")
         );
         setCashBankAccounts(cashBank);
-        if (cashBank.length > 0 && !paidFromAccountId) {
-          setPaidFromAccountId(cashBank[0]._id);
-        }
+        setPaidFromAccountId((prev) => prev || (cashBank.length > 0 ? cashBank[0]._id : ""));
       }
     } catch {
       toast.error("Failed to load purchase bills");
     } finally {
       setLoading(false);
     }
-  }, [paidFromAccountId]);
+  }, []);
 
   useEffect(() => {
     loadData();
