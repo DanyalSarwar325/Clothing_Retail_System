@@ -299,6 +299,7 @@ export async function GET(request: NextRequest) {
             totalPieces,
             totalAmount,
             unpaidPieceIds,
+            items,
             itemsBreakdown: items,
           };
         }),

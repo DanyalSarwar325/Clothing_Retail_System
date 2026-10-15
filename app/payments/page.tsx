@@ -1050,7 +1050,7 @@ export default function PaymentsPage() {
                         )}
 
                         {/* 3. Designs and Item Breakdown Tables */}
-                        {worker.designs.map((design) => {
+                        {(worker.designs || []).map((design) => {
                           const designKey = `${worker.workerName}_${design.design}`;
                           const isPiecesExpanded = expandedPiecesDesigns.has(designKey);
 
@@ -1125,7 +1125,7 @@ export default function PaymentsPage() {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
-                                      {design.items.map((item) => {
+                                      {(design.items || (design as any).itemsBreakdown || []).map((item) => {
                                         const itemKey = `${designKey}_${item.item}`;
                                         const badgeClass = ITEM_BADGES[item.item] || ITEM_BADGES.Other;
 
@@ -1236,7 +1236,7 @@ export default function PaymentsPage() {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
-                                          {design.pieces.map((piece) => (
+                                          {(design.pieces || []).map((piece) => (
                                             <tr key={piece._id} className="hover:bg-gray-50/50">
                                               <td className="px-3 py-2 font-medium text-gray-900">{piece.item}</td>
                                               <td className="px-3 py-2 text-gray-600">{piece.size}</td>
