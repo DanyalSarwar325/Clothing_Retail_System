@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import Sidebar from "@/app/components/Sidebar";
 import { useAuth } from "@/app/context/AuthContext";
 import {
@@ -25,6 +26,7 @@ import {
   FileText,
   BadgeAlert,
   Send,
+  ArrowUpRight,
 } from "lucide-react";
 
 interface PieceData {
@@ -194,7 +196,6 @@ export default function PaymentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
   const [expandedPiecesDesigns, setExpandedPiecesDesigns] = useState<Set<string>>(new Set());
-  const [payingKey, setPayingKey] = useState<string | null>(null);
 
   // Quality Sub-tab state
   const [qualitySubTab, setQualitySubTab] = useState<"payments" | "defects">("payments");
@@ -278,64 +279,7 @@ export default function PaymentsPage() {
     }
   }, []);
 
-  // Pay single piece
-  const handlePayPiece = async (pieceId: string) => {
-    setPayingKey(pieceId);
-    setError(null);
-    try {
-      const res = await fetch("/api/payment/worker-pieces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pieceId,
-          department: selectedDepartment,
-          paidBy: user?.name || "Admin",
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSuccess(data.message);
-        await fetchWorkerPieces();
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        setError(data.message);
-      }
-    } catch (err) {
-      setError("Failed to process payment");
-    } finally {
-      setPayingKey(null);
-    }
-  };
 
-  // Pay multiple pieces at once (by Item or by Design)
-  const handlePayBatch = async (pieceIds: string[], key: string) => {
-    if (!pieceIds || pieceIds.length === 0) return;
-    setPayingKey(key);
-    setError(null);
-    try {
-      const res = await fetch("/api/payment/worker-pieces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pieceIds,
-          department: selectedDepartment,
-          paidBy: user?.name || "Admin",
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSuccess(data.message);
-        await fetchWorkerPieces();
-        setTimeout(() => setSuccess(null), 3500);
-      } else {
-        setError(data.message);
-      }
-    } catch (err) {
-      setError("Failed to process batch payment");
-    } finally {
-      setPayingKey(null);
-    }
-  };
 
   // Submit Defect Decision for an item
   const handleSaveDefectDecision = async (item: DefectiveItem) => {
@@ -424,20 +368,51 @@ export default function PaymentsPage() {
               </span>
             </div>
             <p className="text-gray-500 text-sm mt-0.5">
-              Review and disburse piece-rate payments, adjustments for defects, and cancellations
+              Review production piece counts, Paid vs Due statuses, defect adjustments, and cancellations. Payments are issued via the Accounting Dashboard.
             </p>
           </div>
-          <button
-            onClick={() => {
-              fetchWorkerPieces();
-              if (selectedDepartment === "Quality") fetchDefectiveItems();
-            }}
-            disabled={loading || loadingDefects}
-            className={`inline-flex items-center gap-2 px-4 py-2 ${colors.bg} text-white rounded-lg hover:opacity-90 disabled:opacity-50 transition-all font-medium text-sm shadow-xs cursor-pointer`}
+          <div className="flex items-center gap-2">
+            <Link
+              href="/accounting/wages"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all font-medium text-sm shadow-xs"
+            >
+              <Wallet size={16} />
+              <span>Accounting Wages</span>
+              <ArrowUpRight size={14} />
+            </Link>
+            <button
+              onClick={() => {
+                fetchWorkerPieces();
+                if (selectedDepartment === "Quality") fetchDefectiveItems();
+              }}
+              disabled={loading || loadingDefects}
+              className={`inline-flex items-center gap-2 px-4 py-2 ${colors.bg} text-white rounded-lg hover:opacity-90 disabled:opacity-50 transition-all font-medium text-sm shadow-xs cursor-pointer`}
+            >
+              <RefreshCw size={16} className={loading || loadingDefects ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Informational banner: Payments via Accounting Dashboard */}
+        <div className="mb-6 p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-900">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-blue-100 text-blue-700 rounded-lg shrink-0">
+              <Wallet size={16} />
+            </div>
+            <div>
+              <span className="font-bold text-blue-950">Read-Only Production Payment Status: </span>
+              <span className="text-blue-800">
+                Direct worker payouts from this screen are disabled. All wage vouchers, advance deductions, and cash/bank disbursements are recorded in the Accounting Dashboard.
+              </span>
+            </div>
+          </div>
+          <Link
+            href="/accounting/wages"
+            className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 hover:underline shrink-0 text-xs"
           >
-            <RefreshCw size={16} className={loading || loadingDefects ? "animate-spin" : ""} />
-            Refresh
-          </button>
+            Open Accounting Wages <ArrowUpRight size={13} />
+          </Link>
         </div>
 
         {/* Alerts */}
@@ -1074,33 +1049,14 @@ export default function PaymentsPage() {
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold rounded-md">
+                                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold rounded-md flex items-center gap-1">
+                                    <Check size={13} />
                                     Paid: ₨{(design.paidAmount ?? 0).toLocaleString()} ({design.paidCount ?? 0})
                                   </span>
-                                  <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 font-bold rounded-md">
+                                  <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 font-bold rounded-md flex items-center gap-1">
+                                    <Clock size={13} />
                                     Due: ₨{(design.pendingAmount ?? 0).toLocaleString()} ({design.pendingCount ?? 0})
                                   </span>
-
-                                  {/* Pay Entire Design Remaining Button */}
-                                  {(design.pendingCount ?? 0) > 0 && design.unpaidPieceIds && (
-                                    <button
-                                      onClick={() => handlePayBatch(design.unpaidPieceIds || [], `design_${designKey}`)}
-                                      disabled={payingKey === `design_${designKey}`}
-                                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${colors.bg} text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all cursor-pointer`}
-                                    >
-                                      {payingKey === `design_${designKey}` ? (
-                                        <>
-                                          <RefreshCw size={13} className="animate-spin" />
-                                          Paying...
-                                        </>
-                                      ) : (
-                                        <>
-                                          <CheckCheck size={14} />
-                                          Pay Design Remaining (₨{(design.pendingAmount ?? 0).toLocaleString()})
-                                        </>
-                                      )}
-                                    </button>
-                                  )}
                                 </div>
                               </div>
 
@@ -1121,12 +1077,11 @@ export default function PaymentsPage() {
                                         <th className="py-2.5 px-3 text-right">Total Amount</th>
                                         <th className="py-2.5 px-3 text-right">Paid</th>
                                         <th className="py-2.5 px-3 text-right">Remaining Due</th>
-                                        <th className="py-2.5 px-4 text-center">Action</th>
+                                        <th className="py-2.5 px-4 text-center">Status</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                       {(design.items || (design as any).itemsBreakdown || []).map((item) => {
-                                        const itemKey = `${designKey}_${item.item}`;
                                         const badgeClass = ITEM_BADGES[item.item] || ITEM_BADGES.Other;
 
                                         return (
@@ -1156,22 +1111,15 @@ export default function PaymentsPage() {
                                             </td>
                                             <td className="py-3 px-4 text-center">
                                               {(item.pendingCount ?? 0) === 0 ? (
-                                                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-semibold px-2 py-0.5 bg-emerald-50 rounded">
+                                                <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-md">
                                                   <Check size={12} />
                                                   Paid
                                                 </span>
                                               ) : (
-                                                <button
-                                                  onClick={() => handlePayBatch(item.unpaidPieceIds, `item_${itemKey}`)}
-                                                  disabled={payingKey === `item_${itemKey}`}
-                                                  className={`px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-md shadow-2xs hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer`}
-                                                >
-                                                  {payingKey === `item_${itemKey}` ? (
-                                                    <RefreshCw size={12} className="animate-spin inline" />
-                                                  ) : (
-                                                    `Pay ₨${(item.pendingAmount ?? 0).toLocaleString()}`
-                                                  )}
-                                                </button>
+                                                <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-bold px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-md">
+                                                  <Clock size={12} />
+                                                  Due ({item.pendingCount ?? 0})
+                                                </span>
                                               )}
                                             </td>
                                           </tr>
@@ -1197,7 +1145,13 @@ export default function PaymentsPage() {
                                         <td className="py-3 px-3 text-right text-amber-700">
                                           ₨{(design.pendingAmount ?? 0).toLocaleString()}
                                         </td>
-                                        <td className="py-3 px-4 text-center text-xs text-gray-400">—</td>
+                                        <td className="py-3 px-4 text-center text-xs">
+                                          {(design.pendingCount ?? 0) === 0 ? (
+                                            <span className="text-emerald-700 font-semibold">All Paid</span>
+                                          ) : (
+                                            <span className="text-amber-700 font-bold">Due</span>
+                                          )}
+                                        </td>
                                       </tr>
                                     </tbody>
                                   </table>
@@ -1217,7 +1171,7 @@ export default function PaymentsPage() {
                                     ) : (
                                       <>
                                         <ChevronDown size={14} />
-                                        View individual piece details & single pay ({design.pieces.length} pieces)
+                                        View individual piece details ({design.pieces.length} pieces)
                                       </>
                                     )}
                                   </button>
@@ -1232,7 +1186,6 @@ export default function PaymentsPage() {
                                             <th className="px-3 py-2 text-left">Unit #</th>
                                             <th className="px-3 py-2 text-right">Rate</th>
                                             <th className="px-3 py-2 text-center">Status</th>
-                                            <th className="px-3 py-2 text-center">Action</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -1244,35 +1197,15 @@ export default function PaymentsPage() {
                                               <td className="px-3 py-2 text-right font-semibold text-gray-900">₨{piece.rate}</td>
                                               <td className="px-3 py-2 text-center">
                                                 {piece.isPaid ? (
-                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-medium">
+                                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-semibold">
                                                     <Check size={10} />
                                                     Paid
                                                   </span>
                                                 ) : (
-                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-medium">
+                                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-bold">
                                                     <Clock size={10} />
-                                                    Unpaid
+                                                    Due
                                                   </span>
-                                                )}
-                                              </td>
-                                              <td className="px-3 py-2 text-center">
-                                                {piece.isPaid ? (
-                                                  <span className="text-gray-400 text-xs">—</span>
-                                                ) : (
-                                                  <button
-                                                    onClick={() => handlePayPiece(piece._id)}
-                                                    disabled={payingKey === piece._id}
-                                                    className={`px-2.5 py-1 ${colors.bg} text-white rounded text-[11px] font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1 mx-auto cursor-pointer`}
-                                                  >
-                                                    {payingKey === piece._id ? (
-                                                      <RefreshCw size={11} className="animate-spin" />
-                                                    ) : (
-                                                      <>
-                                                        <DollarSign size={11} />
-                                                        Pay ₨{piece.rate}
-                                                      </>
-                                                    )}
-                                                  </button>
                                                 )}
                                               </td>
                                             </tr>
