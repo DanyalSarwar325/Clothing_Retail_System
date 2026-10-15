@@ -36,6 +36,19 @@ export async function GET(request: NextRequest) {
         },
       });
 
+      // Pre-fetch PO rates for these sticker designs (e.g. Packing rates from PO)
+      const stickerDesigns = [...new Set(stickers.map((s) => s.design))];
+      const poList = await prisma.purchaseOrder.findMany({
+        where: { design: { in: stickerDesigns } },
+        include: { departmentRates: { where: { department } } },
+      });
+      const poRateMap: Record<string, number> = {};
+      for (const p of poList) {
+        if (p.departmentRates.length > 0) {
+          poRateMap[p.design] = p.departmentRates[0].ratePerPiece;
+        }
+      }
+
       for (const sticker of stickers) {
         const matchingScans = sticker.departmentHistory.filter((h) => h.department === department);
         for (const scan of matchingScans) {
@@ -43,7 +56,7 @@ export async function GET(request: NextRequest) {
 
           const isPaid = sticker.paidDepartments.some((pd) => pd.department === department);
           const matchedRate = sticker.departmentRates.find((r) => r.department === department);
-          const rate = matchedRate?.ratePerPiece ?? fallbackRate;
+          const rate = matchedRate?.ratePerPiece || poRateMap[sticker.design] || fallbackRate;
 
           pieces.push({
             _id: sticker.id,

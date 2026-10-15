@@ -102,6 +102,12 @@ export default function FinalStickerGenerator() {
         const data = await res.json();
         if (data.success && data.stats) {
           setDesignStats(data.stats);
+          if (data.stats.packingRate > 0) {
+            setDepartmentRates((prev) => ({
+              ...prev,
+              Packing: data.stats.packingRate,
+            }));
+          }
         } else {
           setDesignStats(null);
           toast.error(data.message || "Could not calculate design preview");

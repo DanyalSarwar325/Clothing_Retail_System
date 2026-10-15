@@ -4,17 +4,18 @@ import { useState } from "react";
 import { DollarSign, Check, Loader2, FileText, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
-// Departments that have item-based rates (all except Packing and Store)
-// Packing and Store rates are set when generating final stickers
+// Departments that have piece rates set on the PO (including Cutting and Packing)
 const ITEM_BASED_DEPARTMENTS = [
+  "Cutting",
   "Sewing",
   "Quality",
+  "Overlock",
+  "Clipping",
   "Handmade",
   "Adda Work",
   "Patching",
   "Press",
-  "Overlock",
-  "Clipping",
+  "Packing",
 ];
 
 const SIZES = ["S", "M", "L"] as const;
@@ -55,21 +56,22 @@ export default function AdminBarcodeGenerator() {
     L: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
   });
 
-  // Item-based rates for all departments (including Overlock & Clipping)
+  // Item-based rates for all departments (including Cutting, Packing, Overlock & Clipping)
   const [itemRates, setItemRates] = useState<Record<string, ItemRate>>({
     Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-    Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-    Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+    Packing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
   });
 
   const [error, setError] = useState("");
-  const [showRates, setShowRates] = useState(false);
+  const [showRates, setShowRates] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [createdPO, setCreatedPO] = useState<any>(null);
@@ -142,12 +144,13 @@ export default function AdminBarcodeGenerator() {
       Cutting: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       Sewing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       Quality: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       Handmade: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       "Adda Work": { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       Patching: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
       Press: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-      Overlock: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
-      Clipping: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
+      Packing: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
     });
   };
 
@@ -317,17 +320,17 @@ export default function AdminBarcodeGenerator() {
         </div>
       </div>
 
-      {/* Department Rates Section (including Overlock & Clipping) */}
+      {/* Department Rates Section (including Cutting & Packing) */}
       <div className="mb-6">
         <button
           type="button"
           onClick={() => setShowRates(!showRates)}
-          className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700"
+          className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
         >
           <DollarSign size={16} />
           {showRates
             ? "Hide Department Rates"
-            : "Set Department Rates Per Piece (Cutting, Sewing, Overlock, Clipping, etc.)"}
+            : "Set Department Rates Per Piece (Cutting, Packing, Sewing, etc.)"}
         </button>
 
         {showRates && (
@@ -336,7 +339,7 @@ export default function AdminBarcodeGenerator() {
               Department Piece Rates (Rs. Per Piece)
             </h4>
             <p className="text-xs text-gray-500 mb-3">
-              Rates will be attached once in this PO. When barcodes are generated later from received cut pieces, they will automatically inherit these rates without asking again.
+              Enter piece rates for <strong>Cutting</strong>, <strong>Packing</strong>, Sewing, and other departments. Workers and Cutting Master will be paid according to these exact rates.
             </p>
 
             <div className="overflow-x-auto border rounded-xl bg-white">
@@ -354,6 +357,16 @@ export default function AdminBarcodeGenerator() {
                     <tr key={dept} className="hover:bg-gray-50/50">
                       <td className="py-2.5 px-3 font-medium text-gray-900">
                         {dept}
+                        {dept === "Cutting" && (
+                          <span className="ml-1.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                            Cutting Master
+                          </span>
+                        )}
+                        {dept === "Packing" && (
+                          <span className="ml-1.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
+                            Packing Staff
+                          </span>
+                        )}
                         {(dept === "Overlock" || dept === "Clipping") && (
                           <span className="ml-1.5 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded">
                             New

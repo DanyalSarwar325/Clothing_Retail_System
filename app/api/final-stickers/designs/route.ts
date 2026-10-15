@@ -78,6 +78,12 @@ async function getDesignStats(design: string) {
     totalCategoryB += catB;
   }
 
+  const po = await prisma.purchaseOrder.findFirst({
+    where: { design },
+    include: { departmentRates: { where: { department: "Packing" } } },
+  });
+  const packingRate = po?.departmentRates[0]?.ratePerPiece || 0;
+
   return {
     design,
     suitType,
@@ -86,6 +92,7 @@ async function getDesignStats(design: string) {
     totalCategoryA,
     totalCategoryB,
     sizeBreakdown,
+    packingRate,
   };
 }
 

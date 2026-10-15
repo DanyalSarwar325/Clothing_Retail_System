@@ -88,15 +88,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (
-      !departmentRates ||
-      departmentRates.Packing < 0 ||
-      departmentRates.Store < 0 ||
-      departmentRates.Packing === undefined ||
-      departmentRates.Store === undefined
-    ) {
+    let packingRate = departmentRates?.Packing !== undefined ? Number(departmentRates.Packing) : undefined;
+    const storeRate = departmentRates?.Store !== undefined ? Number(departmentRates.Store) : 0;
+
+    if (packingRate === undefined || isNaN(packingRate) || packingRate <= 0) {
+      // Fallback to PO's Packing rate if set at PO generation
+      const poWithRate = await prisma.purchaseOrder.findFirst({
+        where: { design },
+        include: {
+          departmentRates: {
+            where: { department: "Packing" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (poWithRate && poWithRate.departmentRates.length > 0) {
+        packingRate = poWithRate.departmentRates[0].ratePerPiece;
+      }
+    }
+
+    if (packingRate === undefined || isNaN(packingRate) || packingRate < 0 || isNaN(storeRate) || storeRate < 0) {
       return NextResponse.json(
-        { success: false, message: "Packing and Store rates are required" },
+        { success: false, message: "Valid Packing and Store rates are required" },
         { status: 400 }
       );
     }
@@ -230,8 +243,8 @@ export async function POST(request: NextRequest) {
             ...st,
             departmentRates: {
               create: [
-                { department: "Packing", ratePerPiece: departmentRates.Packing || 0 },
-                { department: "Store", ratePerPiece: departmentRates.Store || 0 },
+                { department: "Packing", ratePerPiece: packingRate || 0 },
+                { department: "Store", ratePerPiece: storeRate || 0 },
               ],
             },
           },
