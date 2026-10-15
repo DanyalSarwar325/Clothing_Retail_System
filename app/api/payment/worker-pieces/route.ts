@@ -60,6 +60,82 @@ export async function GET(request: NextRequest) {
           });
         }
       }
+    } else if (department === "Cutting") {
+      // Cutting Master payment: calculated when cut pieces are received from cutting master after entering PO in the system!
+      const purchaseOrders = await prisma.purchaseOrder.findMany({
+        include: {
+          receivingLogs: {
+            include: { items: true },
+            orderBy: { receivedAt: "desc" },
+          },
+          departmentRates: true,
+          barcodes: {
+            include: {
+              paidDepartments: { where: { department: "Cutting" } },
+              departmentRates: { where: { department: "Cutting" } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      for (const po of purchaseOrders) {
+        const cuttingRates = po.departmentRates.filter((r) => r.department === "Cutting");
+
+        // Map existing barcodes by item and size for this PO
+        const barcodesByItemSize: Record<string, typeof po.barcodes> = {};
+        for (const b of po.barcodes) {
+          const key = `${b.item}_${b.size}`;
+          if (!barcodesByItemSize[key]) barcodesByItemSize[key] = [];
+          barcodesByItemSize[key].push(b);
+        }
+
+        // Process cut pieces received from cutting master on this PO
+        for (const log of po.receivingLogs) {
+          const cuttingPerson = log.cuttingPersonName?.trim() || "Cutting Master";
+
+          for (const itemLog of log.items) {
+            const matchedRate =
+              cuttingRates.find((r) => r.item === itemLog.item)?.ratePerPiece ??
+              fallbackRate;
+
+            const key = `${itemLog.item}_${itemLog.size}`;
+            const availableBarcodes = barcodesByItemSize[key] || [];
+
+            for (let i = 0; i < itemLog.quantity; i++) {
+              const barcode = availableBarcodes.shift();
+
+              let isPaid = false;
+              let pieceId = "";
+
+              if (barcode) {
+                isPaid = barcode.paidDepartments.length > 0 || itemLog.isPaid;
+                pieceId = barcode.id;
+              } else {
+                isPaid = itemLog.isPaid;
+                pieceId = `po_rcv_${itemLog.id}_${i + 1}`;
+              }
+
+              pieces.push({
+                _id: pieceId,
+                design: po.design,
+                item: itemLog.item,
+                size: itemLog.size,
+                suitType: "3pc",
+                unitNumber: barcode ? barcode.unitNumber : i + 1,
+                workerName: cuttingPerson,
+                scannedAt: log.receivedAt,
+                status: "received",
+                isPaid,
+                rate: matchedRate,
+                poNumber: po.poNumber,
+                poId: po.id,
+                receivingLogItemId: itemLog.id,
+              });
+            }
+          }
+        }
+      }
     } else {
       const barcodes = await prisma.barcode.findMany({
         where: {
@@ -393,36 +469,79 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      const barcodes = await prisma.barcode.findMany({
-        where: { id: { in: idsToPay } },
-        include: { departmentRates: true, paidDepartments: true },
-      });
+      const poRcvIds = idsToPay.filter((id) => id.startsWith("po_rcv_"));
+      const standardIds = idsToPay.filter((id) => !id.startsWith("po_rcv_"));
 
-      for (const barcode of barcodes) {
-        const alreadyPaid = barcode.paidDepartments.some((pd) => pd.department === department);
-        if (!alreadyPaid) {
-          const itemRateMatch = barcode.departmentRates.find(
-            (r) => r.department === department && r.item === barcode.item
-          );
-          const deptRateMatch = barcode.departmentRates.find(
-            (r) => r.department === department
-          );
-          const rate = itemRateMatch?.ratePerPiece ?? deptRateMatch?.ratePerPiece ?? fallbackRate;
-
-          try {
-            await prisma.barcodePayment.create({
-              data: {
-                barcodeId: barcode.id,
-                department,
-                amount: rate,
-                paidBy: paidBy || "Admin",
-                paidAt: new Date(),
+      if (poRcvIds.length > 0) {
+        for (const id of poRcvIds) {
+          const parts = id.split("_");
+          const logItemId = parts[2];
+          if (logItemId) {
+            const logItem = await prisma.pOReceivingLogItem.findUnique({
+              where: { id: logItemId },
+              include: {
+                receivingLog: {
+                  include: {
+                    po: {
+                      include: {
+                        departmentRates: { where: { department: "Cutting" } },
+                      },
+                    },
+                  },
+                },
               },
             });
-            totalAmountPaid += rate;
-            countPaid++;
-          } catch {
-            // Already paid concurrently
+            if (logItem && !logItem.isPaid) {
+              const matchedRate =
+                logItem.receivingLog.po.departmentRates.find((r) => r.item === logItem.item)?.ratePerPiece ??
+                fallbackRate;
+              await prisma.pOReceivingLogItem.update({
+                where: { id: logItem.id },
+                data: {
+                  isPaid: true,
+                  paidAt: new Date(),
+                  paidAmount: matchedRate,
+                },
+              });
+              totalAmountPaid += matchedRate;
+              countPaid++;
+            }
+          }
+        }
+      }
+
+      if (standardIds.length > 0) {
+        const barcodes = await prisma.barcode.findMany({
+          where: { id: { in: standardIds } },
+          include: { departmentRates: true, paidDepartments: true },
+        });
+
+        for (const barcode of barcodes) {
+          const alreadyPaid = barcode.paidDepartments.some((pd) => pd.department === department);
+          if (!alreadyPaid) {
+            const itemRateMatch = barcode.departmentRates.find(
+              (r) => r.department === department && r.item === barcode.item
+            );
+            const deptRateMatch = barcode.departmentRates.find(
+              (r) => r.department === department
+            );
+            const rate = itemRateMatch?.ratePerPiece ?? deptRateMatch?.ratePerPiece ?? fallbackRate;
+
+            try {
+              await prisma.barcodePayment.create({
+                data: {
+                  barcodeId: barcode.id,
+                  department,
+                  amount: rate,
+                  paidBy: paidBy || "Admin",
+                  paidAt: new Date(),
+                },
+              });
+              totalAmountPaid += rate;
+              countPaid++;
+            } catch {
+              // Already paid concurrently
+            }
           }
         }
       }

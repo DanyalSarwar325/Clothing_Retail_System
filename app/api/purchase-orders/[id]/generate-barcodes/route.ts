@@ -171,6 +171,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const createdBarcodes = await prisma.$transaction(async (tx) => {
       const created = [];
       for (const b of barcodesToInsert) {
+        const cuttingRateObj = rates.find((r) => r.department === "Cutting" && r.item === b.item);
+        const cuttingRate = cuttingRateObj?.ratePerPiece || 0;
+        const isCuttingAlreadyPaid = po.receivingLogs.some((l) =>
+          l.items.some((it) => it.item === b.item && it.size === b.size && it.isPaid)
+        );
+
         const newBarcode = await tx.barcode.create({
           data: {
             design: b.design,
@@ -206,6 +212,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 item: r.item,
               })),
             },
+            paidDepartments: isCuttingAlreadyPaid
+              ? {
+                  create: [
+                    {
+                      department: "Cutting",
+                      amount: cuttingRate,
+                      paidBy: "Admin",
+                      paidAt: new Date(),
+                    },
+                  ],
+                }
+              : undefined,
           },
         });
         created.push({ ...newBarcode, _id: newBarcode.id });

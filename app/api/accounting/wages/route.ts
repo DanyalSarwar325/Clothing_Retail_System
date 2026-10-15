@@ -14,31 +14,10 @@ export async function GET(request: NextRequest) {
       orderBy: { name: "asc" },
     });
 
-    const advanceAccount = await prisma.account.findFirst({
-      where: { accountRole: "workerAdvance" },
-    });
-
-    const advancesByParty: Record<string, number> = {};
-    if (advanceAccount) {
-      const advanceLines = await prisma.journalLine.findMany({
-        where: {
-          accountId: advanceAccount.id,
-          journalEntry: { status: "posted" },
-        },
-      });
-
-      for (const line of advanceLines) {
-        if (line.partyId) {
-          advancesByParty[line.partyId] =
-            (advancesByParty[line.partyId] || 0) + (line.debit - line.credit);
-        }
-      }
-    }
-
     const enrichedWorkers = workerParties.map((w) => ({
       ...w,
       _id: w.id,
-      advanceBalance: Math.max(0, advancesByParty[w.id] || 0),
+      advanceBalance: 0,
     }));
 
     let departmentData = null;
@@ -46,11 +25,11 @@ export async function GET(request: NextRequest) {
       try {
         const origin = request.nextUrl.origin;
         const res = await fetch(
-          `${origin}/api/payment/department?department=${encodeURIComponent(department)}`
+          `${origin}/api/payment/worker-pieces?department=${encodeURIComponent(department)}`
         );
         const data = await res.json();
         if (data.success) {
-          departmentData = data;
+          departmentData = data.data;
         }
       } catch (err) {
         console.error("Failed to fetch department payment data:", err);
@@ -84,10 +63,8 @@ export async function POST(request: NextRequest) {
       workerId,
       department,
       amount,
-      advanceDeduction,
       paidFromAccountId,
       paymentMode,
-      notes,
     } = body;
 
     let workerParty: any = null;
@@ -128,103 +105,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "give_advance") {
-      const advanceAmount = Number(amount);
-      if (!advanceAmount || advanceAmount <= 0) {
-        return NextResponse.json(
-          { success: false, error: "Valid advance amount required" },
-          { status: 400 }
-        );
-      }
-
-      let advanceAccount = await prisma.account.findFirst({
-        where: { accountRole: "workerAdvance", status: "active" },
-      });
-      if (!advanceAccount) {
-        advanceAccount = await prisma.account.findUnique({ where: { code: "AS-302" } });
-      }
-      if (!advanceAccount) {
-        throw new Error("Worker Advance asset account not found in Chart of Accounts.");
-      }
-
-      const voucherType: VoucherType = paymentMode === "cash" ? "CPV" : "BPV";
-      const voucherNumber = await generateSequenceNumber(voucherType);
-
-      const voucher = await prisma.$transaction(async (tx) => {
-        const newVoucher = await tx.voucher.create({
-          data: {
-            voucherNumber,
-            type: voucherType,
-            transactionDate: new Date(),
-            financialYearId: fy.id,
-            partyId: workerParty.id,
-            sourceType: "advance",
-            description: `Advance (Peshgi) given to ${workerParty.name}${notes ? ` - ${notes}` : ""}`,
-            totalAmount: advanceAmount,
-            paymentMode: paymentMode || "cash",
-            status: "posted",
-            createdById: session.id,
-            postedById: session.id,
-            postedAt: new Date(),
-          },
-        });
-
-        await tx.journalEntry.create({
-          data: {
-            voucherId: newVoucher.id,
-            financialYearId: fy.id,
-            transactionDate: new Date(),
-            description: `Advance of Rs. ${advanceAmount} given to ${workerParty.name}`,
-            totalDebit: advanceAmount,
-            totalCredit: advanceAmount,
-            status: "posted",
-            lines: {
-              create: [
-                {
-                  accountId: advanceAccount.id,
-                  partyId: workerParty.id,
-                  debit: advanceAmount,
-                  credit: 0,
-                  description: `Advance loan given to ${workerParty.name}`,
-                },
-                {
-                  accountId: paidFromAccount.id,
-                  partyId: workerParty.id,
-                  debit: 0,
-                  credit: advanceAmount,
-                  description: `Disbursed from ${paidFromAccount.title}`,
-                },
-              ],
-            },
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            userId: session.id,
-            userName: session.name,
-            action: "GIVE_WORKER_ADVANCE",
-            entityType: "Voucher",
-            entityId: newVoucher.id,
-            reason: `Disbursed Rs. ${advanceAmount} advance to ${workerParty.name}`,
-          },
-        });
-
-        return newVoucher;
-      });
-
-      return NextResponse.json({
-        success: true,
-        message: `Advance of Rs. ${advanceAmount} recorded for ${workerParty.name}.`,
-        voucher: { ...voucher, _id: voucher.id },
-      });
+      return NextResponse.json(
+        { success: false, error: "Worker advances (Peshgi) are disabled by policy." },
+        { status: 400 }
+      );
     }
 
     if (action === "pay_wages") {
-      const grossWage = Number(amount);
-      const deduction = Number(advanceDeduction || 0);
-      const netPayCash = grossWage - deduction;
+      const wageAmount = Number(amount);
 
-      if (grossWage <= 0 || netPayCash < 0) {
+      if (wageAmount <= 0) {
         return NextResponse.json({ success: false, error: "Invalid wage calculation" }, { status: 400 });
       }
 
@@ -241,10 +131,6 @@ export async function POST(request: NextRequest) {
         laborExpenseAccount = await prisma.account.findFirst({ where: { rootType: "directExpense" } });
       }
 
-      const advanceAccount = await prisma.account.findFirst({
-        where: { accountRole: "workerAdvance" },
-      });
-
       const voucherType: VoucherType = paymentMode === "cash" ? "CPV" : "BPV";
       const voucherNumber = await generateSequenceNumber(voucherType);
 
@@ -253,31 +139,18 @@ export async function POST(request: NextRequest) {
           {
             accountId: laborExpenseAccount!.id,
             partyId: workerParty.id,
-            debit: grossWage,
+            debit: wageAmount,
             credit: 0,
             description: `${department || "Factory"} piece wages for ${workerParty.name}`,
           },
-        ];
-
-        if (deduction > 0 && advanceAccount) {
-          journalLinesData.push({
-            accountId: advanceAccount.id,
-            partyId: workerParty.id,
-            debit: 0,
-            credit: deduction,
-            description: "Advance adjusted against wages",
-          });
-        }
-
-        if (netPayCash > 0) {
-          journalLinesData.push({
+          {
             accountId: paidFromAccount.id,
             partyId: workerParty.id,
             debit: 0,
-            credit: netPayCash,
-            description: `Net wages paid from ${paidFromAccount.title} (${paymentMode})`,
-          });
-        }
+            credit: wageAmount,
+            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})`,
+          },
+        ];
 
         const newVoucher = await tx.voucher.create({
           data: {
@@ -287,8 +160,8 @@ export async function POST(request: NextRequest) {
             financialYearId: fy.id,
             partyId: workerParty.id,
             sourceType: "wage",
-            description: `Wages payment to ${workerParty.name} (${department || "Production"})${deduction > 0 ? ` [Adv deducted: Rs. ${deduction}]` : ""}`,
-            totalAmount: netPayCash,
+            description: `Wages payment to ${workerParty.name} (${department || "Production"})`,
+            totalAmount: wageAmount,
             paymentMode: paymentMode || "cash",
             status: "posted",
             createdById: session.id,
@@ -302,15 +175,140 @@ export async function POST(request: NextRequest) {
             voucherId: newVoucher.id,
             financialYearId: fy.id,
             transactionDate: new Date(),
-            description: `Wages payout: Gross Rs. ${grossWage}, Net Rs. ${netPayCash} to ${workerParty.name}`,
-            totalDebit: grossWage,
-            totalCredit: grossWage,
+            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}`,
+            totalDebit: wageAmount,
+            totalCredit: wageAmount,
             status: "posted",
             lines: {
               create: journalLinesData,
             },
           },
         });
+
+        // Synchronize operational piece status to Paid
+        if (department === "Cutting") {
+          // 1. Mark PO receiving log items as paid for this cutting person
+          await tx.pOReceivingLogItem.updateMany({
+            where: {
+              isPaid: false,
+              receivingLog: {
+                cuttingPersonName: {
+                  equals: workerParty.name,
+                  mode: "insensitive",
+                },
+              },
+            },
+            data: {
+              isPaid: true,
+              paidAt: new Date(),
+              paidAmount: wageAmount,
+            },
+          });
+
+          // 2. Also mark any existing generated barcodes for this cutting person
+          const cuttingBarcodes = await tx.barcode.findMany({
+            where: {
+              departmentHistory: {
+                some: {
+                  department: "Cutting",
+                  scannedBy: {
+                    equals: workerParty.name,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              paidDepartments: {
+                none: { department: "Cutting" },
+              },
+            },
+            include: {
+              departmentRates: { where: { department: "Cutting" } },
+            },
+          });
+
+          for (const cb of cuttingBarcodes) {
+            const rate = cb.departmentRates[0]?.ratePerPiece || 0;
+            try {
+              await tx.barcodePayment.create({
+                data: {
+                  barcodeId: cb.id,
+                  department: "Cutting",
+                  amount: rate,
+                  paidBy: session.name || "Admin",
+                  paidAt: new Date(),
+                },
+              });
+            } catch {
+              // already paid
+            }
+          }
+        } else if (["Packing", "Store"].includes(department || "")) {
+          const unpaidStickers = await tx.finalSticker.findMany({
+            where: {
+              departmentHistory: {
+                some: {
+                  department,
+                  scannedBy: { equals: workerParty.name, mode: "insensitive" },
+                },
+              },
+              paidDepartments: {
+                none: { department },
+              },
+            },
+            include: {
+              departmentRates: { where: { department } },
+            },
+          });
+
+          for (const st of unpaidStickers) {
+            const rate = st.departmentRates[0]?.ratePerPiece || 0;
+            try {
+              await tx.finalStickerPayment.create({
+                data: {
+                  finalStickerId: st.id,
+                  department,
+                  amount: rate,
+                  paidBy: session.name || "Admin",
+                  paidAt: new Date(),
+                },
+              });
+            } catch {}
+          }
+        } else {
+          // Item-scanned departments (Sewing, Quality, Overlock, Clipping, Handmade, Adda Work, Patching, Press)
+          const unpaidBarcodes = await tx.barcode.findMany({
+            where: {
+              departmentHistory: {
+                some: {
+                  department,
+                  scannedBy: { equals: workerParty.name, mode: "insensitive" },
+                },
+              },
+              paidDepartments: {
+                none: { department },
+              },
+            },
+            include: {
+              departmentRates: { where: { department } },
+            },
+          });
+
+          for (const ub of unpaidBarcodes) {
+            const itemMatch = ub.departmentRates.find((r) => r.item === ub.item);
+            const rate = itemMatch?.ratePerPiece ?? ub.departmentRates[0]?.ratePerPiece ?? 0;
+            try {
+              await tx.barcodePayment.create({
+                data: {
+                  barcodeId: ub.id,
+                  department,
+                  amount: rate,
+                  paidBy: session.name || "Admin",
+                  paidAt: new Date(),
+                },
+              });
+            } catch {}
+          }
+        }
 
         await tx.auditLog.create({
           data: {
@@ -319,7 +317,7 @@ export async function POST(request: NextRequest) {
             action: "PAY_WORKER_WAGES",
             entityType: "Voucher",
             entityId: newVoucher.id,
-            reason: `Paid wages to ${workerParty.name}: Gross Rs. ${grossWage}, Net Rs. ${netPayCash}`,
+            reason: `Paid wages to ${workerParty.name}: Rs. ${wageAmount} (${department})`,
           },
         });
 
@@ -328,7 +326,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Wages of Rs. ${netPayCash} recorded for ${workerParty.name} (Gross: Rs. ${grossWage}).`,
+        message: `Wages of Rs. ${wageAmount.toLocaleString()} recorded and voucher posted for ${workerParty.name}.`,
         voucher: { ...voucher, _id: voucher.id },
       });
     }

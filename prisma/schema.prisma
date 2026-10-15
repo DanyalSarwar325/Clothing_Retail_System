@@ -143,6 +143,9 @@ model POReceivingLogItem {
   size           String         // S, M, L
   item           String         // Qameez, Shalwar, Dupatta
   quantity       Int
+  isPaid         Boolean        @default(false)
+  paidAt         DateTime?
+  paidAmount     Float?
   receivingLog   POReceivingLog @relation(fields: [receivingLogId], references: [id], onDelete: Cascade)
 }
 
