@@ -65,7 +65,11 @@ export async function POST(request: NextRequest) {
       amount,
       paidFromAccountId,
       paymentMode,
+      reference,
+      referenceNumber,
     } = body;
+
+    const ref = (reference || referenceNumber || "").trim() || null;
 
     let workerParty: any = null;
     if (workerId) {
@@ -162,20 +166,21 @@ export async function POST(request: NextRequest) {
       const voucherNumber = await generateSequenceNumber(voucherType);
 
       const voucher = await prisma.$transaction(async (tx) => {
+        const refText = ref ? ` (Ref: ${ref})` : "";
         const journalLinesData = [
           {
             accountId: laborExpenseAccount!.id,
             partyId: workerParty.id,
             debit: wageAmount,
             credit: 0,
-            description: `${department || "Factory"} piece wages for ${workerParty.name}`,
+            description: `${department || "Factory"} piece wages for ${workerParty.name}${refText}`,
           },
           {
             accountId: paidFromAccount.id,
             partyId: workerParty.id,
             debit: 0,
             credit: wageAmount,
-            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})`,
+            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${refText}`,
           },
         ];
 
@@ -187,9 +192,10 @@ export async function POST(request: NextRequest) {
             financialYearId: fy.id,
             partyId: workerParty.id,
             sourceType: "wage",
-            description: `Wages payment to ${workerParty.name} (${department || "Production"})`,
+            description: `Wages payment to ${workerParty.name} (${department || "Production"})${refText}`,
             totalAmount: wageAmount,
             paymentMode: paymentMode || "cash",
+            referenceNumber: ref,
             status: "posted",
             createdById: session.id,
             postedById: session.id,
@@ -202,7 +208,7 @@ export async function POST(request: NextRequest) {
             voucherId: newVoucher.id,
             financialYearId: fy.id,
             transactionDate: new Date(),
-            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}`,
+            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${refText}`,
             totalDebit: wageAmount,
             totalCredit: wageAmount,
             status: "posted",

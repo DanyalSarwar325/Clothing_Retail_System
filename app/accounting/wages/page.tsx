@@ -53,7 +53,8 @@ export default function WorkerWagesPage() {
   const [selectedWorkerToPay, setSelectedWorkerToPay] = useState<any>(null);
   const [payGrossAmount, setPayGrossAmount] = useState<number>(0);
   const [payFromAccountId, setPayFromAccountId] = useState("");
-  const [payMode, setPayMode] = useState<"cash" | "bank">("cash");
+  const [payMode, setPayMode] = useState<"cash" | "bank" | "cheque">("cash");
+  const [reference, setReference] = useState("");
   const [submittingPay, setSubmittingPay] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -100,6 +101,7 @@ export default function WorkerWagesPage() {
     const gross = worker.pendingAmount ?? worker.netPendingAmount ?? 0;
     setSelectedWorkerToPay(worker);
     setPayGrossAmount(gross);
+    setReference("");
     setShowPayModal(true);
   };
 
@@ -123,6 +125,7 @@ export default function WorkerWagesPage() {
           amount: payGrossAmount,
           paidFromAccountId: payFromAccountId,
           paymentMode: payMode,
+          reference: reference.trim() || undefined,
         }),
       });
 
@@ -394,7 +397,7 @@ export default function WorkerWagesPage() {
                 </div>
 
                 <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-extrabold">
-                  <span className="text-slate-900">Net Cash Handed to Worker:</span>
+                  <span className="text-slate-900">Net Amount Paid to Worker:</span>
                   <span className="text-emerald-700 text-base">{formatPKR(payGrossAmount)}</span>
                 </div>
               </div>
@@ -428,8 +431,29 @@ export default function WorkerWagesPage() {
                   >
                     <option value="cash">Cash in Hand</option>
                     <option value="bank">Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">
+                  Reference / Cheque No.{" "}
+                  <span className="text-slate-400 font-normal lowercase">(optional - leave empty if cash)</span>
+                </label>
+                <input
+                  type="text"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder={
+                    payMode === "cheque"
+                      ? "Enter Cheque Number (e.g. CHQ-98421)"
+                      : payMode === "bank"
+                      ? "e.g. Transaction Ref / Cheque No."
+                      : "Leave empty if paid by cash (optional)"
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none placeholder:text-slate-400"
+                />
               </div>
 
               <p className="text-[11px] text-slate-400 italic">
