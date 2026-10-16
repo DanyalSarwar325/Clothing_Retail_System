@@ -107,21 +107,34 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE - Delete barcodes by design name
+// DELETE - Delete barcodes by design name or specific barcode IDs
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const design = searchParams.get("design");
+    const idsParam = searchParams.get("ids");
 
-    if (!design) {
+    let where: any = {};
+    if (idsParam) {
+      const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) {
+        return NextResponse.json(
+          { success: false, message: "No valid barcode IDs provided" },
+          { status: 400 }
+        );
+      }
+      where = { id: { in: ids } };
+    } else if (design) {
+      where = { design };
+    } else {
       return NextResponse.json(
-        { success: false, message: "Design name is required" },
+        { success: false, message: "Design name or barcode IDs are required" },
         { status: 400 }
       );
     }
 
     const result = await prisma.barcode.deleteMany({
-      where: { design },
+      where,
     });
 
     return NextResponse.json({

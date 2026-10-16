@@ -12,6 +12,7 @@ interface BarcodeWithQR {
   unitNumber: number;
   sequenceNumber?: number;
   totalUnitsInBatch?: number;
+  poNumber?: string;
   qr: string;
 }
 
@@ -91,7 +92,9 @@ export default function PrintPreviewPage() {
         {barcodes.map((barcode, index) => (
           <div key={barcode._id || index} className="barcode-card border-b-2 border-dashed border-gray-400 pb-2 mb-2 pt-2 text-center bg-white">
             <div className="barcode-info text-center mb-0.5">
-              <p className="barcode-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]">{barcode.design}</p>
+              <p className="barcode-design text-[8px] font-bold text-gray-800 truncate max-w-[28mm]">
+                {barcode.poNumber ? `${barcode.poNumber} • ` : ""}{barcode.design}
+              </p>
               <p className="text-[7px] text-gray-600">
                 {barcode.item} | {barcode.size}
               </p>

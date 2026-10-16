@@ -208,16 +208,37 @@ export default function PurchaseOrdersPage() {
   const openBarcodeModal = (po: PurchaseOrder, defaultSize?: "S" | "M" | "L", defaultItem?: "Qameez" | "Shalwar" | "Dupatta") => {
     setSelectedPO(po);
     setBarcodeSuccessMessage("");
-    const size = defaultSize || "S";
-    const item = defaultItem || "Qameez";
-    setBarcodeSize(size);
-    setBarcodeItem(item);
-    
-    // Calculate initial available
-    const rec = po.receivedQuantities[size]?.[item] || 0;
-    const bar = po.barcodedQuantities[size]?.[item] || 0;
-    const avail = Math.max(0, rec - bar);
-    setBarcodeQuantity(avail > 0 ? avail : 0);
+
+    // Auto-detect first size & item that actually has received cut pieces available to barcode
+    let initialSize: "S" | "M" | "L" = defaultSize || "S";
+    let initialItem: "Qameez" | "Shalwar" | "Dupatta" = defaultItem || "Qameez";
+    let initialAvail = 0;
+
+    if (!defaultSize && !defaultItem) {
+      let found = false;
+      for (const s of SIZES) {
+        for (const it of ITEMS) {
+          const rec = po.receivedQuantities?.[s]?.[it] || 0;
+          const bar = po.barcodedQuantities?.[s]?.[it] || 0;
+          if (rec - bar > 0) {
+            initialSize = s;
+            initialItem = it;
+            initialAvail = rec - bar;
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+    } else {
+      const rec = po.receivedQuantities?.[initialSize]?.[initialItem] || 0;
+      const bar = po.barcodedQuantities?.[initialSize]?.[initialItem] || 0;
+      initialAvail = Math.max(0, rec - bar);
+    }
+
+    setBarcodeSize(initialSize);
+    setBarcodeItem(initialItem);
+    setBarcodeQuantity(initialAvail > 0 ? initialAvail : 0);
     setShowBarcodeModal(true);
   };
 
@@ -261,7 +282,8 @@ export default function PurchaseOrdersPage() {
 
     setSubmittingReceive(true);
     try {
-      const res = await fetch(`/api/purchase-orders/${selectedPO._id}/receive`, {
+      const poId = selectedPO._id || (selectedPO as any).id;
+      const res = await fetch(`/api/purchase-orders/${poId}/receive`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -292,8 +314,8 @@ export default function PurchaseOrdersPage() {
     e.preventDefault();
     if (!selectedPO) return;
 
-    const received = selectedPO.receivedQuantities[barcodeSize]?.[barcodeItem] || 0;
-    const barcoded = selectedPO.barcodedQuantities[barcodeSize]?.[barcodeItem] || 0;
+    const received = selectedPO.receivedQuantities?.[barcodeSize]?.[barcodeItem] || 0;
+    const barcoded = selectedPO.barcodedQuantities?.[barcodeSize]?.[barcodeItem] || 0;
     const available = Math.max(0, received - barcoded);
 
     if (barcodeQuantity <= 0) {
@@ -310,7 +332,8 @@ export default function PurchaseOrdersPage() {
 
     setSubmittingBarcode(true);
     try {
-      const res = await fetch(`/api/purchase-orders/${selectedPO._id}/generate-barcodes`, {
+      const poId = selectedPO._id || (selectedPO as any).id;
+      const res = await fetch(`/api/purchase-orders/${poId}/generate-barcodes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -329,9 +352,9 @@ export default function PurchaseOrdersPage() {
       } else {
         toast.error(data.message || "Failed to generate barcodes");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Failed to generate barcodes");
+      toast.error(err?.message || "Failed to generate barcodes");
     } finally {
       setSubmittingBarcode(false);
     }
@@ -340,8 +363,8 @@ export default function PurchaseOrdersPage() {
   // Calculate current available for selected barcode size & item
   const currentAvailableForBarcode = useMemo(() => {
     if (!selectedPO) return 0;
-    const rec = selectedPO.receivedQuantities[barcodeSize]?.[barcodeItem] || 0;
-    const bar = selectedPO.barcodedQuantities[barcodeSize]?.[barcodeItem] || 0;
+    const rec = selectedPO.receivedQuantities?.[barcodeSize]?.[barcodeItem] || 0;
+    const bar = selectedPO.barcodedQuantities?.[barcodeSize]?.[barcodeItem] || 0;
     return Math.max(0, rec - bar);
   }, [selectedPO, barcodeSize, barcodeItem]);
 
@@ -922,8 +945,8 @@ export default function PurchaseOrdersPage() {
                         onChange={(e) => {
                           const item = e.target.value as "Qameez" | "Shalwar" | "Dupatta";
                           setBarcodeItem(item);
-                          const rec = selectedPO.receivedQuantities[barcodeSize]?.[item] || 0;
-                          const bar = selectedPO.barcodedQuantities[barcodeSize]?.[item] || 0;
+                          const rec = selectedPO.receivedQuantities?.[barcodeSize]?.[item] || 0;
+                          const bar = selectedPO.barcodedQuantities?.[barcodeSize]?.[item] || 0;
                           setBarcodeQuantity(Math.max(0, rec - bar));
                         }}
                         className="w-full border rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 bg-white"
@@ -945,8 +968,8 @@ export default function PurchaseOrdersPage() {
                         onChange={(e) => {
                           const size = e.target.value as "S" | "M" | "L";
                           setBarcodeSize(size);
-                          const rec = selectedPO.receivedQuantities[size]?.[barcodeItem] || 0;
-                          const bar = selectedPO.barcodedQuantities[size]?.[barcodeItem] || 0;
+                          const rec = selectedPO.receivedQuantities?.[size]?.[barcodeItem] || 0;
+                          const bar = selectedPO.barcodedQuantities?.[size]?.[barcodeItem] || 0;
                           setBarcodeQuantity(Math.max(0, rec - bar));
                         }}
                         className="w-full border rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 bg-white"
@@ -965,13 +988,13 @@ export default function PurchaseOrdersPage() {
                     <div className="flex justify-between text-gray-600">
                       <span>Received from Cutting Master:</span>
                       <strong className="text-gray-900">
-                        {selectedPO.receivedQuantities[barcodeSize]?.[barcodeItem] || 0} pcs
+                        {selectedPO.receivedQuantities?.[barcodeSize]?.[barcodeItem] || 0} pcs
                       </strong>
                     </div>
                     <div className="flex justify-between text-gray-600">
                       <span>Already Barcoded:</span>
                       <strong className="text-gray-900">
-                        {selectedPO.barcodedQuantities[barcodeSize]?.[barcodeItem] || 0} pcs
+                        {selectedPO.barcodedQuantities?.[barcodeSize]?.[barcodeItem] || 0} pcs
                       </strong>
                     </div>
                     <div className="flex justify-between text-emerald-700 font-bold pt-1 border-t border-gray-200">

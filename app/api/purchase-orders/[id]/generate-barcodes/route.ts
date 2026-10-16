@@ -167,78 +167,106 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const newStatus = anyPlanned && allPlannedMet ? "Completed" : "In Progress";
 
-    // Perform database operations in a transaction
-    const createdBarcodes = await prisma.$transaction(async (tx) => {
-      const created = [];
-      for (const b of barcodesToInsert) {
-        const cuttingRateObj = rates.find((r) => r.department === "Cutting" && r.item === b.item);
-        const cuttingRate = cuttingRateObj?.ratePerPiece || 0;
-        const isCuttingAlreadyPaid = po.receivingLogs.some((l) =>
-          l.items.some((it) => it.item === b.item && it.size === b.size && it.isPaid)
-        );
+    // Perform database operations in a transaction with extended timeout for remote DB
+    const createdBarcodes = await prisma.$transaction(
+      async (tx) => {
+        const created: any[] = [];
+        const allScans: any[] = [];
+        const allRates: any[] = [];
+        const allPayments: any[] = [];
 
-        const newBarcode = await tx.barcode.create({
+        for (const b of barcodesToInsert) {
+          const cuttingRateObj = rates.find((r) => r.department === "Cutting" && r.item === b.item);
+          const cuttingRate = cuttingRateObj?.ratePerPiece || 0;
+          const isCuttingAlreadyPaid = po.receivingLogs.some((l) =>
+            l.items.some((it) => it.item === b.item && it.size === b.size && it.isPaid)
+          );
+
+          // 1. Create the Barcode record
+          const newBarcode = await tx.barcode.create({
+            data: {
+              design: b.design,
+              size: b.size,
+              suitType: b.suitType,
+              item: b.item,
+              unitNumber: b.unitNumber,
+              sequenceNumber: b.sequenceNumber,
+              totalUnitsInBatch: b.totalUnitsInBatch,
+              barcodeData: b.barcodeData,
+              status: b.status,
+              currentDepartment: b.currentDepartment,
+              poId: b.poId,
+              poNumber: b.poNumber,
+            },
+          });
+
+          // 2. Prepare Scan history
+          allScans.push(
+            {
+              barcodeId: newBarcode.id,
+              department: "Cutting",
+              scannedAt: new Date(),
+              scannedBy: b.cuttingPerson,
+            },
+            {
+              barcodeId: newBarcode.id,
+              department: "Admin",
+              scannedAt: new Date(),
+              scannedBy: "Admin",
+            }
+          );
+
+          // 3. Prepare Department Rates
+          for (const r of rates) {
+            allRates.push({
+              barcodeId: newBarcode.id,
+              department: r.department,
+              ratePerPiece: r.ratePerPiece,
+              item: r.item,
+            });
+          }
+
+          // 4. Prepare Paid Department if cutting was already paid
+          if (isCuttingAlreadyPaid) {
+            allPayments.push({
+              barcodeId: newBarcode.id,
+              department: "Cutting",
+              amount: cuttingRate,
+              paidBy: "Admin",
+              paidAt: new Date(),
+            });
+          }
+
+          created.push({ ...newBarcode, _id: newBarcode.id });
+        }
+
+        // Batch insert child relations in bulk (fast & eliminates FK race conditions)
+        if (allScans.length > 0) {
+          await tx.barcodeScan.createMany({ data: allScans });
+        }
+        if (allRates.length > 0) {
+          await tx.barcodeDesignRate.createMany({ data: allRates });
+        }
+        if (allPayments.length > 0) {
+          await tx.barcodePayment.createMany({ data: allPayments });
+        }
+
+        // Update PO barcoded quantities & status
+        await tx.purchaseOrder.update({
+          where: { id: po.id },
           data: {
-            design: b.design,
-            size: b.size,
-            suitType: b.suitType,
-            item: b.item,
-            unitNumber: b.unitNumber,
-            sequenceNumber: b.sequenceNumber,
-            totalUnitsInBatch: b.totalUnitsInBatch,
-            barcodeData: b.barcodeData,
-            status: b.status,
-            currentDepartment: b.currentDepartment,
-            poId: b.poId,
-            poNumber: b.poNumber,
-            departmentHistory: {
-              create: [
-                {
-                  department: "Cutting",
-                  scannedAt: new Date(),
-                  scannedBy: b.cuttingPerson,
-                },
-                {
-                  department: "Admin",
-                  scannedAt: new Date(),
-                  scannedBy: "Admin",
-                },
-              ],
-            },
-            departmentRates: {
-              create: rates.map((r) => ({
-                department: r.department,
-                ratePerPiece: r.ratePerPiece,
-                item: r.item,
-              })),
-            },
-            paidDepartments: isCuttingAlreadyPaid
-              ? {
-                  create: [
-                    {
-                      department: "Cutting",
-                      amount: cuttingRate,
-                      paidBy: "Admin",
-                      paidAt: new Date(),
-                    },
-                  ],
-                }
-              : undefined,
+            barcodedQuantities,
+            status: newStatus,
           },
         });
-        created.push({ ...newBarcode, _id: newBarcode.id });
+
+        return created;
+      },
+      {
+        maxWait: 15000,
+        timeout: 60000,
       }
-
-      await tx.purchaseOrder.update({
-        where: { id: po.id },
-        data: {
-          barcodedQuantities,
-          status: newStatus,
-        },
-      });
-
-      return created;
-    });
+    );
 
     const updatedPo = await prisma.purchaseOrder.findUnique({
       where: { id: po.id },
