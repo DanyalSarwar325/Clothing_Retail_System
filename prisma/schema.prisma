@@ -133,6 +133,8 @@ model POReceivingLog {
   receivedBy        String                 @default("Admin")
   cuttingPersonName String?
   notes             String?
+  voucherNumber     String?
+  paymentMode       String?
   po                PurchaseOrder          @relation(fields: [poId], references: [id], onDelete: Cascade)
   items             POReceivingLogItem[]
 }
@@ -146,6 +148,8 @@ model POReceivingLogItem {
   isPaid         Boolean        @default(false)
   paidAt         DateTime?
   paidAmount     Float?
+  voucherNumber  String?
+  paymentMode    String?
   receivingLog   POReceivingLog @relation(fields: [receivingLogId], references: [id], onDelete: Cascade)
 }
 

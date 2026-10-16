@@ -321,6 +321,18 @@ export async function POST(request: NextRequest) {
                   isPaid: true,
                   paidAt: new Date(),
                   paidAmount: wageAmount,
+                  voucherNumber: voucher.voucherNumber,
+                  paymentMode: paymentMode || "cash",
+                },
+              });
+
+              await tx.pOReceivingLog.updateMany({
+                where: {
+                  id: { in: logIds },
+                },
+                data: {
+                  voucherNumber: voucher.voucherNumber,
+                  paymentMode: paymentMode || "cash",
                 },
               });
             } catch (err: any) {
@@ -328,8 +340,13 @@ export async function POST(request: NextRequest) {
               for (const lid of logIds) {
                 await tx.$executeRaw`
                   UPDATE "POReceivingLogItem"
-                  SET "isPaid" = true, "paidAt" = NOW(), "paidAmount" = ${wageAmount}
+                  SET "isPaid" = true, "paidAt" = NOW(), "paidAmount" = ${wageAmount}, "voucherNumber" = ${voucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
                   WHERE "receivingLogId" = ${lid} AND "isPaid" = false
+                `;
+                await tx.$executeRaw`
+                  UPDATE "POReceivingLog"
+                  SET "voucherNumber" = ${voucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
+                  WHERE "id" = ${lid}
                 `;
               }
             }

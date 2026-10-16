@@ -27,17 +27,35 @@ interface SizeQuantities {
   L: ItemQuantity;
 }
 
+interface ReceivingLogItem {
+  _id?: string;
+  size: "S" | "M" | "L";
+  item: "Qameez" | "Shalwar" | "Dupatta";
+  quantity: number;
+  rate?: number;
+  totalEarned?: number;
+  isPaid?: boolean;
+  paidAt?: string;
+  paidAmount?: number;
+  voucherNumber?: string;
+  paymentMode?: string;
+}
+
 interface ReceivingLog {
   _id?: string;
   receivedAt: string;
   receivedBy: string;
   cuttingPersonName?: string;
   notes?: string;
-  items: Array<{
-    size: "S" | "M" | "L";
-    item: "Qameez" | "Shalwar" | "Dupatta";
-    quantity: number;
-  }>;
+  items: ReceivingLogItem[];
+  batchPiecesCount?: number;
+  batchTotalAmount?: number;
+  batchPaidAmount?: number;
+  batchPendingAmount?: number;
+  paymentStatus?: "Paid" | "Partial" | "Pending";
+  voucherNumber?: string;
+  paymentMode?: string;
+  paidAt?: string;
 }
 
 interface PurchaseOrder {
@@ -55,6 +73,11 @@ interface PurchaseOrder {
   totalReceived: number;
   totalBarcoded: number;
   availableToBarcode: number;
+  totalCuttingCost?: number;
+  totalCuttingPaid?: number;
+  totalCuttingPending?: number;
+  cuttingPaymentStatus?: "Paid" | "Partial" | "Pending";
+  defaultCuttingRate?: number;
 }
 
 const SIZES = ["S", "M", "L"] as const;
@@ -211,9 +234,9 @@ export default function POReceiptsPage() {
                 </div>
               </div>
 
-              {/* Formal High-level Summary (Clean Monochrome Table Row) */}
+              {/* Formal High-level Quantity & Financial Summary */}
               <div className="border border-black mb-6 bg-white">
-                <div className="grid grid-cols-3 divide-x divide-black text-center text-xs py-2">
+                <div className="grid grid-cols-3 divide-x divide-black text-center text-xs py-2 border-b border-black">
                   <div>
                     <span className="block text-[10px] uppercase font-bold text-gray-600">Total Planned</span>
                     <strong className="text-base font-bold text-black">{selectedPO.totalPlanned} pcs</strong>
@@ -227,6 +250,32 @@ export default function POReceiptsPage() {
                     <strong className="text-base font-bold text-black">
                       {Math.max(0, selectedPO.totalPlanned - selectedPO.totalReceived)} pcs
                     </strong>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 divide-x divide-black text-center text-xs py-2 bg-gray-50/70">
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-gray-600">Total Received Labor Cost</span>
+                    <strong className="text-sm font-bold text-black">
+                      ₨{(selectedPO.totalCuttingCost ?? 0).toLocaleString()}
+                    </strong>
+                    <span className="block text-[9px] text-gray-500 font-medium">Rate: ₨{selectedPO.defaultCuttingRate ?? 5}/pc</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-gray-600">Cutting Wages Paid</span>
+                    <strong className="text-sm font-bold text-black">
+                      ₨{(selectedPO.totalCuttingPaid ?? 0).toLocaleString()}
+                    </strong>
+                    <span className="block text-[9px] text-gray-600 font-medium">Settled via Accounting</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-gray-600">Wage Balance Due</span>
+                    <strong className={`text-sm font-bold ${(selectedPO.totalCuttingPending ?? 0) > 0 ? "text-black underline" : "text-black"}`}>
+                      ₨{(selectedPO.totalCuttingPending ?? 0).toLocaleString()}
+                    </strong>
+                    <span className="block text-[9px] font-bold uppercase text-black">
+                      {selectedPO.cuttingPaymentStatus || "Pending"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -292,45 +341,55 @@ export default function POReceiptsPage() {
                 </table>
               </div>
 
-              {/* Formal Master Delivery Log Schedule */}
+              {/* Formal Master Delivery Log Schedule & Wage Payment Audit */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-1.5">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-black">
-                    2. Cutting Master Handover Schedule (Delivery Batches)
+                    2. Cutting Master Handover Schedule & Wage Payment Audit
                   </h3>
-                  <span className="text-[10px] text-gray-600">Audit Trail</span>
+                  <span className="text-[10px] text-gray-600">Audit Trail & Payment Vouchers</span>
                 </div>
 
                 {selectedPO.receivingLogs && selectedPO.receivingLogs.length > 0 ? (
                   <table className="w-full text-xs text-left border-collapse border border-black">
                     <thead>
                       <tr className="border-b border-black bg-gray-100/80 text-black font-bold">
-                        <th className="py-2 px-2.5 border-r border-black w-14 text-center">Batch</th>
-                        <th className="py-2 px-2.5 border-r border-black w-28">Date</th>
-                        <th className="py-2 px-2.5 border-r border-black w-32">Cutting Master</th>
-                        <th className="py-2 px-2.5 border-r border-black">Delivered Items Breakdown</th>
-                        <th className="py-2 px-2.5 border-r border-black w-32">Remarks</th>
-                        <th className="py-2 px-2.5 text-right font-bold w-20">Qty (pcs)</th>
+                        <th className="py-2 px-2 border-r border-black w-10 text-center">Batch</th>
+                        <th className="py-2 px-2 border-r border-black w-24">Date</th>
+                        <th className="py-2 px-2 border-r border-black w-28">Cutting Master</th>
+                        <th className="py-2 px-2 border-r border-black">Delivered Items Breakdown</th>
+                        <th className="py-2 px-2 text-center font-bold border-r border-black w-14">Qty</th>
+                        <th className="py-2 px-2 text-right border-r border-black w-20">Batch Value</th>
+                        <th className="py-2 px-2 text-right border-r border-black w-20">Paid</th>
+                        <th className="py-2 px-2 text-left w-36">Payment Status & Ref</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-black">
                       {selectedPO.receivingLogs.map((log, idx) => {
-                        const batchTotal = log.items.reduce((sum, it) => sum + it.quantity, 0);
+                        const batchQty = log.batchPiecesCount ?? log.items.reduce((sum, it) => sum + it.quantity, 0);
+                        const rate = selectedPO.defaultCuttingRate ?? 5;
+                        const batchAmount = log.batchTotalAmount ?? (batchQty * rate);
+                        const batchPaid = log.batchPaidAmount ?? (log.items.some(it => it.isPaid) ? batchAmount : 0);
+                        const batchPending = log.batchPendingAmount ?? Math.max(0, batchAmount - batchPaid);
+                        const isPaid = batchPending === 0 && batchQty > 0;
+                        const isPartial = batchPaid > 0 && batchPending > 0;
+                        const voucher = log.voucherNumber || log.items?.find(it => it.voucherNumber)?.voucherNumber;
+                        const mode = log.paymentMode || log.items?.find(it => it.paymentMode)?.paymentMode || "Bank";
 
                         return (
                           <tr key={idx}>
-                            <td className="py-2 px-2.5 text-center font-bold border-r border-black">#{idx + 1}</td>
-                            <td className="py-2 px-2.5 text-gray-800 border-r border-black">
+                            <td className="py-2 px-2 text-center font-bold border-r border-black">#{idx + 1}</td>
+                            <td className="py-2 px-2 text-gray-800 border-r border-black">
                               {new Date(log.receivedAt).toLocaleDateString("en-GB", {
                                 day: "2-digit",
                                 month: "short",
                                 year: "numeric",
                               })}
                             </td>
-                            <td className="py-2 px-2.5 font-medium border-r border-black">
+                            <td className="py-2 px-2 font-medium border-r border-black">
                               {log.cuttingPersonName || "Cutting Master"}
                             </td>
-                            <td className="py-2 px-2.5 border-r border-black">
+                            <td className="py-2 px-2 border-r border-black">
                               {log.items.map((it, i) => (
                                 <span key={i} className="inline-block mr-2 text-[11px]">
                                   {it.item} ({it.size}): <strong>{it.quantity}</strong>
@@ -338,16 +397,66 @@ export default function POReceiptsPage() {
                                 </span>
                               ))}
                             </td>
-                            <td className="py-2 px-2.5 text-gray-600 italic border-r border-black">
-                              {log.notes || "—"}
+                            <td className="py-2 px-2 text-center font-bold text-black border-r border-black">
+                              +{batchQty}
                             </td>
-                            <td className="py-2 px-2.5 text-right font-bold text-black">
-                              +{batchTotal}
+                            <td className="py-2 px-2 text-right font-medium text-black border-r border-black">
+                              ₨{batchAmount.toLocaleString()}
+                            </td>
+                            <td className="py-2 px-2 text-right font-bold text-black border-r border-black">
+                              ₨{batchPaid.toLocaleString()}
+                            </td>
+                            <td className="py-2 px-2">
+                              {isPaid ? (
+                                <div>
+                                  <span className="font-bold uppercase text-[10px] text-black">✓ PAID</span>
+                                  <span className="block text-[9px] text-gray-600 font-mono">
+                                    {voucher ? `${voucher} (${mode})` : "Settled (Accounting)"}
+                                  </span>
+                                </div>
+                              ) : isPartial ? (
+                                <div>
+                                  <span className="font-bold uppercase text-[10px] text-black">PARTIAL</span>
+                                  <span className="block text-[9px] text-gray-600">
+                                    Due: ₨{batchPending.toLocaleString()}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <span className="font-bold text-[10px] text-black uppercase">⏳ DUE</span>
+                                  <span className="block text-[9px] text-gray-600">
+                                    ₨{batchAmount.toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-black font-bold bg-gray-100/80 text-black">
+                        <td colSpan={4} className="py-2 px-2 text-right border-r border-black">
+                          TOTALS:
+                        </td>
+                        <td className="py-2 px-2 text-center border-r border-black font-extrabold">
+                          {selectedPO.totalReceived} pcs
+                        </td>
+                        <td className="py-2 px-2 text-right border-r border-black">
+                          ₨{(selectedPO.totalCuttingCost ?? 0).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-2 text-right border-r border-black font-extrabold">
+                          ₨{(selectedPO.totalCuttingPaid ?? 0).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-2 text-left font-bold">
+                          {(selectedPO.totalCuttingPending ?? 0) > 0 ? (
+                            <span>Due: ₨{(selectedPO.totalCuttingPending ?? 0).toLocaleString()}</span>
+                          ) : (
+                            <span>Fully Settled</span>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 ) : (
                   <div className="p-3 border border-black text-center text-xs text-gray-500 italic">
@@ -360,8 +469,7 @@ export default function POReceiptsPage() {
               <div className="border border-black p-3 mb-8 text-[11px] leading-relaxed text-black">
                 <span className="font-bold block uppercase mb-0.5">Formal Undertaking / Certification:</span>
                 Certified that the cut pieces listed in this Goods Receiving Note have been physically delivered by the
-                cutting department, inspected for quality, and verified in Mughliaz inventory. Only received pieces
-                are approved for barcode generation and stitch issuance.
+                cutting department, inspected for quality, and verified in Mughliaz inventory. Labor earnings and verified payment vouchers are synchronized with the accounting General Ledger.
               </div>
 
               {/* Formal Sign-off Blocks (3 Columns with Clear Ink Signature Lines) */}
@@ -479,6 +587,7 @@ export default function POReceiptsPage() {
                       <th className="py-3 px-4 text-center">Planned</th>
                       <th className="py-3 px-4 text-center">Received</th>
                       <th className="py-3 px-4 text-center">Balance</th>
+                      <th className="py-3 px-4 text-center">Cutting Wages</th>
                       <th className="py-3 px-4 text-center">Status</th>
                       <th className="py-3 px-4 text-right">Action</th>
                     </tr>
@@ -508,6 +617,19 @@ export default function POReceiptsPage() {
                             {balance} pcs
                           </td>
                           <td className="py-3.5 px-4 text-center">
+                            {po.totalReceived === 0 ? (
+                              <span className="text-gray-400">—</span>
+                            ) : (po.totalCuttingPending || 0) === 0 ? (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded text-[11px] font-bold">
+                                ✓ Paid (₨{po.totalCuttingPaid || 0})
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 rounded text-[11px] font-bold">
+                                Due: ₨{po.totalCuttingPending || 0}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
                             <span className="px-2 py-0.5 border border-gray-400 rounded text-[11px] font-bold uppercase text-black">
                               {po.status}
                             </span>
@@ -516,7 +638,7 @@ export default function POReceiptsPage() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => setSelectedPO(po)}
-                                className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white rounded text-xs font-medium transition flex items-center gap-1.5"
+                                className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white rounded text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
                               >
                                 <Receipt size={13} />
                                 View Receipt

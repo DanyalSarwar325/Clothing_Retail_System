@@ -45,17 +45,35 @@ interface PODepartmentRate {
   item?: "Qameez" | "Shalwar" | "Dupatta";
 }
 
+interface ReceivingLogItem {
+  _id?: string;
+  size: "S" | "M" | "L";
+  item: "Qameez" | "Shalwar" | "Dupatta";
+  quantity: number;
+  rate?: number;
+  totalEarned?: number;
+  isPaid?: boolean;
+  paidAt?: string;
+  paidAmount?: number;
+  voucherNumber?: string;
+  paymentMode?: string;
+}
+
 interface ReceivingLog {
   _id?: string;
   receivedAt: string;
   receivedBy: string;
   cuttingPersonName?: string;
   notes?: string;
-  items: Array<{
-    size: "S" | "M" | "L";
-    item: "Qameez" | "Shalwar" | "Dupatta";
-    quantity: number;
-  }>;
+  items: ReceivingLogItem[];
+  batchPiecesCount?: number;
+  batchTotalAmount?: number;
+  batchPaidAmount?: number;
+  batchPendingAmount?: number;
+  paymentStatus?: "Paid" | "Partial" | "Pending";
+  voucherNumber?: string;
+  paymentMode?: string;
+  paidAt?: string;
 }
 
 interface PurchaseOrder {
@@ -74,6 +92,11 @@ interface PurchaseOrder {
   totalReceived: number;
   totalBarcoded: number;
   availableToBarcode: number;
+  totalCuttingCost?: number;
+  totalCuttingPaid?: number;
+  totalCuttingPending?: number;
+  cuttingPaymentStatus?: "Paid" | "Partial" | "Pending";
+  defaultCuttingRate?: number;
 }
 
 const SIZES = ["S", "M", "L"] as const;
@@ -1161,33 +1184,86 @@ export default function PurchaseOrdersPage() {
 
               {/* Receiving Logs */}
               <div>
-                <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wider flex items-center gap-1.5">
-                  <History size={16} /> Cut Pieces Delivery History (Audit Logs)
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <History size={16} /> Cut Pieces Delivery History & Wages Audit
+                  </h4>
+                  <Link
+                    href="/po-receipts"
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                  >
+                    <Receipt size={13} />
+                    <span>Print Receipt</span>
+                  </Link>
+                </div>
+
                 {selectedPO.receivingLogs && selectedPO.receivingLogs.length > 0 ? (
                   <div className="space-y-3">
-                    {selectedPO.receivingLogs.map((log, idx) => (
-                      <div key={idx} className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-xl text-xs">
-                        <div className="flex justify-between items-center mb-1.5">
-                          <span className="font-semibold text-amber-900">
-                            Delivered by: {log.cuttingPersonName || "Cutting Master"}
-                          </span>
-                          <span className="text-gray-500">
-                            {new Date(log.receivedAt).toLocaleString()}
-                          </span>
-                        </div>
-                        {log.notes && (
-                          <p className="text-gray-600 mb-1.5 italic">Note: "{log.notes}"</p>
-                        )}
-                        <div className="flex flex-wrap gap-2 pt-1 border-t border-amber-200">
-                          {log.items.map((it, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-white border border-amber-300 rounded font-medium text-amber-800">
-                              {it.item} ({SIZE_LABELS[it.size]}): +{it.quantity} pcs
+                    {selectedPO.receivingLogs.map((log, idx) => {
+                      const batchQty = log.batchPiecesCount ?? log.items.reduce((s, it) => s + it.quantity, 0);
+                      const isPaid = (log.batchPendingAmount === 0 && batchQty > 0) || (log.items.length > 0 && log.items.every(it => it.isPaid));
+                      const isPartial = !isPaid && (log.batchPaidAmount || 0) > 0;
+
+                      return (
+                        <div key={idx} className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-xl text-xs space-y-2">
+                          <div className="flex flex-wrap justify-between items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 bg-amber-200/80 text-amber-950 rounded font-bold">
+                                Batch #{idx + 1}
+                              </span>
+                              <span className="font-semibold text-amber-900">
+                                Delivered by: {log.cuttingPersonName || "Cutting Master"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {isPaid ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  ✓ Wage Paid (₨{log.batchPaidAmount ?? log.batchTotalAmount ?? 0})
+                                  {log.voucherNumber ? ` • ${log.voucherNumber}` : ""}
+                                </span>
+                              ) : isPartial ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                  Partial (₨{log.batchPaidAmount}) • Due: ₨{log.batchPendingAmount}
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white text-gray-800 border border-amber-300">
+                                  Due Wage: ₨{log.batchTotalAmount ?? 0}
+                                </span>
+                              )}
+                              <span className="text-gray-500 text-[11px]">
+                                {new Date(log.receivedAt).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {log.notes && (
+                            <p className="text-gray-600 italic">Note: &quot;{log.notes}&quot;</p>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-amber-200">
+                            <div className="flex flex-wrap gap-1.5">
+                              {log.items.map((it, i) => (
+                                <span
+                                  key={i}
+                                  className="px-2 py-0.5 bg-white border border-amber-300 rounded font-medium text-amber-800 text-[11px]"
+                                >
+                                  {it.item} ({SIZE_LABELS[it.size]}): +{it.quantity} pcs
+                                  {it.isPaid && <span className="ml-1 text-emerald-700 font-bold">✓</span>}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="font-bold text-gray-900 text-xs">
+                              Batch Total: +{batchQty} pcs
                             </span>
-                          ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-xs text-gray-400 italic">No cut piece receipts recorded yet.</p>

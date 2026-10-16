@@ -73,6 +73,75 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      const rates = po.departmentRates || [];
+      const defaultCuttingRate =
+        rates.find((r: any) => r.department === "Cutting" && !r.item)?.ratePerPiece ??
+        rates.find((r: any) => r.department === "Cutting")?.ratePerPiece ??
+        5;
+
+      const enrichedLogs = (po.receivingLogs || []).map((log: any) => {
+        let batchTotalAmount = 0;
+        let batchPaidAmount = 0;
+        let batchPiecesCount = 0;
+
+        const enrichedItems = (log.items || []).map((it: any) => {
+          const itemRate =
+            rates.find((r: any) => r.department === "Cutting" && r.item === it.item)?.ratePerPiece ??
+            defaultCuttingRate;
+          const totalEarned = it.quantity * itemRate;
+          const paid = it.isPaid ? it.paidAmount ?? totalEarned : 0;
+          const pending = it.isPaid ? 0 : totalEarned;
+
+          batchPiecesCount += it.quantity;
+          batchTotalAmount += totalEarned;
+          batchPaidAmount += paid;
+
+          return {
+            ...it,
+            _id: it.id,
+            rate: itemRate,
+            totalEarned,
+            paidAmount: paid,
+            pendingAmount: pending,
+          };
+        });
+
+        const batchPendingAmount = Math.max(0, batchTotalAmount - batchPaidAmount);
+        const isFullyPaid = batchPendingAmount === 0 && batchPiecesCount > 0;
+        const isPartial = batchPaidAmount > 0 && batchPendingAmount > 0;
+        const paymentStatus = isFullyPaid ? "Paid" : isPartial ? "Partial" : "Pending";
+
+        const voucherNumber =
+          log.voucherNumber || log.items?.find((i: any) => i.voucherNumber)?.voucherNumber || null;
+        const paymentMode =
+          log.paymentMode || log.items?.find((i: any) => i.paymentMode)?.paymentMode || null;
+        const paidAt = log.items?.find((i: any) => i.paidAt)?.paidAt || null;
+
+        return {
+          ...log,
+          _id: log.id,
+          items: enrichedItems,
+          batchPiecesCount,
+          batchTotalAmount,
+          batchPaidAmount,
+          batchPendingAmount,
+          paymentStatus,
+          voucherNumber,
+          paymentMode,
+          paidAt,
+        };
+      });
+
+      const totalCuttingCost = enrichedLogs.reduce((sum: number, l: any) => sum + l.batchTotalAmount, 0);
+      const totalCuttingPaid = enrichedLogs.reduce((sum: number, l: any) => sum + l.batchPaidAmount, 0);
+      const totalCuttingPending = Math.max(0, totalCuttingCost - totalCuttingPaid);
+      const cuttingPaymentStatus =
+        totalCuttingPending === 0 && totalReceived > 0
+          ? "Paid"
+          : totalCuttingPaid > 0
+          ? "Partial"
+          : "Pending";
+
       return {
         ...po,
         _id: po.id,
@@ -80,6 +149,12 @@ export async function GET(request: NextRequest) {
         totalReceived,
         totalBarcoded,
         availableToBarcode: Math.max(0, totalReceived - totalBarcoded),
+        receivingLogs: enrichedLogs,
+        totalCuttingCost,
+        totalCuttingPaid,
+        totalCuttingPending,
+        cuttingPaymentStatus,
+        defaultCuttingRate,
       };
     });
 
