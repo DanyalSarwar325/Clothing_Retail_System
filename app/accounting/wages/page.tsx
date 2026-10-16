@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -12,6 +12,8 @@ import {
   Scissors,
   Layers,
   ArrowUpRight,
+  Tag,
+  Filter,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -43,6 +45,7 @@ const DEPARTMENTS = [
 
 export default function WorkerWagesPage() {
   const [selectedDept, setSelectedDept] = useState("Cutting");
+  const [selectedDesign, setSelectedDesign] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [workers, setWorkers] = useState<WorkerParty[]>([]);
   const [departmentData, setDepartmentData] = useState<any>(null);
@@ -56,6 +59,11 @@ export default function WorkerWagesPage() {
   const [payMode, setPayMode] = useState<"cash" | "bank" | "cheque">("cash");
   const [reference, setReference] = useState("");
   const [submittingPay, setSubmittingPay] = useState(false);
+
+  // Reset design filter when department changes
+  useEffect(() => {
+    setSelectedDesign("all");
+  }, [selectedDept]);
 
   const loadData = useCallback(async () => {
     try {
@@ -100,10 +108,65 @@ export default function WorkerWagesPage() {
     loadData();
   }, [loadData]);
 
+  // Flatten worker records by design for accurate per-design tracking & job costing
+  const displayRows = useMemo(() => {
+    if (!departmentData?.workers) return [];
+
+    return departmentData.workers.flatMap((w: any) => {
+      if (w.designs && w.designs.length > 0) {
+        return w.designs
+          .filter((d: any) => selectedDesign === "all" || d.design === selectedDesign)
+          .map((d: any) => ({
+            workerName: w.workerName,
+            design: d.design || "General",
+            totalPieces: d.totalPieces || (d.paidCount || 0) + (d.pendingCount || 0),
+            totalAmount: d.totalAmount || (d.paidAmount || 0) + (d.pendingAmount || 0),
+            paidCount: d.paidCount || 0,
+            paidAmount: d.paidAmount || 0,
+            pendingCount: d.pendingCount || 0,
+            pendingAmount: d.pendingAmount || 0,
+            items: d.items || [],
+          }));
+      } else {
+        if (selectedDesign !== "all") return [];
+        const pending = w.pendingAmount ?? w.netPendingAmount ?? 0;
+        const gross = (w.paidAmount || 0) + pending;
+        return [
+          {
+            workerName: w.workerName,
+            design: "General",
+            totalPieces: w.totalPieces || 0,
+            totalAmount: gross,
+            paidCount: w.totalPaid || 0,
+            paidAmount: w.paidAmount || 0,
+            pendingCount: w.totalPending || 0,
+            pendingAmount: pending,
+            items: [],
+          },
+        ];
+      }
+    });
+  }, [departmentData, selectedDesign]);
+
+  // Filtered Totals
+  const filteredPending = useMemo(() => {
+    if (selectedDesign === "all") {
+      return departmentData?.totals?.pendingAmount || 0;
+    }
+    return displayRows.reduce((sum: number, r: any) => sum + (r.pendingAmount || 0), 0);
+  }, [selectedDesign, departmentData, displayRows]);
+
+  const filteredPaid = useMemo(() => {
+    if (selectedDesign === "all") {
+      return departmentData?.totals?.paidAmount || 0;
+    }
+    return displayRows.reduce((sum: number, r: any) => sum + (r.paidAmount || 0), 0);
+  }, [selectedDesign, departmentData, displayRows]);
+
   // Open Wage Payment Modal
-  const openPayWageModal = (worker: any) => {
-    const gross = worker.pendingAmount ?? worker.netPendingAmount ?? 0;
-    setSelectedWorkerToPay(worker);
+  const openPayWageModal = (row: any) => {
+    const gross = row.pendingAmount || 0;
+    setSelectedWorkerToPay(row);
     setPayGrossAmount(gross);
     setReference("");
     setShowPayModal(true);
@@ -126,6 +189,10 @@ export default function WorkerWagesPage() {
           action: "pay_wages",
           workerName: selectedWorkerToPay.workerName,
           department: selectedDept,
+          design:
+            selectedWorkerToPay.design && selectedWorkerToPay.design !== "General"
+              ? selectedWorkerToPay.design
+              : undefined,
           amount: payGrossAmount,
           paidFromAccountId: payFromAccountId,
           paymentMode: payMode,
@@ -166,9 +233,15 @@ export default function WorkerWagesPage() {
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
               {selectedDept}
             </span>
+            {selectedDesign !== "all" && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                <Tag size={12} />
+                {selectedDesign}
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Disburse factory piece-rate wages. All payments post verified cash/bank vouchers to the General Ledger.
+            Disburse factory piece-rate wages by design. All payments post verified cash/bank vouchers to the General Ledger with design job costing.
           </p>
         </div>
 
@@ -231,17 +304,62 @@ export default function WorkerWagesPage() {
         ))}
       </div>
 
+      {/* Design Filter Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex items-center flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+            <Filter size={15} className="text-slate-400" />
+            <span>Design Filter:</span>
+          </div>
+          <select
+            value={selectedDesign}
+            onChange={(e) => setSelectedDesign(e.target.value)}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none cursor-pointer"
+          >
+            <option value="all">
+              All Designs ({departmentData?.availableDesigns?.length || 0})
+            </option>
+            {departmentData?.availableDesigns?.map((d: string) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          {selectedDesign !== "all" && (
+            <button
+              onClick={() => setSelectedDesign("all")}
+              className="px-2.5 py-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-md transition-colors cursor-pointer"
+            >
+              Clear Filter
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+          <span>
+            Showing <strong className="text-slate-900">{displayRows.length}</strong> record(s)
+          </span>
+          {selectedDesign !== "all" && (
+            <span className="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 text-[11px]">
+              <Tag size={11} />
+              {selectedDesign}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Department Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-            Total Pending Wages ({selectedDept})
+            Total Pending Wages ({selectedDept}
+            {selectedDesign !== "all" ? ` • ${selectedDesign}` : ""})
           </span>
           <div className="text-2xl font-bold text-amber-700 mt-1">
-            {formatPKR(departmentData?.totals?.pendingAmount || 0)}
+            {formatPKR(filteredPending)}
           </div>
           <span className="text-xs text-slate-500 mt-0.5 block">
-            Across {departmentData?.workers?.length || 0} active {isCutting ? "cutting master(s)" : "workers"}
+            Across {displayRows.length} active row(s)
           </span>
         </div>
 
@@ -250,7 +368,11 @@ export default function WorkerWagesPage() {
             Calculation Basis
           </span>
           <div className="text-base font-bold text-slate-900 mt-1 flex items-center gap-1.5">
-            {isCutting ? <Scissors size={18} className="text-rose-600" /> : <Layers size={18} className="text-blue-600" />}
+            {isCutting ? (
+              <Scissors size={18} className="text-rose-600" />
+            ) : (
+              <Layers size={18} className="text-blue-600" />
+            )}
             <span>{isCutting ? "PO Cut Piece Receipts" : "Physical Barcode Scans"}</span>
           </div>
           <span className="text-xs text-slate-500 mt-0.5 block">
@@ -260,18 +382,17 @@ export default function WorkerWagesPage() {
 
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-            Already Paid ({selectedDept})
+            Already Paid ({selectedDept}
+            {selectedDesign !== "all" ? ` • ${selectedDesign}` : ""})
           </span>
           <div className="text-2xl font-bold text-emerald-700 mt-1">
-            {formatPKR(departmentData?.totals?.paidAmount || 0)}
+            {formatPKR(filteredPaid)}
           </div>
-          <span className="text-xs text-slate-500 mt-0.5 block">
-            Settled wage vouchers
-          </span>
+          <span className="text-xs text-slate-500 mt-0.5 block">Settled wage vouchers</span>
         </div>
       </div>
 
-      {/* Workers Table */}
+      {/* Workers Table with Design Column */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div>
@@ -285,7 +406,7 @@ export default function WorkerWagesPage() {
             </p>
           </div>
           <span className="text-xs font-medium text-slate-500">
-            {departmentData?.workers?.length || 0} Record(s)
+            {displayRows.length} Record(s)
           </span>
         </div>
 
@@ -294,6 +415,7 @@ export default function WorkerWagesPage() {
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-100">
               <tr>
                 <th className="px-5 py-3.5">Worker Name</th>
+                <th className="px-5 py-3.5">Design</th>
                 <th className="px-5 py-3.5 text-center">
                   {isCutting ? "Received Cut Units" : "Scanned Units"}
                 </th>
@@ -306,38 +428,49 @@ export default function WorkerWagesPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-12 text-center text-slate-400">
                     <RefreshCw size={24} className="mx-auto mb-2 animate-spin text-emerald-600" />
                     Calculating piece rates and worker earnings...
                   </td>
                 </tr>
-              ) : !departmentData?.workers || departmentData.workers.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-10 text-center text-slate-400">
                     <Users size={32} className="mx-auto mb-2 opacity-40" />
-                    No worker records found in {selectedDept} department yet.
+                    {selectedDesign !== "all"
+                      ? `No records found for design "${selectedDesign}" in ${selectedDept}.`
+                      : `No worker records found in ${selectedDept} department yet.`}
                   </td>
                 </tr>
               ) : (
-                departmentData.workers.map((w: any) => {
-                  const pending = w.pendingAmount ?? w.netPendingAmount ?? 0;
-                  const gross = (w.paidAmount || 0) + pending;
+                displayRows.map((row: any, idx: number) => {
+                  const pending = row.pendingAmount || 0;
+                  const gross = (row.paidAmount || 0) + pending;
 
                   return (
-                    <tr key={w.workerName} className="hover:bg-slate-50/80 transition-colors">
+                    <tr
+                      key={`${row.workerName}-${row.design}-${idx}`}
+                      className="hover:bg-slate-50/80 transition-colors"
+                    >
                       <td className="px-5 py-4 font-bold text-slate-900">
-                        {w.workerName}
+                        {row.workerName}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60 shadow-2xs">
+                          <Tag size={12} className="text-indigo-500" />
+                          {row.design || "General"}
+                        </span>
                       </td>
                       <td className="px-5 py-4 text-center text-slate-600 text-xs">
                         <span className="px-2.5 py-1 rounded bg-slate-100 font-bold">
-                          {w.totalPieces || 0} pcs
+                          {row.totalPieces || 0} pcs
                         </span>
                       </td>
                       <td className="px-5 py-4 text-right font-medium text-slate-800">
                         {formatPKR(gross)}
                       </td>
                       <td className="px-5 py-4 text-right text-emerald-700 font-semibold text-xs">
-                        {formatPKR(w.paidAmount || 0)}
+                        {formatPKR(row.paidAmount || 0)}
                       </td>
                       <td className="px-5 py-4 text-right font-extrabold text-slate-900">
                         {pending > 0 ? (
@@ -349,7 +482,7 @@ export default function WorkerWagesPage() {
                       <td className="px-5 py-4 text-center">
                         {pending > 0 ? (
                           <button
-                            onClick={() => openPayWageModal(w)}
+                            onClick={() => openPayWageModal(row)}
                             className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
                           >
                             Disburse Wage
@@ -379,9 +512,16 @@ export default function WorkerWagesPage() {
                 <h3 className="font-bold text-slate-900 text-lg">
                   Disburse Wages: {selectedWorkerToPay?.workerName}
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Department: <strong className="text-slate-800">{selectedDept}</strong>
-                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-slate-500">
+                    Dept: <strong className="text-slate-800">{selectedDept}</strong>
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    <Tag size={11} />
+                    {selectedWorkerToPay?.design || "General"}
+                  </span>
+                </div>
               </div>
               <button
                 onClick={() => setShowPayModal(false)}
@@ -394,15 +534,27 @@ export default function WorkerWagesPage() {
             <form onSubmit={handleDisburseWage} className="p-5 space-y-4">
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
                 <div className="flex justify-between">
+                  <span className="text-slate-600">Design:</span>
+                  <span className="font-bold text-indigo-700">
+                    {selectedWorkerToPay?.design || "General"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
                   <span className="text-slate-600">Pending Pieces:</span>
                   <span className="font-bold text-slate-900">
-                    {selectedWorkerToPay?.totalPending ?? selectedWorkerToPay?.pendingCount ?? 0} pcs
+                    {selectedWorkerToPay?.pendingCount ??
+                      selectedWorkerToPay?.totalPending ??
+                      0}{" "}
+                    pcs
                   </span>
                 </div>
 
                 <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-extrabold">
                   <span className="text-slate-900">Net Amount Paid to Worker:</span>
-                  <span className="text-emerald-700 text-base">{formatPKR(payGrossAmount)}</span>
+                  <span className="text-emerald-700 text-base">
+                    {formatPKR(payGrossAmount)}
+                  </span>
                 </div>
               </div>
 
@@ -443,7 +595,9 @@ export default function WorkerWagesPage() {
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">
                   Reference / Cheque No.{" "}
-                  <span className="text-slate-400 font-normal lowercase">(optional - leave empty if cash)</span>
+                  <span className="text-slate-400 font-normal lowercase">
+                    (optional - leave empty if cash)
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -461,7 +615,7 @@ export default function WorkerWagesPage() {
               </div>
 
               <p className="text-[11px] text-slate-400 italic">
-                * Posting will record a wage voucher in the General Ledger and mark these production pieces as paid.
+                * Posting will record a wage voucher in the General Ledger tagged with design &quot;{selectedWorkerToPay?.design || "General"}&quot; and mark these pieces as paid.
               </p>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">

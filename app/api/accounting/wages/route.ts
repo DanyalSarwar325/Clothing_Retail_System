@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
       workerName,
       workerId,
       department,
+      design,
       amount,
       paidFromAccountId,
       paymentMode,
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
       referenceNumber,
     } = body;
 
+    const targetDesign = design && design !== "all" ? design.trim() : null;
     const ref = (reference || referenceNumber || "").trim() || null;
 
     let workerParty: any = null;
@@ -160,6 +162,7 @@ export async function POST(request: NextRequest) {
       if (department === "Cutting") {
         const unpaidCuttingLogs = await prisma.pOReceivingLog.findMany({
           where: {
+            ...(targetDesign ? { po: { design: { equals: targetDesign, mode: "insensitive" } } } : {}),
             items: { some: { isPaid: false } },
           },
           include: {
@@ -171,7 +174,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               success: false,
-              error: `All cut pieces for Cutting Master have already been paid. Payment was already completed.`,
+              error: `All cut pieces for Cutting Master${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid. Payment was already completed.`,
             },
             { status: 400 }
           );
@@ -179,6 +182,7 @@ export async function POST(request: NextRequest) {
       } else if (["Packing", "Store"].includes(department || "")) {
         const unpaidStickers = await prisma.finalSticker.findFirst({
           where: {
+            ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
             departmentHistory: {
               some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
             },
@@ -189,7 +193,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               success: false,
-              error: `All ${department} pieces for "${workerParty.name}" have already been paid.`,
+              error: `All ${department} pieces for "${workerParty.name}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
             },
             { status: 400 }
           );
@@ -197,6 +201,7 @@ export async function POST(request: NextRequest) {
       } else {
         const unpaidBarcode = await prisma.barcode.findFirst({
           where: {
+            ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
             departmentHistory: {
               some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
             },
@@ -207,7 +212,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               success: false,
-              error: `All ${department} pieces for "${workerParty.name}" have already been paid.`,
+              error: `All ${department} pieces for "${workerParty.name}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
             },
             { status: 400 }
           );
@@ -242,6 +247,7 @@ export async function POST(request: NextRequest) {
       const voucherNumber = await generateSequenceNumber(voucherType);
 
       const voucher = await prisma.$transaction(async (tx) => {
+        const designText = targetDesign ? ` [Design: ${targetDesign}]` : "";
         const refText = ref ? ` (Ref: ${ref})` : "";
         const journalLinesData = [
           {
@@ -249,14 +255,14 @@ export async function POST(request: NextRequest) {
             partyId: workerParty.id,
             debit: wageAmount,
             credit: 0,
-            description: `${department || "Factory"} piece wages for ${workerParty.name}${refText}`,
+            description: `${department || "Factory"} piece wages for ${workerParty.name}${designText}${refText}`,
           },
           {
             accountId: paidFromAccount.id,
             partyId: workerParty.id,
             debit: 0,
             credit: wageAmount,
-            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${refText}`,
+            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${designText}${refText}`,
           },
         ];
 
@@ -268,7 +274,7 @@ export async function POST(request: NextRequest) {
             financialYearId: fy.id,
             partyId: workerParty.id,
             sourceType: "wage",
-            description: `Wages payment to ${workerParty.name} (${department || "Production"})${refText}`,
+            description: `Wages payment to ${workerParty.name} (${department || "Production"})${designText}${refText}`,
             totalAmount: wageAmount,
             paymentMode: paymentMode || "cash",
             referenceNumber: ref,
@@ -284,7 +290,7 @@ export async function POST(request: NextRequest) {
             voucherId: newVoucher.id,
             financialYearId: fy.id,
             transactionDate: new Date(),
-            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${refText}`,
+            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${designText}${refText}`,
             totalDebit: wageAmount,
             totalCredit: wageAmount,
             status: "posted",
@@ -297,6 +303,9 @@ export async function POST(request: NextRequest) {
         // Synchronize operational piece status to Paid
         if (department === "Cutting") {
           const matchingLogs = await tx.pOReceivingLog.findMany({
+            where: targetDesign
+              ? { po: { design: { equals: targetDesign, mode: "insensitive" } } }
+              : {},
             select: { id: true },
           });
           const logIds = matchingLogs.map((l) => l.id);
@@ -329,6 +338,7 @@ export async function POST(request: NextRequest) {
           // 2. Also mark any existing generated barcodes for this cutting person
           const cuttingBarcodes = await tx.barcode.findMany({
             where: {
+              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
               departmentHistory: {
                 some: {
                   department: "Cutting",
@@ -366,6 +376,7 @@ export async function POST(request: NextRequest) {
         } else if (["Packing", "Store"].includes(department || "")) {
           const unpaidStickers = await tx.finalSticker.findMany({
             where: {
+              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
               departmentHistory: {
                 some: {
                   department,
@@ -399,6 +410,7 @@ export async function POST(request: NextRequest) {
           // Item-scanned departments (Sewing, Quality, Overlock, Clipping, Handmade, Adda Work, Patching, Press)
           const unpaidBarcodes = await tx.barcode.findMany({
             where: {
+              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
               departmentHistory: {
                 some: {
                   department,

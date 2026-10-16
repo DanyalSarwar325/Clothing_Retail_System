@@ -404,6 +404,7 @@ export async function GET(request: NextRequest) {
     const totalCancelledSum = workers.reduce((sum: number, w: any) => sum + w.cancelledAmount, 0);
     const grossPendingSum = workers.reduce((sum: number, w: any) => sum + w.pendingAmount, 0);
     const netPendingSum = Math.max(0, grossPendingSum - totalAdjustedSum);
+    const availableDesigns = [...new Set(pieces.map((p) => p.design).filter(Boolean))].sort();
 
     return NextResponse.json(
       {
@@ -411,6 +412,7 @@ export async function GET(request: NextRequest) {
         data: {
           department,
           fallbackRate,
+          availableDesigns,
           workers,
           totals: {
             totalWorkers: workers.length,
