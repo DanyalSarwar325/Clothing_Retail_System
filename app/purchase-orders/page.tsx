@@ -94,7 +94,7 @@ export default function PurchaseOrdersPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   // Receive Cut Pieces Form State
-  const [receiveCuttingPerson, setReceiveCuttingPerson] = useState("");
+  const [receiveCuttingPerson, setReceiveCuttingPerson] = useState("Cutting Master");
   const [receiveNotes, setReceiveNotes] = useState("");
   const [receiveQuantities, setReceiveQuantities] = useState<SizeQuantities>({
     S: { Qameez: 0, Shalwar: 0, Dupatta: 0 },
@@ -170,7 +170,7 @@ export default function PurchaseOrdersPage() {
   // Open Receive Modal
   const openReceiveModal = (po: PurchaseOrder) => {
     setSelectedPO(po);
-    setReceiveCuttingPerson("");
+    setReceiveCuttingPerson("Cutting Master");
     setReceiveNotes("");
     // Default form with zeroes
     setReceiveQuantities({
@@ -243,7 +243,7 @@ export default function PurchaseOrdersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: itemsToReceive,
-          cuttingPersonName: receiveCuttingPerson || "Cutting Master",
+          cuttingPersonName: "Cutting Master",
           notes: receiveNotes,
           receivedBy: user?.name || "Admin",
         }),
@@ -617,19 +617,16 @@ export default function PurchaseOrdersPage() {
                 {/* Cutting Person & Notes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Cutting Person / Master Name
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      Cutting Person
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Master John, Cutting Team A"
-                      value={receiveCuttingPerson}
-                      onChange={(e) => setReceiveCuttingPerson(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-bold text-gray-800 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Cutting Master
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
                       Batch Notes (Optional)
                     </label>
                     <input

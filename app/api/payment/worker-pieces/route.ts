@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/libs/prisma";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const FINAL_STICKER_DEPARTMENTS = ["Packing", "Store"];
 
 export async function GET(request: NextRequest) {
@@ -105,7 +108,7 @@ export async function GET(request: NextRequest) {
 
         // Process cut pieces received from cutting master on this PO
         for (const log of po.receivingLogs) {
-          const cuttingPerson = log.cuttingPersonName?.trim() || "Cutting Master";
+          const cuttingPerson = "Cutting Master";
 
           for (const itemLog of log.items) {
             const matchedRate =
@@ -402,27 +405,34 @@ export async function GET(request: NextRequest) {
     const grossPendingSum = workers.reduce((sum: number, w: any) => sum + w.pendingAmount, 0);
     const netPendingSum = Math.max(0, grossPendingSum - totalAdjustedSum);
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        department,
-        fallbackRate,
-        workers,
-        totals: {
-          totalWorkers: workers.length,
-          totalPieces: workers.reduce((sum: number, w: any) => sum + w.totalPieces, 0),
-          totalPaid: workers.reduce((sum: number, w: any) => sum + w.totalPaid, 0),
-          totalPending: workers.reduce((sum: number, w: any) => sum + w.totalPending, 0),
-          paidAmount: workers.reduce((sum: number, w: any) => sum + w.paidAmount, 0),
-          pendingAmount: grossPendingSum,
-          totalAdjusted: workers.reduce((sum: number, w: any) => sum + w.totalAdjusted, 0),
-          adjustedAmount: totalAdjustedSum,
-          totalCancelled: workers.reduce((sum: number, w: any) => sum + w.totalCancelled, 0),
-          cancelledAmount: totalCancelledSum,
-          netPendingAmount: netPendingSum,
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          department,
+          fallbackRate,
+          workers,
+          totals: {
+            totalWorkers: workers.length,
+            totalPieces: workers.reduce((sum: number, w: any) => sum + w.totalPieces, 0),
+            totalPaid: workers.reduce((sum: number, w: any) => sum + w.totalPaid, 0),
+            totalPending: workers.reduce((sum: number, w: any) => sum + w.totalPending, 0),
+            paidAmount: workers.reduce((sum: number, w: any) => sum + w.paidAmount, 0),
+            pendingAmount: grossPendingSum,
+            totalAdjusted: workers.reduce((sum: number, w: any) => sum + w.totalAdjusted, 0),
+            adjustedAmount: totalAdjustedSum,
+            totalCancelled: workers.reduce((sum: number, w: any) => sum + w.totalCancelled, 0),
+            cancelledAmount: totalCancelledSum,
+            netPendingAmount: netPendingSum,
+          },
         },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    );
   } catch (error: any) {
     console.error("Error fetching worker pieces:", error);
     return NextResponse.json(

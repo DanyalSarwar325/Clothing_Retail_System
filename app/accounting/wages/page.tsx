@@ -61,8 +61,12 @@ export default function WorkerWagesPage() {
     try {
       setLoading(true);
       const [piecesRes, accountsRes] = await Promise.all([
-        fetch(`/api/payment/worker-pieces?department=${encodeURIComponent(selectedDept)}`),
-        fetch("/api/accounting/accounts"),
+        fetch(`/api/payment/worker-pieces?department=${encodeURIComponent(selectedDept)}&_t=${Date.now()}`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/accounting/accounts?_t=${Date.now()}`, {
+          cache: "no-store",
+        }),
       ]);
 
       const [piecesData, accountsData] = await Promise.all([
@@ -346,14 +350,14 @@ export default function WorkerWagesPage() {
                         {pending > 0 ? (
                           <button
                             onClick={() => openPayWageModal(w)}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
                           >
                             Disburse Wage
                           </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold px-2 py-0.5 bg-emerald-50 rounded-full border border-emerald-200">
-                            <CheckCircle2 size={12} />
-                            Cleared
+                          <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-bold px-3 py-1 bg-emerald-100 rounded-full border border-emerald-300 shadow-2xs">
+                            <CheckCircle2 size={13} className="text-emerald-700" />
+                            Paid
                           </span>
                         )}
                       </td>

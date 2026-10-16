@@ -104,7 +104,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             create: {
               receivedAt: new Date(),
               receivedBy: receivedBy || "Admin",
-              cuttingPersonName: cuttingPersonName || "Cutting Master",
+              cuttingPersonName: "Cutting Master",
               notes: notes || "",
               items: {
                 create: validItems.map((it: any) => ({

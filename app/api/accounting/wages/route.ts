@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/libs/prisma";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { getActiveFinancialYear, VoucherType } from "@/app/libs/accounting/postingService";
 import { generateSequenceNumber } from "@/app/libs/accounting/voucherNumberService";
 import { getSession } from "@/app/libs/auth";
@@ -152,6 +155,65 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Invalid wage calculation" }, { status: 400 });
       }
 
+      // Pre-check: Ensure there are unpaid pieces for this worker to prevent double payouts
+      const nameToMatch = department === "Cutting" ? "Cutting Master" : (workerName?.trim() || workerParty.name);
+      if (department === "Cutting") {
+        const unpaidCuttingLogs = await prisma.pOReceivingLog.findMany({
+          where: {
+            items: { some: { isPaid: false } },
+          },
+          include: {
+            items: { where: { isPaid: false } },
+          },
+        });
+        const hasUnpaid = unpaidCuttingLogs.some((l) => l.items.length > 0);
+        if (!hasUnpaid) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `All cut pieces for Cutting Master have already been paid. Payment was already completed.`,
+            },
+            { status: 400 }
+          );
+        }
+      } else if (["Packing", "Store"].includes(department || "")) {
+        const unpaidStickers = await prisma.finalSticker.findFirst({
+          where: {
+            departmentHistory: {
+              some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
+            },
+            paidDepartments: { none: { department } },
+          },
+        });
+        if (!unpaidStickers) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `All ${department} pieces for "${workerParty.name}" have already been paid.`,
+            },
+            { status: 400 }
+          );
+        }
+      } else {
+        const unpaidBarcode = await prisma.barcode.findFirst({
+          where: {
+            departmentHistory: {
+              some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
+            },
+            paidDepartments: { none: { department } },
+          },
+        });
+        if (!unpaidBarcode) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `All ${department} pieces for "${workerParty.name}" have already been paid.`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       let laborExpenseAccount = await prisma.account.findFirst({
         where: {
           rootType: "directExpense",
@@ -234,30 +296,34 @@ export async function POST(request: NextRequest) {
 
         // Synchronize operational piece status to Paid
         if (department === "Cutting") {
-          const nameToMatch = workerName?.trim() || workerParty.name;
           const matchingLogs = await tx.pOReceivingLog.findMany({
-            where: {
-              cuttingPersonName: {
-                equals: nameToMatch,
-                mode: "insensitive",
-              },
-            },
             select: { id: true },
           });
           const logIds = matchingLogs.map((l) => l.id);
 
           if (logIds.length > 0) {
-            await tx.pOReceivingLogItem.updateMany({
-              where: {
-                receivingLogId: { in: logIds },
-                isPaid: false,
-              },
-              data: {
-                isPaid: true,
-                paidAt: new Date(),
-                paidAmount: wageAmount,
-              },
-            });
+            try {
+              await tx.pOReceivingLogItem.updateMany({
+                where: {
+                  receivingLogId: { in: logIds },
+                  isPaid: false,
+                },
+                data: {
+                  isPaid: true,
+                  paidAt: new Date(),
+                  paidAmount: wageAmount,
+                },
+              });
+            } catch (err: any) {
+              console.warn("Prisma updateMany schema cache fallback to raw SQL:", err?.message);
+              for (const lid of logIds) {
+                await tx.$executeRaw`
+                  UPDATE "POReceivingLogItem"
+                  SET "isPaid" = true, "paidAt" = NOW(), "paidAmount" = ${wageAmount}
+                  WHERE "receivingLogId" = ${lid} AND "isPaid" = false
+                `;
+              }
+            }
           }
 
           // 2. Also mark any existing generated barcodes for this cutting person
@@ -327,7 +393,7 @@ export async function POST(request: NextRequest) {
                   paidAt: new Date(),
                 },
               });
-            } catch {}
+            } catch { }
           }
         } else {
           // Item-scanned departments (Sewing, Quality, Overlock, Clipping, Handmade, Adda Work, Patching, Press)
@@ -361,7 +427,7 @@ export async function POST(request: NextRequest) {
                   paidAt: new Date(),
                 },
               });
-            } catch {}
+            } catch { }
           }
         }
 
