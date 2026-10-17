@@ -76,13 +76,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const sanitizedLines = (lines || []).map((l: any) => ({
+      ...l,
+      quantity: Number(l.quantity) || 1,
+      rate: Number(l.rate) || 0,
+      amount: Number(l.amount) !== undefined && !isNaN(Number(l.amount)) ? Number(l.amount) : (Number(l.quantity) || 1) * (Number(l.rate) || 0),
+    }));
+
     const bill = await postBill({
       partyId,
       billDate: billDate ? new Date(billDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : undefined,
       supplierInvoiceNumber,
       billType: billType || "purchase",
-      lines,
+      lines: sanitizedLines,
       subtotal: Number(subtotal),
       taxAmount: Number(taxAmount || 0),
       otherCharges: Number(otherCharges || 0),

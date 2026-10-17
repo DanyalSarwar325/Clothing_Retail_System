@@ -17,11 +17,11 @@ const VALID_DEPARTMENTS = [
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { barcodeId, checkedBy, status, department, responsiblePerson, notes } = body;
+    const { barcodeId, barcodeData, checkedBy, status, department, responsiblePerson, notes } = body;
 
-    if (!barcodeId) {
+    if (!barcodeId && !barcodeData) {
       return NextResponse.json(
-        { success: false, message: "Barcode ID is required" },
+        { success: false, message: "Barcode ID or barcode data is required" },
         { status: 400 }
       );
     }
@@ -57,9 +57,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find barcode
+    // Find barcode by ID or unique barcodeData
+    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: barcodeData.trim() };
     const barcode = await prisma.barcode.findUnique({
-      where: { id: barcodeId },
+      where: whereClause,
       include: {
         departmentHistory: true,
       },
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     if (!barcode) {
       return NextResponse.json(
-        { success: false, message: "Barcode not found" },
+        { success: false, message: "Barcode not found in database" },
         { status: 404 }
       );
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/libs/prisma";
+import { postStoreReturnJournal } from "@/app/libs/accounting/inventoryPostingService";
 
 export async function POST(request: NextRequest) {
   try {
@@ -119,6 +120,18 @@ export async function POST(request: NextRequest) {
         departmentRates: true,
         paidDepartments: true,
       },
+    });
+
+    // Automatically post accounting reversal journal: Sales Return (Dr) / Cash or Receivable (Cr) & Finished Goods (Dr) / COGS (Cr)
+    await postStoreReturnJournal({
+      finalStickerId: updatedSticker.id,
+      design: updatedSticker.design,
+      suitType: updatedSticker.suitType,
+      size: updatedSticker.size,
+      unitNumber: updatedSticker.unitNumber,
+      sellingPrice: updatedSticker.sellingPrice || 0,
+      returnedBy: returnInfo.returnedBy,
+      remarks: returnInfo.remarks,
     });
 
     const formatSticker = (s: typeof updatedSticker) => ({

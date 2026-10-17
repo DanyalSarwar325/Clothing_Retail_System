@@ -56,6 +56,13 @@ export default function FinalStickerGenerator() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [sellingPrice, setSellingPrice] = useState(0);
 
+  // Manual sticker counts per size
+  const [manualCounts, setManualCounts] = useState<Record<string, { catA: number; catB: number }>>({
+    S: { catA: 0, catB: 0 },
+    M: { catA: 0, catB: 0 },
+    L: { catA: 0, catB: 0 },
+  });
+
   // Department rates for Packing and Store
   const [departmentRates, setDepartmentRates] = useState({
     Packing: 0,
@@ -92,6 +99,11 @@ export default function FinalStickerGenerator() {
   useEffect(() => {
     if (!selectedDesign) {
       setDesignStats(null);
+      setManualCounts({
+        S: { catA: 0, catB: 0 },
+        M: { catA: 0, catB: 0 },
+        L: { catA: 0, catB: 0 },
+      });
       return;
     }
 
@@ -102,6 +114,22 @@ export default function FinalStickerGenerator() {
         const data = await res.json();
         if (data.success && data.stats) {
           setDesignStats(data.stats);
+          if (data.stats.sizeBreakdown) {
+            setManualCounts({
+              S: {
+                catA: data.stats.sizeBreakdown.S?.categoryA ?? 0,
+                catB: data.stats.sizeBreakdown.S?.categoryB ?? 0,
+              },
+              M: {
+                catA: data.stats.sizeBreakdown.M?.categoryA ?? 0,
+                catB: data.stats.sizeBreakdown.M?.categoryB ?? 0,
+              },
+              L: {
+                catA: data.stats.sizeBreakdown.L?.categoryA ?? 0,
+                catB: data.stats.sizeBreakdown.L?.categoryB ?? 0,
+              },
+            });
+          }
           if (data.stats.packingRate > 0) {
             setDepartmentRates((prev) => ({
               ...prev,
@@ -122,9 +150,50 @@ export default function FinalStickerGenerator() {
     fetchStats();
   }, [selectedDesign]);
 
+  const dynamicTotalCatA =
+    (manualCounts.S?.catA || 0) + (manualCounts.M?.catA || 0) + (manualCounts.L?.catA || 0);
+  const dynamicTotalCatB =
+    (manualCounts.S?.catB || 0) + (manualCounts.M?.catB || 0) + (manualCounts.L?.catB || 0);
+  const dynamicTotalSuits = dynamicTotalCatA + dynamicTotalCatB;
+
+  const resetToAutoCalculated = () => {
+    if (!designStats || !designStats.sizeBreakdown) return;
+    setManualCounts({
+      S: {
+        catA: designStats.sizeBreakdown.S?.categoryA ?? 0,
+        catB: designStats.sizeBreakdown.S?.categoryB ?? 0,
+      },
+      M: {
+        catA: designStats.sizeBreakdown.M?.categoryA ?? 0,
+        catB: designStats.sizeBreakdown.M?.categoryB ?? 0,
+      },
+      L: {
+        catA: designStats.sizeBreakdown.L?.categoryA ?? 0,
+        catB: designStats.sizeBreakdown.L?.categoryB ?? 0,
+      },
+    });
+    toast.success("Restored system auto-calculated quantities");
+  };
+
+  const handleManualCountChange = (size: string, category: "catA" | "catB", val: number) => {
+    const safeVal = isNaN(val) || val < 0 ? 0 : val;
+    setManualCounts((prev) => ({
+      ...prev,
+      [size]: {
+        ...prev[size],
+        [category]: safeVal,
+      },
+    }));
+  };
+
   const generateStickers = async () => {
     if (!selectedDesign) {
       toast.error("Please select a design");
+      return;
+    }
+
+    if (dynamicTotalSuits <= 0) {
+      toast.error("Please specify at least 1 suit sticker to generate");
       return;
     }
 
@@ -153,6 +222,7 @@ export default function FinalStickerGenerator() {
           design: selectedDesign,
           sellingPrice,
           departmentRates,
+          manualCounts,
         }),
       });
 
@@ -300,7 +370,7 @@ export default function FinalStickerGenerator() {
                       </span>
                     </div>
                     <div className="text-2xl font-black text-emerald-900">
-                      {designStats.totalCategoryA}{" "}
+                      {dynamicTotalCatA}{" "}
                       <span className="text-xs font-normal text-emerald-700">stickers</span>
                     </div>
                     <p className="text-[11px] text-emerald-700 mt-1">
@@ -316,7 +386,7 @@ export default function FinalStickerGenerator() {
                       </span>
                     </div>
                     <div className="text-2xl font-black text-amber-900">
-                      {designStats.totalCategoryB}{" "}
+                      {dynamicTotalCatB}{" "}
                       <span className="text-xs font-normal text-amber-700">stickers</span>
                     </div>
                     <p className="text-[11px] text-amber-700 mt-1">
@@ -332,7 +402,7 @@ export default function FinalStickerGenerator() {
                       </span>
                     </div>
                     <div className="text-2xl font-black text-purple-900">
-                      {designStats.totalSuits}{" "}
+                      {dynamicTotalSuits}{" "}
                       <span className="text-xs font-normal text-purple-700">polybags</span>
                     </div>
                     <p className="text-[11px] text-purple-700 mt-1">
@@ -341,44 +411,105 @@ export default function FinalStickerGenerator() {
                   </div>
                 </div>
 
-                {/* Size breakdown mini table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-gray-500 uppercase font-semibold">
-                        <th className="py-1.5 px-2">Size</th>
-                        <th className="py-1.5 px-2">Total Pieces</th>
-                        <th className="py-1.5 px-2 text-emerald-700">Category A (OK)</th>
-                        <th className="py-1.5 px-2 text-amber-700">Category B (Defective)</th>
-                        <th className="py-1.5 px-2 text-right">Total Suits</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {["S", "M", "L"].map((sz) => {
-                        const sData = designStats.sizeBreakdown[sz] || {
-                          totalPieces: 0,
-                          totalSuits: 0,
-                          categoryA: 0,
-                          categoryB: 0,
-                        };
-                        return (
-                          <tr key={sz} className="hover:bg-gray-50">
-                            <td className="py-1.5 px-2 font-bold text-gray-800">Size {sz}</td>
-                            <td className="py-1.5 px-2 text-gray-600">{sData.totalPieces} pcs</td>
-                            <td className="py-1.5 px-2 font-semibold text-emerald-700">
-                              {sData.categoryA} suits
-                            </td>
-                            <td className="py-1.5 px-2 font-semibold text-amber-700">
-                              {sData.categoryB} suits
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-bold text-gray-900">
-                              {sData.totalSuits} suits
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                {/* Size breakdown with Manual Inputs */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h5 className="text-xs font-bold text-gray-800">
+                        Manual Sticker Quantities Per Size
+                      </h5>
+                      <p className="text-[11px] text-gray-500">
+                        Enter how many suits you want to sticker. Pre-filled with auto-detected counts based on scanned pieces.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetToAutoCalculated}
+                      className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <RefreshCw size={12} />
+                      Reset to Auto-Detected
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase font-semibold">
+                          <th className="py-2 px-3">Size</th>
+                          <th className="py-2 px-3">Cut / Scanned Pieces (Reference)</th>
+                          <th className="py-2 px-3 text-emerald-800">Category A (OK Suits)</th>
+                          <th className="py-2 px-3 text-amber-800">Category B (Defective Suits)</th>
+                          <th className="py-2 px-3 text-right">Size Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {["S", "M", "L"].map((sz) => {
+                          const sData = designStats.sizeBreakdown[sz] || {
+                            totalPieces: 0,
+                            totalSuits: 0,
+                            categoryA: 0,
+                            categoryB: 0,
+                            defectivePieces: 0,
+                          };
+                          const sizeCatA = manualCounts[sz]?.catA ?? 0;
+                          const sizeCatB = manualCounts[sz]?.catB ?? 0;
+                          const sizeTotal = sizeCatA + sizeCatB;
+
+                          return (
+                            <tr key={sz} className="hover:bg-gray-50/80">
+                              <td className="py-2.5 px-3 font-bold text-gray-900">
+                                <span className="inline-block px-2 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs font-black">
+                                  Size {sz}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-gray-600">
+                                <span>{sData.totalPieces} pcs</span>
+                                {sData.defectivePieces > 0 && (
+                                  <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
+                                    {sData.defectivePieces} defective pcs
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={sizeCatA}
+                                    onChange={(e) =>
+                                      handleManualCountChange(sz, "catA", parseInt(e.target.value) || 0)
+                                    }
+                                    disabled={generating}
+                                    className="w-20 px-2.5 py-1.5 border border-emerald-300 rounded-lg font-bold text-emerald-900 bg-emerald-50/50 focus:ring-2 focus:ring-emerald-500 text-center text-xs"
+                                  />
+                                  <span className="text-[11px] text-gray-500">suits</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={sizeCatB}
+                                    onChange={(e) =>
+                                      handleManualCountChange(sz, "catB", parseInt(e.target.value) || 0)
+                                    }
+                                    disabled={generating}
+                                    className="w-20 px-2.5 py-1.5 border border-amber-300 rounded-lg font-bold text-amber-900 bg-amber-50/50 focus:ring-2 focus:ring-amber-500 text-center text-xs"
+                                  />
+                                  <span className="text-[11px] text-gray-500">suits</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-black text-gray-900">
+                                {sizeTotal} suits
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Pricing & Department Rates */}
@@ -436,7 +567,7 @@ export default function FinalStickerGenerator() {
                 <button
                   type="button"
                   onClick={generateStickers}
-                  disabled={generating || !selectedDesign}
+                  disabled={generating || !selectedDesign || dynamicTotalSuits <= 0}
                   className="w-full mt-3 px-6 py-3 bg-purple-600 text-white rounded-xl font-bold text-xs hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                 >
                   {generating ? (
@@ -447,8 +578,8 @@ export default function FinalStickerGenerator() {
                   ) : (
                     <>
                       <Printer size={16} />
-                      Generate & Print {designStats.totalSuits} Final Stickers ({designStats.totalCategoryA} Cat A +{" "}
-                      {designStats.totalCategoryB} Cat B)
+                      Generate & Print {dynamicTotalSuits} Final Stickers ({dynamicTotalCatA} Cat A +{" "}
+                      {dynamicTotalCatB} Cat B)
                     </>
                   )}
                 </button>

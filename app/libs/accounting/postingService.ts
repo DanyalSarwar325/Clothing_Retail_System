@@ -91,14 +91,24 @@ export async function postBill(params: CreateBillParams) {
   const billNumber = await generateSequenceNumber("BILL", params.billDate);
   const voucherNumber = await generateSequenceNumber("JV", params.billDate);
 
-  const billLinesData = params.lines.map((l) => ({
-    description: l.description,
-    quantity: l.quantity || 1,
-    unit: l.unit || "",
-    rate: l.rate || 0,
-    accountId: l.accountId || defaultDebitAccount!.id,
-    amount: l.amount,
-  }));
+  const subtotal = Number(params.subtotal) || 0;
+  const taxAmount = Number(params.taxAmount) || 0;
+  const otherCharges = Number(params.otherCharges) || 0;
+  const totalAmount = Number(params.totalAmount) || 0;
+
+  const billLinesData = params.lines.map((l) => {
+    const qty = Number(l.quantity) || 1;
+    const rate = Number(l.rate) || 0;
+    const lineAmount = Number(l.amount) !== undefined && !isNaN(Number(l.amount)) ? Number(l.amount) : qty * rate;
+    return {
+      description: l.description,
+      quantity: qty,
+      unit: l.unit || "",
+      rate: rate,
+      accountId: l.accountId || defaultDebitAccount!.id,
+      amount: lineAmount,
+    };
+  });
 
   const createdBill = await prisma.$transaction(async (tx) => {
     const voucher = await tx.voucher.create({
@@ -110,7 +120,7 @@ export async function postBill(params: CreateBillParams) {
         partyId: party.id,
         sourceType: "bill",
         description: `Purchase Bill ${billNumber} - ${party.name}`,
-        totalAmount: params.totalAmount,
+        totalAmount: totalAmount,
         status: "posted",
         createdById: params.userId,
         postedById: params.userId,
@@ -127,11 +137,11 @@ export async function postBill(params: CreateBillParams) {
         dueDate: params.dueDate,
         financialYearId: fy.id,
         billType: params.billType || "purchase",
-        subtotal: params.subtotal,
-        taxAmount: params.taxAmount || 0,
-        otherCharges: params.otherCharges || 0,
-        totalAmount: params.totalAmount,
-        paidAmount: params.isPaidImmediately ? params.totalAmount : 0,
+        subtotal: subtotal,
+        taxAmount: taxAmount,
+        otherCharges: otherCharges,
+        totalAmount: totalAmount,
+        paidAmount: params.isPaidImmediately ? totalAmount : 0,
         paymentStatus: params.isPaidImmediately ? "paid" : "unpaid",
         status: "posted",
         voucherId: voucher.id,
@@ -161,7 +171,7 @@ export async function postBill(params: CreateBillParams) {
         accountId: payableAccount!.id,
         partyId: party.id,
         debit: 0,
-        credit: params.totalAmount,
+        credit: totalAmount,
         description: `Bill ${billNumber} payable to ${party.name}`,
       },
     ];
@@ -172,8 +182,8 @@ export async function postBill(params: CreateBillParams) {
         financialYearId: fy.id,
         transactionDate: params.billDate,
         description: `Purchase Bill ${billNumber} from ${party.name}`,
-        totalDebit: params.totalAmount,
-        totalCredit: params.totalAmount,
+        totalDebit: totalAmount,
+        totalCredit: totalAmount,
         status: "posted",
         lines: {
           create: journalLines,
@@ -234,6 +244,7 @@ export async function postPayment(params: CreatePaymentParams) {
   }
   if (!payableAccount) throw new Error("Payables liability account not found.");
 
+  const paymentAmount = Number(params.amount) || 0;
   const voucherType: VoucherType = params.paymentMode === "cash" ? "CPV" : "BPV";
   const voucherNumber = await generateSequenceNumber(voucherType, params.paymentDate);
 
@@ -247,7 +258,7 @@ export async function postPayment(params: CreatePaymentParams) {
         partyId: party.id,
         sourceType: "payment",
         description: params.description || `Payment made to ${party.name}`,
-        totalAmount: params.amount,
+        totalAmount: paymentAmount,
         paymentMode: params.paymentMode,
         referenceNumber: params.referenceNumber,
         status: "posted",
@@ -262,16 +273,16 @@ export async function postPayment(params: CreatePaymentParams) {
         voucherId: newVoucher.id,
         financialYearId: fy.id,
         transactionDate: params.paymentDate,
-        description: params.description || `Payment of Rs. ${params.amount} to ${party.name}`,
-        totalDebit: params.amount,
-        totalCredit: params.amount,
+        description: params.description || `Payment of Rs. ${paymentAmount} to ${party.name}`,
+        totalDebit: paymentAmount,
+        totalCredit: paymentAmount,
         status: "posted",
         lines: {
           create: [
             {
               accountId: payableAccount!.id,
               partyId: party.id,
-              debit: params.amount,
+              debit: paymentAmount,
               credit: 0,
               description: `Payment to ${party.name}`,
             },

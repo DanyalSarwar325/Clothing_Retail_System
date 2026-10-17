@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { design, sellingPrice, departmentRates } = body;
+    const { design, sellingPrice, departmentRates, manualCounts } = body;
 
     if (!design) {
       return NextResponse.json(
@@ -148,78 +148,153 @@ export async function POST(request: NextRequest) {
 
     let totalGlobalSuits = 0;
 
-    for (const size of SIZES) {
-      const sizeBarcodes = barcodes.filter((b) => b.size === size);
-      if (sizeBarcodes.length === 0) continue;
+    if (manualCounts && typeof manualCounts === "object") {
+      // Manual entry workflow: Quantities specified per size for Category A (OK) & Category B (Defective)
+      for (const size of SIZES) {
+        const counts = (manualCounts as any)[size] || {};
+        const countA = Math.max(0, parseInt(String(counts.catA || 0), 10) || 0);
+        const countB = Math.max(0, parseInt(String(counts.catB || 0), 10) || 0);
 
-      const unitMap = new Map<number, any[]>();
-      for (const b of sizeBarcodes) {
-        const uNum = b.unitNumber || 1;
-        if (!unitMap.has(uNum)) unitMap.set(uNum, []);
-        unitMap.get(uNum)!.push(b);
-      }
+        let sizeUnitNumber = 0;
 
-      const totalSuitsForSize = Math.floor(sizeBarcodes.length / divisor);
-      if (totalSuitsForSize === 0) continue;
+        // Generate Category A stickers for this size
+        for (let i = 0; i < countA; i++) {
+          totalGlobalSuits++;
+          sizeUnitNumber++;
+          const barcodePayload = {
+            type: "final",
+            category: "A",
+            design,
+            size,
+            suitType: detectedSuitType,
+            unitNumber: sizeUnitNumber,
+            sellingPrice,
+            isDefective: false,
+            timestamp: Date.now() + totalGlobalSuits,
+          };
 
-      const sortedUnitNumbers = Array.from(unitMap.keys()).sort((a, b) => a - b);
-
-      for (let i = 0; i < totalSuitsForSize; i++) {
-        const unitNum = sortedUnitNumbers[i] !== undefined ? sortedUnitNumbers[i] : i + 1;
-        const pieces = unitMap.get(unitNum) || [];
-
-        const defectivePieces = pieces.filter(
-          (p: any) =>
-            p.status === "defective" ||
-            p.status === "damaged" ||
-            !!p.defectiveInfo
-        );
-
-        const isUnitDefective = defectivePieces.length > 0;
-        const category = isUnitDefective ? "B" : "A";
-        const categoryLabel = isUnitDefective ? "Category B - Defective" : "Category A - OK Quality";
-
-        let defectSummary = "";
-        if (isUnitDefective) {
-          defectSummary = defectivePieces
-            .map((dp: any) => `${dp.item}: ${(dp.defectiveInfo as any)?.reason || "Defective"}`)
-            .join("; ");
+          catAStickers.push({
+            design,
+            size,
+            suitType: detectedSuitType,
+            category: "A",
+            categoryLabel: "Category A - OK Quality",
+            isDefective: false,
+            unitNumber: sizeUnitNumber,
+            sellingPrice,
+            barcodeData: JSON.stringify(barcodePayload),
+            status: "generated",
+            currentDepartment: "Press",
+          });
         }
 
-        totalGlobalSuits++;
+        // Generate Category B stickers for this size
+        for (let i = 0; i < countB; i++) {
+          totalGlobalSuits++;
+          sizeUnitNumber++;
+          const barcodePayload = {
+            type: "final",
+            category: "B",
+            design,
+            size,
+            suitType: detectedSuitType,
+            unitNumber: sizeUnitNumber,
+            sellingPrice,
+            isDefective: true,
+            timestamp: Date.now() + totalGlobalSuits,
+          };
 
-        const barcodePayload = {
-          type: "final",
-          category,
-          design,
-          size,
-          suitType: detectedSuitType,
-          unitNumber: unitNum,
-          sellingPrice,
-          isDefective: isUnitDefective,
-          timestamp: Date.now() + totalGlobalSuits,
-        };
+          catBStickers.push({
+            design,
+            size,
+            suitType: detectedSuitType,
+            category: "B",
+            categoryLabel: "Category B - Defective",
+            isDefective: true,
+            defectSummary: "Defective component(s) grouped at Quality",
+            unitNumber: sizeUnitNumber,
+            sellingPrice,
+            barcodeData: JSON.stringify(barcodePayload),
+            status: "generated",
+            currentDepartment: "Press",
+          });
+        }
+      }
+    } else {
+      // Automatic pairing fallback
+      for (const size of SIZES) {
+        const sizeBarcodes = barcodes.filter((b) => b.size === size);
+        if (sizeBarcodes.length === 0) continue;
 
-        const stickerDoc = {
-          design,
-          size,
-          suitType: detectedSuitType,
-          category,
-          categoryLabel,
-          isDefective: isUnitDefective,
-          defectSummary: defectSummary || undefined,
-          componentBarcodeIds: pieces.map((p: any) => p.id),
-          unitNumber: unitNum,
-          sellingPrice,
-          barcodeData: JSON.stringify(barcodePayload),
-          status: "generated",
-          currentDepartment: "Press",
-        };
+        const unitMap = new Map<number, any[]>();
+        for (const b of sizeBarcodes) {
+          const uNum = b.unitNumber || 1;
+          if (!unitMap.has(uNum)) unitMap.set(uNum, []);
+          unitMap.get(uNum)!.push(b);
+        }
 
-        if (category === "A") {
-          catAStickers.push(stickerDoc);
-        } else {
-          catBStickers.push(stickerDoc);
+        const totalSuitsForSize = Math.floor(sizeBarcodes.length / divisor);
+        if (totalSuitsForSize === 0) continue;
+
+        const sortedUnitNumbers = Array.from(unitMap.keys()).sort((a, b) => a - b);
+
+        for (let i = 0; i < totalSuitsForSize; i++) {
+          const unitNum = sortedUnitNumbers[i] !== undefined ? sortedUnitNumbers[i] : i + 1;
+          const pieces = unitMap.get(unitNum) || [];
+
+          const defectivePieces = pieces.filter(
+            (p: any) =>
+              p.status === "defective" ||
+              p.status === "damaged" ||
+              !!p.defectiveInfo
+          );
+
+          const isUnitDefective = defectivePieces.length > 0;
+          const category = isUnitDefective ? "B" : "A";
+          const categoryLabel = isUnitDefective ? "Category B - Defective" : "Category A - OK Quality";
+
+          let defectSummary = "";
+          if (isUnitDefective) {
+            defectSummary = defectivePieces
+              .map((dp: any) => `${dp.item}: ${(dp.defectiveInfo as any)?.reason || "Defective"}`)
+              .join("; ");
+          }
+
+          totalGlobalSuits++;
+
+          const barcodePayload = {
+            type: "final",
+            category,
+            design,
+            size,
+            suitType: detectedSuitType,
+            unitNumber: unitNum,
+            sellingPrice,
+            isDefective: isUnitDefective,
+            timestamp: Date.now() + totalGlobalSuits,
+          };
+
+          const stickerDoc = {
+            design,
+            size,
+            suitType: detectedSuitType,
+            category,
+            categoryLabel,
+            isDefective: isUnitDefective,
+            defectSummary: defectSummary || undefined,
+            componentBarcodeIds: pieces.map((p: any) => p.id),
+            unitNumber: unitNum,
+            sellingPrice,
+            barcodeData: JSON.stringify(barcodePayload),
+            status: "generated",
+            currentDepartment: "Press",
+          };
+
+          if (category === "A") {
+            catAStickers.push(stickerDoc);
+          } else {
+            catBStickers.push(stickerDoc);
+          }
         }
       }
     }
@@ -230,7 +305,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: `Not enough barcodes to create ${detectedSuitType} stickers. Need at least ${divisor} pieces per size.`,
+          message: `No final stickers specified. Please enter quantities for at least one size.`,
         },
         { status: 400 }
       );

@@ -22,18 +22,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       barcodeId,
+      barcodeData,
       department,
       markedBy,
       reason,
       notes,
       isCompanionDefect,
+      convertedFromOk,
       defectiveReferenceBarcode,
       companionReason,
     } = body;
 
-    if (!barcodeId) {
+    if (!barcodeId && !barcodeData) {
       return NextResponse.json(
-        { success: false, message: "Barcode ID is required" },
+        { success: false, message: "Barcode ID or barcode data is required" },
         { status: 400 }
       );
     }
@@ -52,23 +54,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!reason || !reason.trim()) {
-      return NextResponse.json(
-        { success: false, message: "Defect reason is required" },
-        { status: 400 }
-      );
-    }
+    const isCompanion = !!isCompanionDefect || !!convertedFromOk;
+    const finalReason =
+      reason?.trim() || (isCompanion ? "Converted from OK (Companion)" : "Quality Defect");
+    const finalNotes =
+      notes?.trim() ||
+      (isCompanion
+        ? "Converted from OK by quality inspector to complete broken suit companion"
+        : "Marked defective during quality inspection");
 
-    if (!isCompanionDefect && (!notes || !notes.trim())) {
-      return NextResponse.json(
-        { success: false, message: "Please provide remarks explaining why the item was marked defective" },
-        { status: 400 }
-      );
-    }
-
-    // Find the barcode
+    // Find the barcode by ID or unique barcodeData
+    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: barcodeData.trim() };
     const barcode = await prisma.barcode.findUnique({
-      where: { id: barcodeId },
+      where: whereClause,
       include: {
         departmentHistory: true,
         paidDepartments: true,
@@ -77,14 +75,14 @@ export async function POST(request: NextRequest) {
 
     if (!barcode) {
       return NextResponse.json(
-        { success: false, message: "Barcode not found" },
+        { success: false, message: "Barcode not found in database" },
         { status: 404 }
       );
     }
 
     if (barcode.status === "defective" || barcode.status === "damaged") {
       return NextResponse.json(
-        { success: false, message: "This barcode is already marked as defective/damaged" },
+        { success: false, message: "This barcode is already marked as defective" },
         { status: 400 }
       );
     }
@@ -108,11 +106,9 @@ export async function POST(request: NextRequest) {
       defectInfoData = {
         department: "Quality",
         markedBy,
-        reason: reason.trim(),
-        notes:
-          notes?.trim() ||
-          (isCompanionDefect ? "Scrapped as companion piece to complete broken suit set" : null),
-        isCompanionDefect: !!isCompanionDefect,
+        reason: finalReason,
+        notes: finalNotes,
+        isCompanionDefect: isCompanion,
         defectiveReferenceBarcode: defectiveReferenceBarcode || null,
         companionReason: companionReason || null,
         markedAt: now,
@@ -151,8 +147,8 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // 4. Handle Admin defect review (auto-approve companion pieces)
-      if (isCompanionDefect) {
+      // 4. Handle Admin defect review (auto-approve companion/converted pieces so stitcher gets paid)
+      if (isCompanion) {
         const adminReview = await tx.adminDefectReview.upsert({
           where: { barcodeId: barcode.id },
           create: {

@@ -5,11 +5,9 @@ import { useAuth } from "@/app/context/AuthContext";
 import {
   LogOut,
   Scan,
-  CheckCircle,
+  CheckCircle2,
   AlertCircle,
   History,
-  User,
-  Clock,
   ShieldCheck,
   AlertTriangle,
   FileOutput,
@@ -18,37 +16,33 @@ import {
   RefreshCw,
   Search,
   Filter,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp
+  ArrowRightLeft,
+  Tag,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import PaymentDisplay from "@/app/components/PaymentDisplay";
 import PaymentByDesignDisplay from "@/app/components/PaymentByDesignDisplay";
 import DepartmentPaymentSummary from "@/app/components/DepartmentPaymentSummary";
-import QualityCheckModal from "@/app/components/QualityCheckModal";
 import OutpassModal from "@/app/components/OutpassModal";
 import { playScanSuccessSound, playScanErrorSound } from "@/app/libs/audio";
 
-interface DepartmentScan {
-  department: string;
-  scannedAt: string;
-  scannedBy?: string;
-}
+type QualityScanMode = "normal" | "defective" | "convert";
 
-interface BarcodeDetails {
+interface InspectedItem {
   id: string;
   design: string;
-  size: string;
-  suitType?: string;
-  barcodeData?: string;
   item: string;
+  size: string;
   unitNumber: number;
+  mode: QualityScanMode;
   status: string;
-  currentDepartment: string;
-  departmentHistory: DepartmentScan[];
-  createdAt: string;
-  scannedAt?: string;
+  time: string;
+  stitcherName?: string;
+  inspector: string;
+  reason?: string;
+  notes?: string;
 }
 
 interface DefectiveLogEntry {
@@ -69,68 +63,54 @@ interface DefectiveLogEntry {
     defectiveReferenceBarcode?: string;
     companionReason?: string;
   };
-  qualityCheckInfo?: {
-    checkedAt: string;
-    checkedBy: string;
-    status: string;
-    department?: string;
-    responsiblePerson?: string;
-    notes?: string;
-  };
   createdAt: string;
-}
-
-interface InspectedItem {
-  id: string;
-  design: string;
-  item: string;
-  size: string;
-  suitType?: string;
-  unitNumber: number;
-  status: "quality_ok" | "defective" | "damaged";
-  time: string;
-  inspector: string;
-  reason?: string;
-  notes?: string;
-  departmentHistory?: DepartmentScan[];
 }
 
 export default function QualityPage() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"scan" | "defective_log">("scan");
-  const [scanning, setScanning] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [barcodeDetails, setBarcodeDetails] = useState<BarcodeDetails | null>(null);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [showHistory, setShowHistory] = useState(false);
-  const [scanCount, setScanCount] = useState(0);
-  const [showQualityCheckModal, setShowQualityCheckModal] = useState(false);
-  const [showOutpassModal, setShowOutpassModal] = useState(false);
+
+  // The 3-way Mode Selector
+  const [scanMode, setScanMode] = useState<QualityScanMode>("normal");
+  const [defectReason, setDefectReason] = useState<string>("Stitching error");
+
+  // Scanner state
   const [scannerInput, setScannerInput] = useState("");
-  const scannerInputRef = useRef<HTMLInputElement>(null);
+  const [loading, setLoading] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
+  const [okCount, setOkCount] = useState(0);
+  const [defectiveCount, setDefectiveCount] = useState(0);
+  const [convertedCount, setConvertedCount] = useState(0);
 
-  // Inspected items feed states
-  const [lastInspected, setLastInspected] = useState<InspectedItem | null>(null);
+  // Live session inspected items feed
   const [recentInspections, setRecentInspections] = useState<InspectedItem[]>([]);
-  const [showLastHistory, setShowLastHistory] = useState(false);
+  const [lastItem, setLastItem] = useState<InspectedItem | null>(null);
 
-  // Defective log states
+  // Defective logs tab
   const [defectiveLogs, setDefectiveLogs] = useState<DefectiveLogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logSearch, setLogSearch] = useState("");
   const [logFilter, setLogFilter] = useState<"all" | "primary" | "companion">("all");
 
-  useEffect(() => {
-    if (scanning && scannerInputRef.current) {
-      scannerInputRef.current.focus();
-    }
-  }, [scanning]);
+  const [showOutpassModal, setShowOutpassModal] = useState(false);
+  const scannerInputRef = useRef<HTMLInputElement>(null);
 
-  // Load defective logs on mount and when tab switched
+  // Auto-focus barcode input whenever on the scan tab
   useEffect(() => {
-    fetchDefectiveLogs();
-  }, []);
+    if (activeTab === "scan" && !showOutpassModal) {
+      const focus = () => scannerInputRef.current?.focus();
+      focus();
+      const interval = setInterval(focus, 1500);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, showOutpassModal]);
+
+  // Load defective logs on mount or tab change
+  useEffect(() => {
+    if (activeTab === "defective_log") {
+      fetchDefectiveLogs();
+    }
+  }, [activeTab]);
 
   const fetchDefectiveLogs = async () => {
     setLogsLoading(true);
@@ -147,84 +127,177 @@ export default function QualityPage() {
     }
   };
 
-  const processScan = async (barcodeData: string) => {
+  // Main barcode gun scan processor according to active mode
+  const handleProcessBarcode = async (barcodeData: string) => {
+    if (!barcodeData.trim() || loading) return;
+
     setLoading(true);
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
+    const trimmedData = barcodeData.trim();
+    const inspector = user?.name || user?.username || "Quality Inspector";
 
     try {
-      // Find barcode data and open inspection modal
-      const response = await fetch(`/api/barcodes/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ barcodeData: barcodeData.trim() }),
-      });
+      if (scanMode === "normal") {
+        // =========================================================================
+        // MODE 1: NORMAL (Every item marked Quality OK)
+        // =========================================================================
+        const res = await fetch("/api/barcodes/quality-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: trimmedData,
+            checkedBy: inspector,
+            status: "quality_ok",
+            notes: "Approved Quality OK",
+          }),
+        });
 
-      const result = await response.json();
+        const data = await res.json();
+        if (data.success && data.barcode) {
+          playScanSuccessSound();
+          const b = data.barcode;
+          const stitcher =
+            b.departmentHistory?.find((h: any) => h.department === "Sewing")?.scannedBy || "Sewing Staff";
 
-      if (result.success && result.barcode) {
-        playScanSuccessSound();
-        setBarcodeDetails(result.barcode);
-        setShowQualityCheckModal(true);
-      } else {
-        playScanErrorSound();
-        setError(result.message || "Barcode not found in database");
-        setScanning(true);
+          const inspected: InspectedItem = {
+            id: b.id,
+            design: b.design,
+            item: b.item,
+            size: b.size,
+            unitNumber: b.unitNumber,
+            mode: "normal",
+            status: "quality_ok",
+            time: new Date().toLocaleTimeString(),
+            stitcherName: stitcher,
+            inspector,
+          };
+
+          setLastItem(inspected);
+          setRecentInspections((prev) => [inspected, ...prev.slice(0, 29)]);
+          setScanCount((c) => c + 1);
+          setOkCount((c) => c + 1);
+          toast.success(`✓ OK: ${b.design} — ${b.item} (${b.size}) #${b.unitNumber}`);
+        } else {
+          playScanErrorSound();
+          toast.error(data.message || "Barcode not found");
+        }
+      } else if (scanMode === "defective") {
+        // =========================================================================
+        // MODE 2: DEFECTIVE (Genuinely Damaged - No companion prompts)
+        // =========================================================================
+        const res = await fetch("/api/barcodes/defective", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: trimmedData,
+            department: "Quality",
+            markedBy: inspector,
+            isCompanionDefect: false,
+            reason: defectReason || "Quality Defect",
+            notes: `Marked defective during quality inspection (${defectReason})`,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success && data.barcode) {
+          playScanErrorSound();
+          const b = data.barcode;
+          const stitcher =
+            b.departmentHistory?.find((h: any) => h.department === "Sewing")?.scannedBy || "Sewing Staff";
+
+          const inspected: InspectedItem = {
+            id: b.id,
+            design: b.design,
+            item: b.item,
+            size: b.size,
+            unitNumber: b.unitNumber,
+            mode: "defective",
+            status: "defective",
+            time: new Date().toLocaleTimeString(),
+            stitcherName: stitcher,
+            inspector,
+            reason: defectReason,
+          };
+
+          setLastItem(inspected);
+          setRecentInspections((prev) => [inspected, ...prev.slice(0, 29)]);
+          setScanCount((c) => c + 1);
+          setDefectiveCount((c) => c + 1);
+          toast.error(`⚠️ DEFECTIVE: ${b.design} — ${b.item} (${b.size}) #${b.unitNumber} (Stitcher: ${stitcher})`);
+        } else {
+          playScanErrorSound();
+          toast.error(data.message || "Failed to mark defective");
+        }
+      } else if (scanMode === "convert") {
+        // =========================================================================
+        // MODE 3: CONVERT OK TO DEFECTIVE (Companion Scrap - Stitcher is PAID)
+        // =========================================================================
+        const res = await fetch("/api/barcodes/defective", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcodeData: trimmedData,
+            department: "Quality",
+            markedBy: inspector,
+            isCompanionDefect: true,
+            convertedFromOk: true,
+            reason: "Converted from OK (Companion Piece)",
+            notes: `Converted from OK by ${inspector} to complete broken suit set`,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success && data.barcode) {
+          playScanErrorSound();
+          const b = data.barcode;
+          const stitcher =
+            b.departmentHistory?.find((h: any) => h.department === "Sewing")?.scannedBy || "Sewing Staff";
+
+          const inspected: InspectedItem = {
+            id: b.id,
+            design: b.design,
+            item: b.item,
+            size: b.size,
+            unitNumber: b.unitNumber,
+            mode: "convert",
+            status: "defective_companion",
+            time: new Date().toLocaleTimeString(),
+            stitcherName: stitcher,
+            inspector,
+            notes: "Converted from OK • Stitcher Paid",
+          };
+
+          setLastItem(inspected);
+          setRecentInspections((prev) => [inspected, ...prev.slice(0, 29)]);
+          setScanCount((c) => c + 1);
+          setConvertedCount((c) => c + 1);
+          toast.success(
+            `🔄 CONVERTED TO DEFECTIVE: ${b.design} — ${b.item} (${b.size}) #${b.unitNumber}. (Stitcher ${stitcher} will be paid automatically).`,
+            { duration: 5000 }
+          );
+        } else {
+          playScanErrorSound();
+          toast.error(data.message || "Failed to convert item");
+        }
       }
     } catch (err: any) {
       playScanErrorSound();
-      setError(err.message || "Failed to process barcode");
-      setScanning(true);
+      toast.error(err.message || "Error processing scan");
     } finally {
       setLoading(false);
+      setScannerInput("");
+      scannerInputRef.current?.focus();
     }
   };
 
-  const startScanning = () => {
-    setError("");
-    setSuccess("");
-    setBarcodeDetails(null);
-    setScanning(true);
-  };
-
-  const resetScanner = () => {
-    setBarcodeDetails(null);
-    setError("");
-    setSuccess("");
-    setScanning(false);
-    setShowHistory(false);
-    setShowQualityCheckModal(false);
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleString("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
-
-  const getSizeLabel = (size: string) => {
-    switch (size) {
-      case "S": return "Small";
-      case "M": return "Medium";
-      case "L": return "Large";
-      default: return size;
-    }
-  };
-
-  // Filter defective logs
+  // Filter logs in tab 2
   const filteredLogs = defectiveLogs.filter((log) => {
     const matchesSearch =
       log.design.toLowerCase().includes(logSearch.toLowerCase()) ||
       log.item.toLowerCase().includes(logSearch.toLowerCase()) ||
       (log.defectiveInfo?.reason && log.defectiveInfo.reason.toLowerCase().includes(logSearch.toLowerCase())) ||
-      (log.defectiveInfo?.notes && log.defectiveInfo.notes.toLowerCase().includes(logSearch.toLowerCase())) ||
-      (log.qualityCheckInfo?.notes && log.qualityCheckInfo.notes.toLowerCase().includes(logSearch.toLowerCase()));
+      (log.defectiveInfo?.notes && log.defectiveInfo.notes.toLowerCase().includes(logSearch.toLowerCase()));
 
     if (!matchesSearch) return false;
-
     const isCompanion = !!log.defectiveInfo?.isCompanionDefect;
     if (logFilter === "primary") return !isCompanion;
     if (logFilter === "companion") return isCompanion;
@@ -234,87 +307,82 @@ export default function QualityPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-sm">
-            <ShieldCheck className="text-white" size={24} />
+      <header className="bg-white border-b px-4 sm:px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-xs text-white">
+            <ShieldCheck size={22} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Quality Control Department</h1>
-            <p className="text-xs text-gray-500">Inspector: {user?.name || user?.username}</p>
+            <h1 className="text-xl font-bold text-gray-900 leading-tight">Quality Department</h1>
+            <p className="text-xs text-gray-500 font-medium">
+              Inspector: <strong className="text-gray-800">{user?.name || user?.username}</strong>
+            </p>
           </div>
         </div>
+
         <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-xs text-gray-500 font-medium">Verified Today</p>
-            <p className="text-2xl font-bold text-emerald-600 leading-tight">{scanCount}</p>
+          <div className="hidden sm:flex items-center gap-3">
+            <div className="text-right">
+              <span className="text-[11px] text-gray-500 uppercase tracking-wider block">Inspected Today</span>
+              <strong className="text-xl font-black text-gray-900 leading-none">{scanCount}</strong>
+            </div>
+            <div className="h-7 w-px bg-gray-200" />
+            <div className="text-right">
+              <span className="text-[11px] text-emerald-600 font-semibold block">OK: {okCount}</span>
+              <span className="text-[11px] text-red-600 font-semibold block">Def: {defectiveCount} | Conv: {convertedCount}</span>
+            </div>
           </div>
+
           <button
             onClick={() => setShowOutpassModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition font-medium text-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl text-xs font-semibold transition border border-orange-200 cursor-pointer"
           >
-            <FileOutput size={16} />
+            <FileOutput size={15} />
             Outpass
           </button>
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-3.5 py-2 text-red-600 hover:bg-red-50 rounded-lg transition font-medium text-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition border border-red-200 cursor-pointer"
           >
-            <LogOut size={16} />
+            <LogOut size={15} />
             Logout
           </button>
         </div>
       </header>
 
       {/* Main Container */}
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
         {/* Navigation Tabs */}
-        <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-xl px-4 pt-3">
+        <div className="flex border-b border-gray-200 bg-white rounded-t-2xl px-4 pt-3">
           <button
             onClick={() => setActiveTab("scan")}
-            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === "scan"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-gray-500 hover:text-gray-700"
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${activeTab === "scan"
+                ? "border-emerald-600 text-emerald-700"
+                : "border-transparent text-gray-500 hover:text-gray-800"
               }`}
           >
-            <Scan size={18} />
-            Quality Inspection Scanner
+            <Scan size={17} />
+            Quality Scanner (3 Modes)
           </button>
           <button
             onClick={() => {
               setActiveTab("defective_log");
               fetchDefectiveLogs();
             }}
-            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === "defective_log"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-gray-500 hover:text-gray-700"
+            className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${activeTab === "defective_log"
+                ? "border-emerald-600 text-emerald-700"
+                : "border-transparent text-gray-500 hover:text-gray-800"
               }`}
           >
-            <Layers size={18} />
-            Defective & Scrapped Suits Log ({defectiveLogs.length})
+            <Layers size={17} />
+            Defective & Converted Suits Log ({defectiveLogs.length})
           </button>
         </div>
 
-        {/* ========================================================================= */}
-        {/* TAB 1: SCANNER & INSPECTION                                              */}
-        {/* ========================================================================= */}
+        {/* TAB 1: SCANNER & 3 MODES */}
         {activeTab === "scan" && (
           <div className="space-y-6">
-            {/* Info Notice */}
-            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4">
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="text-emerald-600 mt-0.5 flex-shrink-0" size={20} />
-                <div>
-                  <p className="font-semibold text-emerald-900 text-sm">Quality Inspection Active</p>
-                  <p className="text-xs text-emerald-800 leading-relaxed mt-0.5">
-                    Scan items to inspect quality. Items that pass can be marked <strong>Quality OK</strong> to advance.
-                    If an item is marked <strong>Defective</strong>, you must enter mandatory defect remarks, and you will be guided to scan the matching companion pieces (same size) to retire the broken suit set.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Summaries & Rates */}
+            {/* Payment Summaries */}
             <div className="space-y-4">
               <DepartmentPaymentSummary department="Quality" refreshKey={scanCount} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -323,53 +391,149 @@ export default function QualityPage() {
               </div>
             </div>
 
-            {/* Scanner Trigger Card */}
-            {!scanning && !barcodeDetails && !loading && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 p-8 text-center">
-                <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                  <Scan size={38} />
-                </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Ready for Quality Inspection</h2>
-                <p className="text-sm text-gray-600 max-w-md mx-auto mb-6">
-                  Click the button below or start barcode scanning directly. You can re-scan pieces freely without duplicate restrictions.
-                </p>
-                <button
-                  onClick={startScanning}
-                  className="w-full max-w-sm mx-auto bg-emerald-600 text-white py-3.5 px-6 rounded-xl font-bold hover:bg-emerald-700 transition shadow-md flex items-center justify-center gap-2"
-                >
-                  <ShieldCheck size={20} />
-                  Start Scanning Products
-                </button>
-              </div>
-            )}
-
-            {/* Active Scanner Input Screen */}
-            {scanning && (
-              <div className="bg-white rounded-2xl shadow-md border-2 border-emerald-500 p-6 relative">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2 text-emerald-700 font-bold">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span>Barcode Scanner Listening...</span>
-                  </div>
+            {/* ========================================================================= */}
+            {/* THE 3-WAY MODE SELECTOR                                                   */}
+            {/* ========================================================================= */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                  Select Quality Inspection Mode
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Mode 1: Normal OK */}
                   <button
-                    onClick={resetScanner}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                    onClick={() => {
+                      setScanMode("normal");
+                      scannerInputRef.current?.focus();
+                    }}
+                    className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${scanMode === "normal"
+                        ? "border-emerald-600 bg-emerald-50/80 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "border-gray-200 bg-gray-50/60 hover:bg-gray-100/70"
+                      }`}
                   >
-                    <X size={20} />
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm text-emerald-800 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
+                        1. Normal (Mark OK)
+                      </span>
+                      {scanMode === "normal" && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-emerald-700/90 leading-relaxed">
+                      Every scanned item is instantly approved as <strong>Quality OK</strong>. Continuous scanning.
+                    </p>
+                  </button>
+
+                  {/* Mode 2: Defective */}
+                  <button
+                    onClick={() => {
+                      setScanMode("defective");
+                      scannerInputRef.current?.focus();
+                    }}
+                    className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${scanMode === "defective"
+                        ? "border-red-600 bg-red-50/80 ring-2 ring-red-500/20 shadow-xs"
+                        : "border-gray-200 bg-gray-50/60 hover:bg-gray-100/70"
+                      }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm text-red-800 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
+                        2. Defective
+                      </span>
+                      {scanMode === "defective" && (
+                        <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-red-700/90 leading-relaxed">
+                      Genuinely damaged piece. Sent to Admin Defect Review. Stitcher payment depends on Admin decision.
+                    </p>
+                  </button>
+
+                  {/* Mode 3: Convert OK to Defective */}
+                  <button
+                    onClick={() => {
+                      setScanMode("convert");
+                      scannerInputRef.current?.focus();
+                    }}
+                    className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${scanMode === "convert"
+                        ? "border-purple-600 bg-purple-50/80 ring-2 ring-purple-500/20 shadow-xs"
+                        : "border-gray-200 bg-gray-50/60 hover:bg-gray-100/70"
+                      }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm text-purple-900 flex items-center gap-1.5">
+                        <ArrowRightLeft size={14} className="text-purple-600" />
+                        3. Convert OK to Defective
+                      </span>
+                      {scanMode === "convert" && (
+                        <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-purple-800/90 leading-relaxed">
+                      Scans OK companion piece to complete a damaged suit. <strong>Stitcher is PAID automatically!</strong>
+                    </p>
                   </button>
                 </div>
+              </div>
 
-                <div className="flex flex-col items-center py-4">
-                  <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3">
-                    <Scan className="text-emerald-600 animate-pulse" size={32} />
+              {/* Optional Defect Reason selector when in Defective mode */}
+              {scanMode === "defective" && (
+                <div className="p-3 bg-red-50/80 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-red-900 font-semibold">
+                    <AlertTriangle size={15} className="text-red-600" />
+                    <span>Select Defect Category (applied automatically on scan):</span>
                   </div>
-                  <p className="text-sm font-medium text-gray-700 mb-1">
-                    Scan any product sticker barcode with your physical scanner
-                  </p>
-                  <p className="text-xs text-gray-400 mb-4">
-                    Or type barcode manually and press <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px]">Enter</kbd>
-                  </p>
+                  <select
+                    value={defectReason}
+                    onChange={(e) => setDefectReason(e.target.value)}
+                    className="border border-red-300 rounded-lg px-3 py-1.5 bg-white text-xs font-bold text-red-900 focus:ring-2 focus:ring-red-500"
+                  >
+                    <option value="Stitching error">Stitching error</option>
+                    <option value="Fabric damaged">Fabric damaged</option>
+                    <option value="Wrong cutting">Wrong cutting</option>
+                    <option value="Machine damage">Machine damage</option>
+                    <option value="Color defect">Color defect</option>
+                    <option value="Size error">Size error</option>
+                    <option value="Quality issue">Quality issue</option>
+                  </select>
+                </div>
+              )}
 
+              {/* Active Mode Banner */}
+              <div
+                className={`p-4 rounded-xl border flex items-center justify-between text-xs font-semibold ${scanMode === "normal"
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                    : scanMode === "defective"
+                      ? "bg-red-50 border-red-300 text-red-900"
+                      : "bg-purple-50 border-purple-300 text-purple-900"
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full animate-ping bg-current" />
+                  <span>
+                    Current Scanner Action:{" "}
+                    <strong>
+                      {scanMode === "normal"
+                        ? "Mark as Quality OK ✓"
+                        : scanMode === "defective"
+                          ? `Mark as Defective (${defectReason}) ⚠️`
+                          : "Convert OK to Defective Companion (Stitcher Paid Automatically) 🔄"}
+                    </strong>
+                  </span>
+                </div>
+                <span className="opacity-70 font-mono text-[11px]">Aim barcode gun and scan</span>
+              </div>
+
+              {/* Gun Scanner Active Input */}
+              <div className="space-y-2">
+                <div className="relative">
                   <input
                     ref={scannerInputRef}
                     type="text"
@@ -379,230 +543,138 @@ export default function QualityPage() {
                       if (e.key === "Enter" && scannerInput.trim()) {
                         e.preventDefault();
                         const val = scannerInput.trim();
-                        setScannerInput("");
-                        setScanning(false);
-                        await processScan(val);
+                        await handleProcessBarcode(val);
                       }
                     }}
-                    placeholder="Scanner active — point scanner at barcode..."
-                    className="w-full max-w-md px-4 py-3 border-2 border-emerald-500 rounded-xl focus:outline-none focus:ring-4 focus:ring-emerald-500/20 text-center font-mono text-sm shadow-sm"
+                    placeholder={`Point barcode gun here to scan in ${scanMode === "normal" ? "NORMAL" : scanMode === "defective" ? "DEFECTIVE" : "CONVERT"
+                      } mode...`}
+                    className={`w-full px-4 py-3.5 border-2 rounded-xl text-center font-mono text-sm font-bold shadow-xs focus:outline-hidden ${scanMode === "normal"
+                        ? "border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 text-emerald-900"
+                        : scanMode === "defective"
+                          ? "border-red-500 focus:ring-4 focus:ring-red-500/20 text-red-900"
+                          : "border-purple-500 focus:ring-4 focus:ring-purple-500/20 text-purple-950"
+                      }`}
                     autoComplete="off"
                     autoFocus
                   />
-                </div>
-              </div>
-            )}
-
-            {/* Loading Indicator */}
-            {loading && (
-              <div className="bg-white rounded-xl shadow-sm p-8 text-center border">
-                <div className="animate-spin rounded-full h-10 w-10 border-4 border-emerald-600 border-t-transparent mx-auto mb-3" />
-                <p className="text-sm font-medium text-gray-600">Retrieving barcode info...</p>
-              </div>
-            )}
-
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-                <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
-                <p className="text-sm text-red-700 font-medium">{error}</p>
-              </div>
-            )}
-
-            {/* Success Message */}
-            {success && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
-                <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
-                <p className="text-sm text-green-700 font-medium">{success}</p>
-              </div>
-            )}
-
-            {/* Last Inspected Item Card */}
-            {lastInspected && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fadeIn">
-                <div className={`p-5 text-white ${
-                  lastInspected.status === "quality_ok"
-                    ? "bg-gradient-to-r from-emerald-600 to-teal-700"
-                    : "bg-gradient-to-r from-red-600 to-rose-700"
-                }`}>
-                  <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/20 uppercase tracking-wide">
-                          Last Inspected Piece
-                        </span>
-                        <span className="text-xs text-white/80 font-mono">
-                          Unit #{lastInspected.unitNumber}
-                        </span>
-                      </div>
-                      <h3 className="text-2xl font-bold tracking-tight">{lastInspected.design}</h3>
+                  {loading && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-xs text-gray-500 font-medium">
+                      <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                      Processing...
                     </div>
-                    <div className="text-right">
-                      <span className={`inline-flex items-center gap-1.5 font-bold px-3 py-1 rounded-full text-xs shadow-sm ${
-                        lastInspected.status === "quality_ok"
-                          ? "bg-white text-emerald-800"
-                          : "bg-white text-red-800"
-                      }`}>
-                        {lastInspected.status === "quality_ok" ? (
-                          <>
-                            <CheckCircle2 size={13} className="text-emerald-600" />
-                            <span>Quality OK ✓</span>
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle size={13} className="text-red-600" />
-                            <span>Defective</span>
-                          </>
-                        )}
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 text-center">
+                  Scanner input is continuously active. Pressing Enter or triggering your barcode gun instantly submits.
+                </p>
+              </div>
+            </div>
+
+            {/* Live Feed: Last Inspected Item Banner */}
+            {lastItem && (
+              <div
+                className={`p-4 rounded-2xl border shadow-xs animate-in fade-in duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${lastItem.mode === "normal"
+                    ? "bg-emerald-50/80 border-emerald-200 text-emerald-950"
+                    : lastItem.mode === "defective"
+                      ? "bg-red-50/80 border-red-200 text-red-950"
+                      : "bg-purple-50/80 border-purple-200 text-purple-950"
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${lastItem.mode === "normal"
+                        ? "bg-emerald-600"
+                        : lastItem.mode === "defective"
+                          ? "bg-red-600"
+                          : "bg-purple-600"
+                      }`}
+                  >
+                    #{lastItem.unitNumber}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-base">{lastItem.design}</h4>
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-white/80 border border-gray-300">
+                        {lastItem.item} ({lastItem.size})
                       </span>
-                      <p className="text-xs text-white/80 mt-1 font-mono">
-                        {lastInspected.time}
-                      </p>
                     </div>
+                    <p className="text-xs opacity-80 mt-0.5">
+                      Stitcher: <strong>{lastItem.stitcherName || "Tailor"}</strong> • Inspected at {lastItem.time}
+                    </p>
                   </div>
                 </div>
 
-                <div className="p-5 space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                      <p className="text-xs text-gray-500 font-medium">Item</p>
-                      <p className="text-sm font-bold text-gray-900 truncate mt-0.5">{lastInspected.item}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                      <p className="text-xs text-gray-500 font-medium">Size</p>
-                      <p className="text-sm font-bold text-gray-900 mt-0.5">{getSizeLabel(lastInspected.size)}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                      <p className="text-xs text-gray-500 font-medium">Suit Type</p>
-                      <p className="text-sm font-bold text-gray-900 mt-0.5">{lastInspected.suitType || "3pc"}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                      <p className="text-xs text-gray-500 font-medium">Inspector</p>
-                      <p className="text-sm font-bold text-gray-900 truncate mt-0.5">{lastInspected.inspector}</p>
-                    </div>
-                  </div>
-
-                  {/* Defect Details if Defective */}
-                  {lastInspected.status !== "quality_ok" && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-900 space-y-1">
-                      <p className="font-bold flex items-center gap-1.5 text-red-800">
-                        <AlertTriangle size={14} className="text-red-600" />
-                        Defect Reason: {lastInspected.reason || "Quality Issue"}
-                      </p>
-                      {lastInspected.notes && (
-                        <p className="text-red-700 italic bg-white/70 p-2 rounded border border-red-100">
-                          "{lastInspected.notes}"
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Department History Timeline */}
-                  {lastInspected.departmentHistory && lastInspected.departmentHistory.length > 0 && (
-                    <div className="pt-2 border-t border-gray-100">
-                      <button
-                        type="button"
-                        onClick={() => setShowLastHistory(!showLastHistory)}
-                        className="flex items-center justify-between w-full py-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <History size={14} />
-                          Department Scan History ({lastInspected.departmentHistory.length} events)
-                        </span>
-                        {showLastHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </button>
-
-                      {showLastHistory && (
-                        <div className="mt-2 space-y-2 max-h-48 overflow-y-auto pr-1">
-                          {lastInspected.departmentHistory.map((scan, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${scan.department === "Quality" ? "bg-emerald-500" : "bg-gray-400"}`} />
-                                <div>
-                                  <p className="font-semibold text-gray-800">{scan.department}</p>
-                                  <p className="text-[11px] text-gray-500">{scan.scannedBy ? `by ${scan.scannedBy}` : "System"}</p>
-                                </div>
-                              </div>
-                              <span className="text-gray-400 font-mono text-[11px]">{formatDate(scan.scannedAt)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div className="text-right shrink-0">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold inline-block ${lastItem.mode === "normal"
+                        ? "bg-emerald-200 text-emerald-900"
+                        : lastItem.mode === "defective"
+                          ? "bg-red-200 text-red-950"
+                          : "bg-purple-200 text-purple-950"
+                      }`}
+                  >
+                    {lastItem.mode === "normal"
+                      ? "✓ Quality OK"
+                      : lastItem.mode === "defective"
+                        ? `⚠️ Defective (${lastItem.reason})`
+                        : "🔄 Converted OK (Stitcher Paid)"}
+                  </span>
                 </div>
               </div>
             )}
 
-            {/* Recent Quality Inspections Activity Stream */}
+            {/* Recent Scans Session Feed */}
             {recentInspections.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layers size={18} className="text-emerald-600" />
-                    <h3 className="font-bold text-gray-900 text-sm">
-                      Recent Quality Inspections (Today's Stream)
-                    </h3>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
-                      {recentInspections.length}
-                    </span>
-                  </div>
+              <div className="bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
+                <div className="p-4 border-b bg-gray-50/80 flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                    <History size={15} /> Recent Scans in This Session ({recentInspections.length})
+                  </h4>
                   <button
-                    type="button"
                     onClick={() => setRecentInspections([])}
-                    className="text-xs text-gray-400 hover:text-gray-600 font-medium transition"
+                    className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
                   >
                     Clear Feed
                   </button>
                 </div>
 
                 <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
-                  {recentInspections.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`px-6 py-3 flex items-center justify-between transition ${
-                        item.status === "quality_ok" ? "hover:bg-gray-50/80" : "bg-red-50/30 hover:bg-red-50/50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {item.status === "quality_ok" ? (
-                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                            <CheckCircle2 size={18} />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
-                            <AlertTriangle size={18} />
-                          </div>
-                        )}
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-gray-900 truncate">
-                              {item.design} — {item.item} ({item.size})
-                            </p>
-                            <span className="px-1.5 py-0.5 text-[11px] font-mono bg-gray-100 text-gray-700 rounded">
-                              #{item.unitNumber}
-                            </span>
-                          </div>
-                          <p className={`text-xs truncate ${
-                            item.status === "quality_ok" ? "text-gray-500" : "text-red-600 font-medium"
-                          }`}>
-                            {item.status === "quality_ok"
-                              ? "Quality Approved ✓"
-                              : `Defective: ${item.reason || "Quality Issue"}${item.notes ? ` — "${item.notes}"` : ""}`}
-                          </p>
-                        </div>
+                  {recentInspections.map((item, idx) => (
+                    <div key={idx} className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${item.mode === "normal"
+                              ? "bg-emerald-500"
+                              : item.mode === "defective"
+                                ? "bg-red-500"
+                                : "bg-purple-500"
+                            }`}
+                        />
+                        <span className="font-bold text-gray-900 truncate">{item.design}</span>
+                        <span className="text-gray-500">
+                          {item.item} ({item.size}) #{item.unitNumber}
+                        </span>
+                        <span className="text-gray-400 font-mono text-[11px] truncate">
+                          [Stitcher: {item.stitcherName || "Unknown"}]
+                        </span>
                       </div>
 
-                      <div className="text-right shrink-0 ml-4">
-                        <span className="text-xs font-mono text-gray-400">{item.time}</span>
-                        <div className="text-[11px]">
-                          <span className={`font-semibold ${
-                            item.status === "quality_ok" ? "text-emerald-700" : "text-red-600"
-                          }`}>
-                            {item.status === "quality_ok" ? "Quality OK" : "Defective"}
-                          </span>
-                        </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${item.mode === "normal"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : item.mode === "defective"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-purple-100 text-purple-900"
+                            }`}
+                        >
+                          {item.mode === "normal"
+                            ? "OK"
+                            : item.mode === "defective"
+                              ? "Defective"
+                              : "Converted (Paid)"}
+                        </span>
+                        <span className="text-gray-400 text-[11px]">{item.time}</span>
                       </div>
                     </div>
                   ))}
@@ -612,193 +684,114 @@ export default function QualityPage() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 2: DEFECTIVE & BROKEN SUITS LOG                                      */}
-        {/* ========================================================================= */}
+        {/* TAB 2: DEFECTIVE LOGS */}
         {activeTab === "defective_log" && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Header & Controls */}
-            <div className="p-4 border-b border-gray-200 flex flex-col md:flex-row gap-3 items-center justify-between bg-gray-50/50">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-gray-900 text-base">Defective & Scrapped Items</h3>
-                <span className="text-xs bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded-full">
-                  {filteredLogs.length}
-                </span>
+          <div className="bg-white rounded-2xl shadow-xs border border-gray-200 p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Defective & Converted Pieces Record</h3>
+                <p className="text-xs text-gray-500">
+                  Comprehensive audit trail of primary defects and converted companion pieces.
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                {/* Search */}
-                <div className="relative flex-1 md:w-60">
-                  <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={logSearch}
-                    onChange={(e) => setLogSearch(e.target.value)}
-                    placeholder="Search design, remarks..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-                  />
-                </div>
-
-                {/* Filter */}
-                <select
-                  value={logFilter}
-                  onChange={(e: any) => setLogFilter(e.target.value)}
-                  className="text-xs border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-                >
-                  <option value="all">All Defects</option>
-                  <option value="primary">Primary Defects</option>
-                  <option value="companion">Companion Scraps</option>
-                </select>
-
-                {/* Refresh */}
+              {/* Filters */}
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={fetchDefectiveLogs}
-                  disabled={logsLoading}
-                  className="p-1.5 border rounded-lg hover:bg-gray-100 text-gray-600 transition"
-                  title="Refresh defective logs"
+                  onClick={() => setLogFilter("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${logFilter === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
                 >
-                  <RefreshCw size={14} className={logsLoading ? "animate-spin" : ""} />
+                  All ({defectiveLogs.length})
+                </button>
+                <button
+                  onClick={() => setLogFilter("primary")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${logFilter === "primary" ? "bg-red-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                >
+                  Genuine Defects
+                </button>
+                <button
+                  onClick={() => setLogFilter("companion")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${logFilter === "companion" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                >
+                  Converted Companions
                 </button>
               </div>
             </div>
 
-            {/* Table */}
-            {logsLoading ? (
-              <div className="p-12 text-center text-sm text-gray-500">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-emerald-600 border-t-transparent mx-auto mb-2" />
-                Loading defective logs...
-              </div>
-            ) : filteredLogs.length === 0 ? (
-              <div className="p-12 text-center text-sm text-gray-400">
-                No defective items recorded yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b">
-                    <tr>
-                      <th className="py-3 px-4">Design & Piece</th>
-                      <th className="py-3 px-4">Type</th>
-                      <th className="py-3 px-4">Defect Reason</th>
-                      <th className="py-3 px-4">Remarks (Quality Notes)</th>
-                      <th className="py-3 px-4">Inspector & Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredLogs.map((log) => {
-                      const isCompanion = !!log.defectiveInfo?.isCompanionDefect;
-                      const inspector = log.defectiveInfo?.markedBy || log.qualityCheckInfo?.checkedBy || "Unknown";
-                      const defectReasonText = log.defectiveInfo?.reason || "Quality Issue";
-                      const remarksText = log.defectiveInfo?.notes || log.qualityCheckInfo?.notes || "—";
-                      const markedTime = log.defectiveInfo?.markedAt || log.qualityCheckInfo?.checkedAt || log.createdAt;
+            {/* Search */}
+            <div className="relative max-w-md">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={logSearch}
+                onChange={(e) => setLogSearch(e.target.value)}
+                placeholder="Search defective pieces by design, item, reason..."
+                className="w-full pl-9 pr-4 py-2 border rounded-xl text-xs bg-gray-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
 
-                      return (
-                        <tr key={log.id} className="hover:bg-gray-50/70 transition">
-                          <td className="py-3 px-4">
-                            <p className="font-bold text-gray-900">{log.design}</p>
-                            <p className="text-gray-500 text-[11px]">
-                              {log.item} • Size {getSizeLabel(log.size)} • Unit #{log.unitNumber}
-                            </p>
-                          </td>
-                          <td className="py-3 px-4">
-                            {isCompanion ? (
-                              <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[11px] bg-purple-50 text-purple-700 border border-purple-200">
-                                Companion Scrap
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[11px] bg-red-50 text-red-700 border border-red-200">
-                                Primary Defect
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="font-semibold text-gray-800">{defectReasonText}</span>
-                            {log.defectiveInfo?.companionReason && (
-                              <p className="text-[10px] text-gray-500 mt-0.5">
-                                {log.defectiveInfo.companionReason}
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 max-w-xs">
-                            <p className="text-gray-800 italic bg-gray-50 p-1.5 rounded border border-gray-100 text-[11px] leading-relaxed">
-                              "{remarksText}"
-                            </p>
-                          </td>
-                          <td className="py-3 px-4 text-gray-600">
-                            <p className="font-medium text-gray-900">{inspector}</p>
-                            <p className="text-[10px] text-gray-400">{formatDate(markedTime)}</p>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            {logsLoading ? (
+              <div className="py-12 text-center text-xs text-gray-400 animate-pulse">Loading defective logs...</div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400">No defective pieces found matching criteria.</div>
+            ) : (
+              <div className="space-y-3">
+                {filteredLogs.map((log) => {
+                  const isCompanion = !!log.defectiveInfo?.isCompanionDefect;
+                  return (
+                    <div
+                      key={log.id}
+                      className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isCompanion ? "bg-purple-50/50 border-purple-200" : "bg-red-50/50 border-red-200"
+                        }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <strong className="text-gray-900 text-sm">{log.design}</strong>
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-white border border-gray-300">
+                            {log.item} ({log.size}) #{log.unitNumber}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${isCompanion
+                                ? "bg-purple-100 text-purple-900"
+                                : "bg-red-100 text-red-900"
+                              }`}
+                          >
+                            {isCompanion ? "Converted from OK (Paid)" : "Genuine Defect"}
+                          </span>
+                        </div>
+                        <p className="text-gray-600 mt-1">
+                          Reason: <strong>{log.defectiveInfo?.reason || "Defect"}</strong>
+                          {log.defectiveInfo?.notes && (
+                            <span className="italic ml-1 text-gray-500">
+                              (&quot;{log.defectiveInfo.notes}&quot;)
+                            </span>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="text-right text-[11px] text-gray-500 shrink-0">
+                        <p>Marked by: {log.defectiveInfo?.markedBy || "Inspector"}</p>
+                        <p>{log.defectiveInfo?.markedAt ? new Date(log.defectiveInfo.markedAt).toLocaleDateString() : ""}</p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
-
-        {/* Quality Check Modal */}
-        {barcodeDetails && (
-          <QualityCheckModal
-            isOpen={showQualityCheckModal}
-            onClose={() => {
-              setShowQualityCheckModal(false);
-              setBarcodeDetails(null);
-            }}
-            barcodeId={barcodeDetails.id}
-            barcodeInfo={{
-              design: barcodeDetails.design,
-              item: barcodeDetails.item,
-              size: barcodeDetails.size,
-              suitType: barcodeDetails.suitType || "3pc",
-              unitNumber: barcodeDetails.unitNumber,
-              barcodeData: barcodeDetails.barcodeData,
-            }}
-            checkedBy={user?.name || user?.username || "Quality Inspector"}
-            departmentHistory={barcodeDetails.departmentHistory}
-            onSuccess={(resultStatus?: "quality_ok" | "defective", defectReason?: string, defectNotes?: string) => {
-              playScanSuccessSound();
-              setScanCount((prev) => prev + 1);
-              fetchDefectiveLogs();
-
-              const finalStatus = resultStatus || "quality_ok";
-              const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-              const inspected: InspectedItem = {
-                id: `${barcodeDetails.id}-${Date.now()}`,
-                design: barcodeDetails.design,
-                item: barcodeDetails.item,
-                size: barcodeDetails.size,
-                suitType: barcodeDetails.suitType || "3pc",
-                unitNumber: barcodeDetails.unitNumber,
-                status: finalStatus,
-                time: timestamp,
-                inspector: user?.name || user?.username || "Quality Inspector",
-                reason: defectReason,
-                notes: defectNotes,
-                departmentHistory: barcodeDetails.departmentHistory,
-              };
-
-              setLastInspected(inspected);
-              setRecentInspections((prev) => [inspected, ...prev.slice(0, 19)]);
-
-              setShowQualityCheckModal(false);
-              setBarcodeDetails(null);
-              // Automatically re-arm scanner so the inspector can scan the next piece immediately
-              setScanning(true);
-            }}
-          />
-        )}
-
-        {/* Outpass Modal */}
-        <OutpassModal
-          isOpen={showOutpassModal}
-          onClose={() => setShowOutpassModal(false)}
-          department="Quality"
-          userName={user?.name || user?.username || ""}
-        />
       </div>
+
+      {/* Outpass Modal */}
+      <OutpassModal
+        isOpen={showOutpassModal}
+        onClose={() => setShowOutpassModal(false)}
+        department="Quality"
+        userName={user?.name || user?.username || ""}
+      />
     </div>
   );
 }

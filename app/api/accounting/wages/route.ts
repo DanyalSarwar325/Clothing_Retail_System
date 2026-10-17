@@ -157,20 +157,54 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Invalid wage calculation" }, { status: 400 });
       }
 
-      // Pre-check: Ensure there are unpaid pieces for this worker to prevent double payouts
+      // Pre-check & gather unpaid pieces before opening transaction to optimize execution time
       const nameToMatch = department === "Cutting" ? "Cutting Master" : (workerName?.trim() || workerParty.name);
+
+      const rateDoc = await prisma.rate.findUnique({ where: { department: department || "" } });
+      const fallbackRate = rateDoc?.ratePerUnit || 0;
+
+      let logIds: string[] = [];
+      let cuttingPayments: any[] = [];
+      let stickerPayments: any[] = [];
+      let barcodePayments: any[] = [];
+
       if (department === "Cutting") {
-        const unpaidCuttingLogs = await prisma.pOReceivingLog.findMany({
+        const matchingLogs = await prisma.pOReceivingLog.findMany({
           where: {
             ...(targetDesign ? { po: { design: { equals: targetDesign, mode: "insensitive" } } } : {}),
             items: { some: { isPaid: false } },
           },
+          select: { id: true },
+        });
+        logIds = matchingLogs.map((l) => l.id);
+
+        const cuttingBarcodes = await prisma.barcode.findMany({
+          where: {
+            ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
+            departmentHistory: {
+              some: {
+                department: "Cutting",
+                scannedBy: { equals: nameToMatch, mode: "insensitive" },
+              },
+            },
+            paidDepartments: {
+              none: { department: "Cutting" },
+            },
+          },
           include: {
-            items: { where: { isPaid: false } },
+            departmentRates: { where: { department: "Cutting" } },
           },
         });
-        const hasUnpaid = unpaidCuttingLogs.some((l) => l.items.length > 0);
-        if (!hasUnpaid) {
+
+        cuttingPayments = cuttingBarcodes.map((cb) => ({
+          barcodeId: cb.id,
+          department: "Cutting",
+          amount: cb.departmentRates[0]?.ratePerPiece || 0,
+          paidBy: session.name || "Admin",
+          paidAt: new Date(),
+        }));
+
+        if (logIds.length === 0 && cuttingPayments.length === 0) {
           return NextResponse.json(
             {
               success: false,
@@ -180,43 +214,97 @@ export async function POST(request: NextRequest) {
           );
         }
       } else if (["Packing", "Store"].includes(department || "")) {
-        const unpaidStickers = await prisma.finalSticker.findFirst({
+        const unpaidStickers = await prisma.finalSticker.findMany({
           where: {
+            status: { notIn: ["defective", "damaged"] },
             ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
             departmentHistory: {
-              some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
+              some: { department, scannedBy: { equals: nameToMatch, mode: "insensitive" } },
             },
             paidDepartments: { none: { department } },
           },
+          include: {
+            departmentRates: { where: { department } },
+          },
         });
-        if (!unpaidStickers) {
+
+        if (unpaidStickers.length === 0) {
           return NextResponse.json(
             {
               success: false,
-              error: `All ${department} pieces for "${workerParty.name}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
+              error: `All ${department} pieces for "${nameToMatch}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
             },
             { status: 400 }
           );
         }
+
+        stickerPayments = unpaidStickers.map((st) => {
+          const rate = st.departmentRates[0]?.ratePerPiece || fallbackRate;
+          return {
+            finalStickerId: st.id,
+            department: department || "Packing",
+            amount: rate,
+            paidBy: session.name || "Admin",
+            paidAt: new Date(),
+          };
+        });
       } else {
-        const unpaidBarcode = await prisma.barcode.findFirst({
+        const unpaidBarcodes = await prisma.barcode.findMany({
           where: {
             ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
             departmentHistory: {
-              some: { department, scannedBy: { equals: workerParty.name, mode: "insensitive" } },
+              some: { department, scannedBy: { equals: nameToMatch, mode: "insensitive" } },
             },
             paidDepartments: { none: { department } },
           },
+          include: {
+            departmentRates: { where: { department } },
+            defectiveInfo: true,
+            adminDefectReview: {
+              include: {
+                departmentReviews: true,
+              },
+            },
+          },
         });
-        if (!unpaidBarcode) {
+
+        const eligibleBarcodes = unpaidBarcodes.filter((b) => {
+          if (department !== "Sewing") return true;
+          const isDefectiveOrDamaged = b.status === "defective" || b.status === "damaged";
+          if (!isDefectiveOrDamaged) return true;
+          if (b.defectiveInfo?.isCompanionDefect) return true;
+          const deptReviews = b.adminDefectReview?.departmentReviews || [];
+          const currentDeptReview = deptReviews.find((dr) => dr.department === department);
+          const decision = currentDeptReview?.decision;
+          return decision && ["approved", "cancelled", "adjusted"].includes(decision);
+        });
+
+        if (eligibleBarcodes.length === 0) {
           return NextResponse.json(
             {
               success: false,
-              error: `All ${department} pieces for "${workerParty.name}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
+              error: `All ${department} pieces for "${nameToMatch}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
             },
             { status: 400 }
           );
         }
+
+        barcodePayments = eligibleBarcodes.map((ub) => {
+          const itemMatch = ub.departmentRates.find(
+            (r) => r.department === department && r.item === ub.item
+          );
+          const deptMatch = ub.departmentRates.find(
+            (r) => r.department === department
+          );
+          const rate = itemMatch?.ratePerPiece ?? deptMatch?.ratePerPiece ?? fallbackRate;
+          return {
+            barcodeId: ub.id,
+            department: department || "Sewing",
+            amount: rate,
+            paidBy: session.name || "Admin",
+            paidAt: new Date(),
+          };
+        });
       }
 
       let laborExpenseAccount = await prisma.account.findFirst({
@@ -246,237 +334,149 @@ export async function POST(request: NextRequest) {
       const voucherType: VoucherType = paymentMode === "cash" ? "CPV" : "BPV";
       const voucherNumber = await generateSequenceNumber(voucherType);
 
-      const voucher = await prisma.$transaction(async (tx) => {
-        const designText = targetDesign ? ` [Design: ${targetDesign}]` : "";
-        const refText = ref ? ` (Ref: ${ref})` : "";
-        const journalLinesData = [
-          {
-            accountId: laborExpenseAccount!.id,
-            partyId: workerParty.id,
-            debit: wageAmount,
-            credit: 0,
-            description: `${department || "Factory"} piece wages for ${workerParty.name}${designText}${refText}`,
-          },
-          {
-            accountId: paidFromAccount.id,
-            partyId: workerParty.id,
-            debit: 0,
-            credit: wageAmount,
-            description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${designText}${refText}`,
-          },
-        ];
-
-        const newVoucher = await tx.voucher.create({
-          data: {
-            voucherNumber,
-            type: voucherType,
-            transactionDate: new Date(),
-            financialYearId: fy.id,
-            partyId: workerParty.id,
-            sourceType: "wage",
-            description: `Wages payment to ${workerParty.name} (${department || "Production"})${designText}${refText}`,
-            totalAmount: wageAmount,
-            paymentMode: paymentMode || "cash",
-            referenceNumber: ref,
-            status: "posted",
-            createdById: validUserId,
-            postedById: validUserId,
-            postedAt: new Date(),
-          },
-        });
-
-        await tx.journalEntry.create({
-          data: {
-            voucherId: newVoucher.id,
-            financialYearId: fy.id,
-            transactionDate: new Date(),
-            description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${designText}${refText}`,
-            totalDebit: wageAmount,
-            totalCredit: wageAmount,
-            status: "posted",
-            lines: {
-              create: journalLinesData,
+      const voucher = await prisma.$transaction(
+        async (tx) => {
+          const designText = targetDesign ? ` [Design: ${targetDesign}]` : "";
+          const refText = ref ? ` (Ref: ${ref})` : "";
+          const journalLinesData = [
+            {
+              accountId: laborExpenseAccount!.id,
+              partyId: workerParty.id,
+              debit: wageAmount,
+              credit: 0,
+              description: `${department || "Factory"} piece wages for ${workerParty.name}${designText}${refText}`,
             },
-          },
-        });
+            {
+              accountId: paidFromAccount.id,
+              partyId: workerParty.id,
+              debit: 0,
+              credit: wageAmount,
+              description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${designText}${refText}`,
+            },
+          ];
 
-        // Synchronize operational piece status to Paid
-        if (department === "Cutting") {
-          const matchingLogs = await tx.pOReceivingLog.findMany({
-            where: targetDesign
-              ? { po: { design: { equals: targetDesign, mode: "insensitive" } } }
-              : {},
-            select: { id: true },
+          const newVoucher = await tx.voucher.create({
+            data: {
+              voucherNumber,
+              type: voucherType,
+              transactionDate: new Date(),
+              financialYearId: fy.id,
+              partyId: workerParty.id,
+              sourceType: "wage",
+              description: `Wages payment to ${workerParty.name} (${department || "Production"})${designText}${refText}`,
+              totalAmount: wageAmount,
+              paymentMode: paymentMode || "cash",
+              referenceNumber: ref,
+              status: "posted",
+              createdById: validUserId,
+              postedById: validUserId,
+              postedAt: new Date(),
+            },
           });
-          const logIds = matchingLogs.map((l) => l.id);
 
-          if (logIds.length > 0) {
-            try {
-              await tx.pOReceivingLogItem.updateMany({
-                where: {
-                  receivingLogId: { in: logIds },
-                  isPaid: false,
-                },
-                data: {
-                  isPaid: true,
-                  paidAt: new Date(),
-                  paidAmount: wageAmount,
-                  voucherNumber: voucher.voucherNumber,
-                  paymentMode: paymentMode || "cash",
-                },
-              });
+          await tx.journalEntry.create({
+            data: {
+              voucherId: newVoucher.id,
+              financialYearId: fy.id,
+              transactionDate: new Date(),
+              description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${designText}${refText}`,
+              totalDebit: wageAmount,
+              totalCredit: wageAmount,
+              status: "posted",
+              lines: {
+                create: journalLinesData,
+              },
+            },
+          });
 
-              await tx.pOReceivingLog.updateMany({
-                where: {
-                  id: { in: logIds },
-                },
-                data: {
-                  voucherNumber: voucher.voucherNumber,
-                  paymentMode: paymentMode || "cash",
-                },
-              });
-            } catch (err: any) {
-              console.warn("Prisma updateMany schema cache fallback to raw SQL:", err?.message);
-              for (const lid of logIds) {
-                await tx.$executeRaw`
-                  UPDATE "POReceivingLogItem"
-                  SET "isPaid" = true, "paidAt" = NOW(), "paidAmount" = ${wageAmount}, "voucherNumber" = ${voucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
-                  WHERE "receivingLogId" = ${lid} AND "isPaid" = false
-                `;
-                await tx.$executeRaw`
-                  UPDATE "POReceivingLog"
-                  SET "voucherNumber" = ${voucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
-                  WHERE "id" = ${lid}
-                `;
+          // Synchronize operational piece status to Paid in bulk
+          if (department === "Cutting") {
+            if (logIds.length > 0) {
+              try {
+                await tx.pOReceivingLogItem.updateMany({
+                  where: {
+                    receivingLogId: { in: logIds },
+                    isPaid: false,
+                  },
+                  data: {
+                    isPaid: true,
+                    paidAt: new Date(),
+                    paidAmount: wageAmount,
+                    voucherNumber: newVoucher.voucherNumber,
+                    paymentMode: paymentMode || "cash",
+                  },
+                });
+
+                await tx.pOReceivingLog.updateMany({
+                  where: {
+                    id: { in: logIds },
+                  },
+                  data: {
+                    voucherNumber: newVoucher.voucherNumber,
+                    paymentMode: paymentMode || "cash",
+                  },
+                });
+              } catch (err: any) {
+                console.warn("Prisma updateMany schema cache fallback to raw SQL:", err?.message);
+                for (const lid of logIds) {
+                  await tx.$executeRaw`
+                    UPDATE "POReceivingLogItem"
+                    SET "isPaid" = true, "paidAt" = NOW(), "paidAmount" = ${wageAmount}, "voucherNumber" = ${newVoucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
+                    WHERE "receivingLogId" = ${lid} AND "isPaid" = false
+                  `;
+                  await tx.$executeRaw`
+                    UPDATE "POReceivingLog"
+                    SET "voucherNumber" = ${newVoucher.voucherNumber}, "paymentMode" = ${paymentMode || "cash"}
+                    WHERE "id" = ${lid}
+                  `;
+                }
               }
             }
-          }
 
-          // 2. Also mark any existing generated barcodes for this cutting person
-          const cuttingBarcodes = await tx.barcode.findMany({
-            where: {
-              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
-              departmentHistory: {
-                some: {
-                  department: "Cutting",
-                  scannedBy: {
-                    equals: workerParty.name,
-                    mode: "insensitive",
-                  },
-                },
-              },
-              paidDepartments: {
-                none: { department: "Cutting" },
-              },
-            },
-            include: {
-              departmentRates: { where: { department: "Cutting" } },
-            },
-          });
-
-          for (const cb of cuttingBarcodes) {
-            const rate = cb.departmentRates[0]?.ratePerPiece || 0;
-            try {
-              await tx.barcodePayment.create({
-                data: {
-                  barcodeId: cb.id,
-                  department: "Cutting",
-                  amount: rate,
-                  paidBy: session.name || "Admin",
-                  paidAt: new Date(),
-                },
+            if (cuttingPayments.length > 0) {
+              await tx.barcodePayment.createMany({
+                data: cuttingPayments,
+                skipDuplicates: true,
               });
-            } catch {
-              // already paid
+            }
+          } else if (["Packing", "Store"].includes(department || "")) {
+            if (stickerPayments.length > 0) {
+              await tx.finalStickerPayment.createMany({
+                data: stickerPayments,
+                skipDuplicates: true,
+              });
+            }
+          } else {
+            if (barcodePayments.length > 0) {
+              await tx.barcodePayment.createMany({
+                data: barcodePayments,
+                skipDuplicates: true,
+              });
             }
           }
-        } else if (["Packing", "Store"].includes(department || "")) {
-          const unpaidStickers = await tx.finalSticker.findMany({
-            where: {
-              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
-              departmentHistory: {
-                some: {
-                  department,
-                  scannedBy: { equals: workerParty.name, mode: "insensitive" },
-                },
-              },
-              paidDepartments: {
-                none: { department },
-              },
-            },
-            include: {
-              departmentRates: { where: { department } },
-            },
-          });
 
-          for (const st of unpaidStickers) {
-            const rate = st.departmentRates[0]?.ratePerPiece || 0;
-            try {
-              await tx.finalStickerPayment.create({
-                data: {
-                  finalStickerId: st.id,
-                  department,
-                  amount: rate,
-                  paidBy: session.name || "Admin",
-                  paidAt: new Date(),
-                },
-              });
-            } catch { }
-          }
-        } else {
-          // Item-scanned departments (Sewing, Quality, Overlock, Clipping, Handmade, Adda Work, Patching, Press)
-          const unpaidBarcodes = await tx.barcode.findMany({
-            where: {
-              ...(targetDesign ? { design: { equals: targetDesign, mode: "insensitive" } } : {}),
-              departmentHistory: {
-                some: {
-                  department,
-                  scannedBy: { equals: workerParty.name, mode: "insensitive" },
-                },
-              },
-              paidDepartments: {
-                none: { department },
-              },
-            },
-            include: {
-              departmentRates: { where: { department } },
-            },
-          });
-
-          for (const ub of unpaidBarcodes) {
-            const itemMatch = ub.departmentRates.find((r) => r.item === ub.item);
-            const rate = itemMatch?.ratePerPiece ?? ub.departmentRates[0]?.ratePerPiece ?? 0;
-            try {
-              await tx.barcodePayment.create({
-                data: {
-                  barcodeId: ub.id,
-                  department,
-                  amount: rate,
-                  paidBy: session.name || "Admin",
-                  paidAt: new Date(),
-                },
-              });
-            } catch { }
-          }
+          return newVoucher;
+        },
+        {
+          maxWait: 15000,
+          timeout: 30000,
         }
+      );
 
-        try {
-          await tx.auditLog.create({
-            data: {
-              userId: validUserId,
-              userName: session.name,
-              action: "PAY_WORKER_WAGES",
-              entityType: "Voucher",
-              entityId: newVoucher.id,
-              reason: `Paid wages to ${workerParty.name}: Rs. ${wageAmount} (${department})`,
-            },
-          });
-        } catch (auditErr) {
-          console.warn("Audit log creation skipped:", auditErr);
-        }
-
-        return newVoucher;
-      });
+      try {
+        await prisma.auditLog.create({
+          data: {
+            userId: validUserId,
+            userName: session.name,
+            action: "PAY_WORKER_WAGES",
+            entityType: "Voucher",
+            entityId: voucher.id,
+            reason: `Paid wages to ${workerParty.name}: Rs. ${wageAmount} (${department})`,
+          },
+        });
+      } catch (auditErr) {
+        console.warn("Audit log creation skipped:", auditErr);
+      }
 
       return NextResponse.json({
         success: true,

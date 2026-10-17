@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/libs/prisma";
+import { postStoreCheckInJournal } from "@/app/libs/accounting/inventoryPostingService";
 
 export async function POST(request: NextRequest) {
   try {
@@ -112,6 +113,17 @@ export async function POST(request: NextRequest) {
         departmentRates: true,
         paidDepartments: true,
       },
+    });
+
+    // Automatically post accounting journal: Finished Goods Inventory (AS-102) Dr / WIP (AS-105) Cr
+    await postStoreCheckInJournal({
+      finalStickerId: updatedSticker.id,
+      design: updatedSticker.design,
+      suitType: updatedSticker.suitType,
+      size: updatedSticker.size,
+      unitNumber: updatedSticker.unitNumber,
+      sellingPrice: updatedSticker.sellingPrice,
+      scannedBy: scannedBy || undefined,
     });
 
     return NextResponse.json({

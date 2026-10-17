@@ -182,10 +182,18 @@ export async function GET(request: NextRequest) {
         const currentDeptReview = deptReviews.find((dr: any) => dr.department === department);
         const reviewDecision = currentDeptReview?.decision;
 
+        // User rule: Every department after quality (Press, Packing, etc.) and non-sewing departments
+        // are paid for ALL items they scan (including defectives), because the defect is not their mistake.
+        // Only the stitcher's (Sewing) payment depends on the admin decision.
+        const isNonSewingDept = department !== "Sewing";
+
         let shouldInclude = false;
-        if (!isDefectiveOrDamaged) {
+        if (isNonSewingDept) {
+          shouldInclude = true;
+        } else if (!isDefectiveOrDamaged) {
           shouldInclude = true;
         } else if (isCompanionDefect) {
+          // Converted/companion items are automatically paid to the stitcher
           shouldInclude = true;
         } else if (barcode.status === "defective" && ["approved", "cancelled", "adjusted"].includes(reviewDecision)) {
           shouldInclude = true;
@@ -194,7 +202,7 @@ export async function GET(request: NextRequest) {
         if (!shouldInclude) continue;
 
         let defectDecision: string | null = null;
-        if (isCompanionDefect) {
+        if (isNonSewingDept || isCompanionDefect) {
           defectDecision = "approved";
         } else if (reviewDecision) {
           defectDecision = reviewDecision;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/libs/prisma";
+import { postStoreCheckOutJournal } from "@/app/libs/accounting/inventoryPostingService";
 
 export async function POST(request: NextRequest) {
   try {
@@ -143,6 +144,19 @@ export async function POST(request: NextRequest) {
         departmentRates: true,
         paidDepartments: true,
       },
+    });
+
+    // Automatically post accounting vouchers: Sales Revenue (Cr) / Cash or Receivable (Dr) & COGS (Dr) / Finished Goods (Cr)
+    await postStoreCheckOutJournal({
+      finalStickerId: updatedSticker.id,
+      design: updatedSticker.design,
+      suitType: updatedSticker.suitType,
+      size: updatedSticker.size,
+      unitNumber: updatedSticker.unitNumber,
+      sellingPrice: updatedSticker.sellingPrice || 0,
+      checkoutType: dispatchInfo.checkoutType,
+      customerName: dispatchInfo.customerName,
+      dispatchedBy: dispatchInfo.dispatchedBy,
     });
 
     return NextResponse.json({
