@@ -79,10 +79,10 @@ export async function GET(request: NextRequest) {
           const isCutting = dept === "Cutting";
 
           let currentDecision: "approved" | "cancelled" | "adjusted" | "pending" = "pending";
-          if (isCompanion || isCutting) {
+          if (isCompanion) {
             currentDecision = "approved";
           } else if (existingReview) {
-            currentDecision = existingReview.decision;
+            currentDecision = existingReview.decision as any;
           }
 
           return {
@@ -93,12 +93,34 @@ export async function GET(request: NextRequest) {
             isCutting,
             isCompanion,
             decision: currentDecision,
+            isSettled: existingReview?.isSettled || false,
+            settledVoucherId: existingReview?.settledVoucherId || null,
+            settledAt: existingReview?.settledAt || null,
           };
         });
 
         const reviewStatus = isCompanion
           ? "reviewed"
           : adminDefectReview?.status || "pending";
+
+        let poNumber = b.poNumber || null;
+        let barcodeSeq = b.sequenceNumber || b.unitNumber;
+        let barcodeTotal = b.totalUnitsInBatch || 0;
+
+        if (b.barcodeData && b.barcodeData.trim().startsWith("{")) {
+          try {
+            const parsed = JSON.parse(b.barcodeData);
+            if (!poNumber) poNumber = parsed.po || parsed.poNumber || null;
+            if (!barcodeSeq && parsed.seq) barcodeSeq = parsed.seq;
+            if (!barcodeTotal && parsed.totalItems) barcodeTotal = parsed.totalItems;
+          } catch {
+            // ignore JSON parse error
+          }
+        }
+
+        const printedLabelNumber = barcodeTotal && barcodeTotal > 0
+          ? `${barcodeSeq}/${barcodeTotal}`
+          : `#${barcodeSeq}`;
 
         return {
           _id: b.id,
@@ -107,6 +129,10 @@ export async function GET(request: NextRequest) {
           size: b.size,
           item: b.item,
           unitNumber: b.unitNumber,
+          sequenceNumber: barcodeSeq,
+          totalUnitsInBatch: barcodeTotal,
+          printedLabelNumber,
+          poNumber: poNumber || "PO-N/A",
           barcodeData: b.barcodeData,
           status: b.status,
           defectiveInfo: b.defectiveInfo,
@@ -193,16 +219,17 @@ export async function POST(request: NextRequest) {
         (pd) => pd.department === dept
       );
 
-      if (dept === "Cutting" || isCompanion) {
+      if (isCompanion) {
         return {
           department: dept,
           workerName,
           rate,
           previouslyPaid,
           decision: "approved",
+          isSettled: false,
           decidedAt: new Date(),
           decidedBy: reviewedBy || "Admin",
-          notes: isCompanion ? "Companion scrap auto-approved" : "Cutting master protected",
+          notes: "Companion scrap auto-approved",
         };
       }
 
@@ -213,15 +240,23 @@ export async function POST(request: NextRequest) {
         decision = previouslyPaid ? "adjusted" : "cancelled";
       }
 
+      const defaultNote =
+        decision === "adjusted"
+          ? `Defect deduction: -₨${rate} to be adjusted from next wage payout`
+          : decision === "cancelled"
+          ? `Defective piece: payment withheld (not paid)`
+          : "Approved for payment by Admin";
+
       return {
         department: dept,
         workerName,
         rate,
         previouslyPaid,
         decision,
+        isSettled: false,
         decidedAt: new Date(),
         decidedBy: reviewedBy || "Admin",
-        notes: d.notes || undefined,
+        notes: d.notes || defaultNote,
       };
     });
 

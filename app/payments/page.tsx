@@ -27,6 +27,7 @@ import {
   BadgeAlert,
   Send,
   ArrowUpRight,
+  Tag,
 } from "lucide-react";
 
 interface PieceData {
@@ -130,6 +131,10 @@ interface DefectiveItem {
   size: string;
   item: string;
   unitNumber: number;
+  poNumber?: string;
+  printedLabelNumber?: string;
+  sequenceNumber?: number;
+  totalUnitsInBatch?: number;
   barcodeData: string;
   status: string;
   defectiveInfo?: {
@@ -291,7 +296,7 @@ export default function PaymentsPage() {
       const decisionsPayload = item.departments.map((dept) => ({
         department: dept.department,
         workerName: dept.workerName,
-        approved: dept.isCutting || dept.isCompanion ? true : !!itemChecks[dept.department],
+        approved: dept.isCompanion ? true : !!itemChecks[dept.department],
       }));
 
       const res = await fetch("/api/payment/defect-decisions", {
@@ -577,25 +582,47 @@ export default function PaymentsPage() {
                       className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden"
                     >
                       {/* Card Header */}
-                      <div className="p-4 bg-gray-50 border-b flex flex-col md:flex-row md:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
+                      <div className="p-4 bg-gray-50 border-b flex flex-col md:flex-row md:items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
                           <div
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${
-                              isCompanion ? "bg-blue-100 text-blue-700" : "bg-rose-100 text-rose-700"
+                            className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center font-bold text-xs shrink-0 shadow-2xs border ${
+                              isCompanion ? "bg-blue-100 text-blue-800 border-blue-200" : "bg-rose-100 text-rose-800 border-rose-200"
                             }`}
                           >
-                            #{item.unitNumber}
+                            <span className="text-[9px] uppercase font-bold text-gray-500">Label</span>
+                            <span className="font-mono text-xs font-black leading-tight mt-0.5">
+                              {item.printedLabelNumber || `#${item.unitNumber}`}
+                            </span>
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-bold text-gray-900 text-base">{item.design}</h3>
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="font-black text-gray-900 text-base">{item.design}</h3>
+
+                              {/* PO Number */}
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-mono font-bold bg-slate-900 text-white shadow-2xs">
+                                <Tag size={11} className="text-amber-400" />
+                                {item.poNumber || "PO-N/A"}
+                              </span>
+
+                              {/* Garment Item Type (Qameez, Shalwar, Dupatta) */}
                               <span
-                                className={`px-2 py-0.5 rounded text-xs font-semibold border ${
+                                className={`px-2.5 py-0.5 rounded-md text-xs font-bold border shadow-2xs uppercase tracking-wider ${
                                   ITEM_BADGES[item.item] || ITEM_BADGES.Other
                                 }`}
                               >
-                                {item.item} ({item.size})
+                                {item.item}
                               </span>
+
+                              {/* Garment Size */}
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                                Size: {item.size}
+                              </span>
+
+                              {/* Printed Label Number */}
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 font-mono shadow-2xs">
+                                🏷️ Label: {item.printedLabelNumber || `#${item.unitNumber}`}
+                              </span>
+
                               {isCompanion && (
                                 <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
                                   <ShieldCheck size={12} />
@@ -603,10 +630,21 @@ export default function PaymentsPage() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              Marked on {new Date(item.defectiveInfo?.markedAt || "").toLocaleDateString()} by{" "}
-                              <strong className="text-gray-700">{item.defectiveInfo?.markedBy || "Quality Staff"}</strong>
-                            </p>
+
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                              <span>
+                                Marked on {new Date(item.defectiveInfo?.markedAt || "").toLocaleDateString()} by{" "}
+                                <strong className="text-gray-800">{item.defectiveInfo?.markedBy || "Quality Staff"}</strong>
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span>
+                                Garment: <strong className="text-blue-900 font-semibold">{item.item}</strong> ({item.size})
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span>
+                                Unit: <strong className="text-gray-800">#{item.unitNumber}</strong>
+                              </span>
+                            </div>
                           </div>
                         </div>
 
@@ -654,7 +692,7 @@ export default function PaymentsPage() {
                         <div className="space-y-3">
                           {item.departments.map((dept) => {
                             const isCutting = dept.isCutting;
-                            const isChecked = isCutting || isCompanion ? true : !!itemChecks[dept.department];
+                            const isChecked = isCompanion ? true : !!itemChecks[dept.department];
 
                             return (
                               <div
@@ -666,11 +704,7 @@ export default function PaymentsPage() {
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
-                                  {isCutting ? (
-                                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                      <Lock size={15} />
-                                    </div>
-                                  ) : isCompanion ? (
+                                  {isCompanion ? (
                                     <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
                                       <ShieldCheck size={16} />
                                     </div>
@@ -691,7 +725,9 @@ export default function PaymentsPage() {
 
                                   <div>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-bold text-gray-900 text-sm">{dept.department}</span>
+                                      <span className="font-bold text-gray-900 text-sm">
+                                        {dept.department === "Cutting" ? "✂️ Cutting Master" : dept.department}
+                                      </span>
                                       <span className="text-gray-500 text-xs">— {dept.workerName}</span>
                                       <span className="font-semibold text-gray-900 text-xs bg-gray-100 px-2 py-0.5 rounded">
                                         Rate: ₨{dept.rate}
@@ -700,11 +736,7 @@ export default function PaymentsPage() {
 
                                     {/* Status details & dynamic explanation */}
                                     <div className="text-xs mt-1">
-                                      {isCutting ? (
-                                        <span className="text-emerald-700 font-semibold">
-                                          ✓ Cutting Master (Protected: Received in good condition — Always Paid)
-                                        </span>
-                                      ) : isCompanion ? (
+                                      {isCompanion ? (
                                         <span className="text-blue-700 font-semibold">
                                           ✓ Companion Piece (Physically OK — Always Paid)
                                         </span>
@@ -715,12 +747,12 @@ export default function PaymentsPage() {
                                       ) : dept.previouslyPaid ? (
                                         <span className="text-red-700 font-bold flex items-center gap-1">
                                           <AlertTriangle size={12} />
-                                          ⚠️ Was already paid: Will make future adjustment of -₨{dept.rate} on {dept.workerName}'s next payout
+                                          ⚠️ Was already paid: Will make adjustment of -₨{dept.rate} on {dept.workerName}'s next payout
                                         </span>
                                       ) : (
                                         <span className="text-gray-600 font-medium flex items-center gap-1">
                                           <XCircle size={12} className="text-gray-400" />
-                                          Payment will be cancelled (no payment will be made)
+                                          Payment will be cancelled (worker will not be paid for this defective piece)
                                         </span>
                                       )}
                                     </div>

@@ -89,6 +89,12 @@ export async function GET(request: NextRequest) {
             include: {
               paidDepartments: { where: { department: "Cutting" } },
               departmentRates: { where: { department: "Cutting" } },
+              defectiveInfo: true,
+              adminDefectReview: {
+                include: {
+                  departmentReviews: { where: { department: "Cutting" } },
+                },
+              },
             },
           },
         },
@@ -123,10 +129,23 @@ export async function GET(request: NextRequest) {
 
               let isPaid = false;
               let pieceId = "";
+              let defectDecision: string | null = null;
+              let isSettled = false;
+              let reviewId: string | null = null;
 
               if (barcode) {
                 isPaid = barcode.paidDepartments.length > 0 || itemLog.isPaid;
                 pieceId = barcode.id;
+
+                const adminReview = barcode.adminDefectReview as any;
+                const cuttingReview = adminReview?.departmentReviews?.[0];
+                if (cuttingReview) {
+                  defectDecision = cuttingReview.decision;
+                  isSettled = !!cuttingReview.isSettled;
+                  reviewId = cuttingReview.id;
+                } else if (barcode.status === "defective") {
+                  defectDecision = "pending";
+                }
               } else {
                 isPaid = itemLog.isPaid;
                 pieceId = `po_rcv_${itemLog.id}_${i + 1}`;
@@ -141,12 +160,17 @@ export async function GET(request: NextRequest) {
                 unitNumber: barcode ? barcode.unitNumber : i + 1,
                 workerName: cuttingPerson,
                 scannedAt: log.receivedAt,
-                status: "received",
+                status: barcode ? barcode.status : "received",
                 isPaid,
                 rate: matchedRate,
                 poNumber: po.poNumber,
                 poId: po.id,
                 receivingLogItemId: itemLog.id,
+                defectiveInfo: barcode?.defectiveInfo,
+                adminDefectReview: barcode?.adminDefectReview,
+                defectDecision,
+                isSettled,
+                reviewId,
               });
             }
           }
@@ -208,6 +232,9 @@ export async function GET(request: NextRequest) {
           defectDecision = reviewDecision;
         }
 
+        const isSettled = !!currentDeptReview?.isSettled;
+        const reviewId = currentDeptReview?.id || null;
+
         const matchingScans = barcode.departmentHistory.filter((h) => h.department === department);
         for (const scan of matchingScans) {
           if (!scan.scannedBy) continue;
@@ -234,6 +261,8 @@ export async function GET(request: NextRequest) {
             defectiveInfo,
             adminDefectReview,
             defectDecision,
+            isSettled,
+            reviewId,
             isPaid,
             rate,
           });
@@ -287,19 +316,22 @@ export async function GET(request: NextRequest) {
       }
 
       if (decision === "adjusted") {
-        worker.totalAdjusted++;
-        worker.adjustedAmount += piece.rate;
-        worker.adjustments.push({
-          _id: piece._id,
-          design: piece.design,
-          item: piece.item,
-          size: piece.size,
-          unitNumber: piece.unitNumber,
-          rate: piece.rate,
-          reason: piece.defectiveInfo?.reason || "Defect",
-          notes: piece.defectiveInfo?.notes || "",
-          decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
-        });
+        if (!piece.isSettled) {
+          worker.totalAdjusted++;
+          worker.adjustedAmount += piece.rate;
+          worker.adjustments.push({
+            _id: piece._id,
+            reviewId: piece.reviewId,
+            design: piece.design,
+            item: piece.item,
+            size: piece.size,
+            unitNumber: piece.unitNumber,
+            rate: piece.rate,
+            reason: piece.defectiveInfo?.reason || "Defect",
+            notes: piece.defectiveInfo?.notes || "",
+            decidedAt: piece.adminDefectReview?.reviewedAt || piece.defectiveInfo?.markedAt,
+          });
+        }
       }
 
       worker.totalPieces++;

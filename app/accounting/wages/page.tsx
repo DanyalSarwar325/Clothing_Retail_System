@@ -113,24 +113,53 @@ export default function WorkerWagesPage() {
     if (!departmentData?.workers) return [];
 
     return departmentData.workers.flatMap((w: any) => {
+      const workerAdjustments = w.adjustments || [];
+      const totalWorkerAdjustment = workerAdjustments.reduce(
+        (s: number, a: any) => s + (a.rate || 0),
+        0
+      );
+      let unabsorbedAdjustment = totalWorkerAdjustment;
+
       if (w.designs && w.designs.length > 0) {
         return w.designs
           .filter((d: any) => selectedDesign === "all" || d.design === selectedDesign)
-          .map((d: any) => ({
-            workerName: w.workerName,
-            design: d.design || "General",
-            totalPieces: d.totalPieces || (d.paidCount || 0) + (d.pendingCount || 0),
-            totalAmount: d.totalAmount || (d.paidAmount || 0) + (d.pendingAmount || 0),
-            paidCount: d.paidCount || 0,
-            paidAmount: d.paidAmount || 0,
-            pendingCount: d.pendingCount || 0,
-            pendingAmount: d.pendingAmount || 0,
-            items: d.items || [],
-          }));
+          .map((d: any) => {
+            const grossPending = d.pendingAmount || 0;
+            const adjustmentToApply = Math.min(grossPending, unabsorbedAdjustment);
+            unabsorbedAdjustment = Math.max(0, unabsorbedAdjustment - adjustmentToApply);
+
+            const netPendingAmount = Math.max(0, grossPending - adjustmentToApply);
+
+            const designAdjustments = workerAdjustments.filter(
+              (a: any) => a.design === d.design
+            );
+            const displayAdjustments =
+              designAdjustments.length > 0
+                ? designAdjustments
+                : (adjustmentToApply > 0 ? workerAdjustments : []);
+
+            return {
+              workerName: w.workerName,
+              design: d.design || "General",
+              totalPieces: d.totalPieces || (d.paidCount || 0) + (d.pendingCount || 0),
+              totalAmount: d.totalAmount || (d.paidAmount || 0) + (d.pendingAmount || 0),
+              paidCount: d.paidCount || 0,
+              paidAmount: d.paidAmount || 0,
+              pendingCount: d.pendingCount || 0,
+              pendingAmount: grossPending,
+              adjustedAmount: adjustmentToApply,
+              netPendingAmount,
+              adjustments: displayAdjustments,
+              allWorkerAdjustments: workerAdjustments,
+              items: d.items || [],
+            };
+          });
       } else {
         if (selectedDesign !== "all") return [];
-        const pending = w.pendingAmount ?? w.netPendingAmount ?? 0;
-        const gross = (w.paidAmount || 0) + pending;
+        const grossPending = w.pendingAmount || 0;
+        const adjustedAmount = Math.min(grossPending, totalWorkerAdjustment);
+        const netPendingAmount = Math.max(0, grossPending - adjustedAmount);
+        const gross = (w.paidAmount || 0) + grossPending;
         return [
           {
             workerName: w.workerName,
@@ -140,7 +169,11 @@ export default function WorkerWagesPage() {
             paidCount: w.totalPaid || 0,
             paidAmount: w.paidAmount || 0,
             pendingCount: w.totalPending || 0,
-            pendingAmount: pending,
+            pendingAmount: grossPending,
+            adjustedAmount,
+            netPendingAmount,
+            adjustments: workerAdjustments,
+            allWorkerAdjustments: workerAdjustments,
             items: [],
           },
         ];
@@ -151,9 +184,9 @@ export default function WorkerWagesPage() {
   // Filtered Totals
   const filteredPending = useMemo(() => {
     if (selectedDesign === "all") {
-      return departmentData?.totals?.pendingAmount || 0;
+      return departmentData?.totals?.netPendingAmount ?? departmentData?.totals?.pendingAmount ?? 0;
     }
-    return displayRows.reduce((sum: number, r: any) => sum + (r.pendingAmount || 0), 0);
+    return displayRows.reduce((sum: number, r: any) => sum + (r.netPendingAmount || 0), 0);
   }, [selectedDesign, departmentData, displayRows]);
 
   const filteredPaid = useMemo(() => {
@@ -166,8 +199,31 @@ export default function WorkerWagesPage() {
   // Open Wage Payment Modal
   const openPayWageModal = (row: any) => {
     const gross = row.pendingAmount || 0;
-    setSelectedWorkerToPay(row);
-    setPayGrossAmount(gross);
+    const adjusted = row.adjustedAmount || 0;
+    const netDue = Math.max(0, gross - adjusted);
+
+    const workerObj = departmentData?.workers?.find(
+      (w: any) => w.workerName.toLowerCase() === row.workerName.toLowerCase()
+    );
+
+    const workerAdjustments =
+      row.adjustments && row.adjustments.length > 0
+        ? row.adjustments
+        : row.allWorkerAdjustments || workerObj?.adjustments || [];
+
+    const cancelledPieces = (workerObj?.cancelledPieces || []).filter(
+      (c: any) => selectedDesign === "all" || c.design === row.design
+    );
+
+    setSelectedWorkerToPay({
+      ...row,
+      grossPending: gross,
+      totalAdjusted: adjusted,
+      netDue,
+      adjustments: workerAdjustments,
+      cancelledPieces,
+    });
+    setPayGrossAmount(netDue);
     setReference("");
     setShowPayModal(true);
   };
@@ -175,7 +231,7 @@ export default function WorkerWagesPage() {
   // Disburse Wage Handler
   const handleDisburseWage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payFromAccountId) {
+    if (payGrossAmount > 0 && !payFromAccountId) {
       toast.error("Select a Cash or Bank account to disburse from");
       return;
     }
@@ -473,19 +529,40 @@ export default function WorkerWagesPage() {
                         {formatPKR(row.paidAmount || 0)}
                       </td>
                       <td className="px-5 py-4 text-right font-extrabold text-slate-900">
-                        {pending > 0 ? (
-                          <span className="text-amber-700">{formatPKR(pending)}</span>
+                        {row.netPendingAmount > 0 ? (
+                          <div>
+                            <span className="text-amber-700">{formatPKR(row.netPendingAmount)}</span>
+                            {row.adjustedAmount > 0 && (
+                              <span className="text-[10px] text-rose-600 font-semibold block">
+                                (Less -₨{row.adjustedAmount} defect deduction)
+                              </span>
+                            )}
+                          </div>
+                        ) : row.pendingAmount > 0 && row.adjustedAmount >= row.pendingAmount ? (
+                          <div>
+                            <span className="text-rose-600">₨0</span>
+                            <span className="text-[10px] text-rose-600 font-semibold block">
+                              (Fully absorbed by defect deduction)
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-emerald-700">₨0</span>
                         )}
                       </td>
                       <td className="px-5 py-4 text-center">
-                        {pending > 0 ? (
+                        {row.netPendingAmount > 0 ? (
                           <button
                             onClick={() => openPayWageModal(row)}
                             className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
                           >
                             Disburse Wage
+                          </button>
+                        ) : row.pendingAmount > 0 && row.adjustedAmount >= row.pendingAmount ? (
+                          <button
+                            onClick={() => openPayWageModal(row)}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors inline-flex items-center gap-1"
+                          >
+                            Settle (₨0)
                           </button>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-bold px-3 py-1 bg-emerald-100 rounded-full border border-emerald-300 shadow-2xs">
@@ -549,6 +626,42 @@ export default function WorkerWagesPage() {
                     pcs
                   </span>
                 </div>
+
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Gross Pending Wages:</span>
+                  <span className="font-bold text-slate-900">
+                    {formatPKR(selectedWorkerToPay?.grossPending ?? selectedWorkerToPay?.pendingAmount ?? 0)}
+                  </span>
+                </div>
+
+                {selectedWorkerToPay?.totalAdjusted > 0 && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg space-y-1">
+                    <div className="flex justify-between text-rose-800 font-bold">
+                      <span>Defect Adjustment Deduction:</span>
+                      <span>- {formatPKR(selectedWorkerToPay.totalAdjusted)}</span>
+                    </div>
+                    <p className="text-[11px] text-rose-600">
+                      Deducted for {selectedWorkerToPay.adjustments?.length} previously paid defective piece(s):
+                    </p>
+                    <div className="max-h-24 overflow-y-auto divide-y divide-rose-200/50 text-[10px] text-rose-700">
+                      {selectedWorkerToPay.adjustments?.map((adj: any, i: number) => (
+                        <div key={i} className="py-1 flex justify-between">
+                          <span>
+                            {adj.design} • {adj.item} #{adj.unitNumber}{" "}
+                            {adj.reason ? `(${adj.reason})` : ""}
+                          </span>
+                          <span className="font-semibold">-₨{adj.rate}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedWorkerToPay?.cancelledPieces?.length > 0 && (
+                  <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800">
+                    ℹ️ {selectedWorkerToPay.cancelledPieces.length} defective piece(s) were cancelled and withheld from payout.
+                  </div>
+                )}
 
                 <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-extrabold">
                   <span className="text-slate-900">Net Amount Paid to Worker:</span>
@@ -629,9 +742,17 @@ export default function WorkerWagesPage() {
                 <button
                   type="submit"
                   disabled={submittingPay}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-xs disabled:opacity-50 cursor-pointer"
+                  className={`px-5 py-2.5 ${
+                    payGrossAmount === 0
+                      ? "bg-rose-600 hover:bg-rose-700"
+                      : "bg-emerald-600 hover:bg-emerald-700"
+                  } text-white rounded-xl text-sm font-semibold shadow-xs disabled:opacity-50 cursor-pointer`}
                 >
-                  {submittingPay ? "Posting..." : "Confirm & Disburse Wage"}
+                  {submittingPay
+                    ? "Posting..."
+                    : payGrossAmount === 0
+                    ? "Confirm & Settle Wage (₨0.00)"
+                    : "Confirm & Disburse Wage"}
                 </button>
               </div>
             </form>

@@ -58,13 +58,28 @@ export async function POST(request: NextRequest) {
     }
 
     // Find barcode by ID or unique barcodeData
-    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: barcodeData.trim() };
-    const barcode = await prisma.barcode.findUnique({
+    const cleanData = barcodeData ? barcodeData.trim() : "";
+    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: cleanData };
+    let barcode = await prisma.barcode.findUnique({
       where: whereClause,
       include: {
         departmentHistory: true,
       },
     });
+
+    if (!barcode && cleanData) {
+      barcode = await prisma.barcode.findFirst({
+        where: {
+          OR: [
+            { id: cleanData },
+            { barcodeData: { equals: cleanData, mode: "insensitive" } },
+          ],
+        },
+        include: {
+          departmentHistory: true,
+        },
+      });
+    }
 
     if (!barcode) {
       return NextResponse.json(
@@ -74,6 +89,47 @@ export async function POST(request: NextRequest) {
     }
 
     const finalStatus = status;
+
+    // Prevent scanning under Quality OK twice
+    if (finalStatus === "quality_ok" && barcode.status === "quality_ok") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `This item (${barcode.design} - ${barcode.item}) is already marked as Quality OK and cannot be scanned twice.`,
+          alreadyQualityOk: true,
+          barcode: {
+            id: barcode.id,
+            design: barcode.design,
+            item: barcode.item,
+            size: barcode.size,
+            unitNumber: barcode.unitNumber,
+            status: barcode.status,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    // Prevent scanning under Defective/Damaged twice
+    if (isDamaged && (barcode.status === "damaged" || barcode.status === "defective")) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `This item (${barcode.design} - ${barcode.item}) is already marked as defective and cannot be scanned twice.`,
+          alreadyDefective: true,
+          barcode: {
+            id: barcode.id,
+            design: barcode.design,
+            item: barcode.item,
+            size: barcode.size,
+            unitNumber: barcode.unitNumber,
+            status: barcode.status,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     const now = new Date();
 
     // Execute quality check update in an atomic transaction

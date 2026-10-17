@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 import {
   LogOut,
@@ -76,7 +76,8 @@ export default function QualityPage() {
 
   // Scanner state
   const [scannerInput, setScannerInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [queueLength, setQueueLength] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [okCount, setOkCount] = useState(0);
   const [defectiveCount, setDefectiveCount] = useState(0);
@@ -95,13 +96,32 @@ export default function QualityPage() {
   const [showOutpassModal, setShowOutpassModal] = useState(false);
   const scannerInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus barcode input whenever on the scan tab
+  // FIFO Queue & hardware scanner wedge refs
+  const scanQueueRef = useRef<Array<{ barcode: string; mode: QualityScanMode; defectReason: string }>>([]);
+  const isProcessingRef = useRef<boolean>(false);
+  const globalBufferRef = useRef<string>("");
+  const lastKeyTimeRef = useRef<number>(0);
+
+  // Auto-focus barcode input continuously whenever on the scan tab
   useEffect(() => {
     if (activeTab === "scan" && !showOutpassModal) {
-      const focus = () => scannerInputRef.current?.focus();
+      const focus = () => {
+        if (scannerInputRef.current && document.activeElement !== scannerInputRef.current) {
+          const active = document.activeElement;
+          if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+            return;
+          }
+          scannerInputRef.current.focus();
+        }
+      };
       focus();
-      const interval = setInterval(focus, 1500);
-      return () => clearInterval(interval);
+      const interval = setInterval(focus, 1200);
+      const handleDocClick = () => setTimeout(focus, 50);
+      document.addEventListener("click", handleDocClick);
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener("click", handleDocClick);
+      };
     }
   }, [activeTab, showOutpassModal]);
 
@@ -127,16 +147,22 @@ export default function QualityPage() {
     }
   };
 
-  // Main barcode gun scan processor according to active mode
-  const handleProcessBarcode = async (barcodeData: string) => {
-    if (!barcodeData.trim() || loading) return;
+  // FIFO Queue processor - handles rapid-fire barcode gun scans without dropping any scan
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    if (scanQueueRef.current.length === 0) return;
 
-    setLoading(true);
-    const trimmedData = barcodeData.trim();
+    isProcessingRef.current = true;
+    setIsProcessing(true);
+
+    const task = scanQueueRef.current.shift()!;
+    setQueueLength(scanQueueRef.current.length);
+
+    const { barcode: trimmedData, mode, defectReason: currentDefectReason } = task;
     const inspector = user?.name || user?.username || "Quality Inspector";
 
     try {
-      if (scanMode === "normal") {
+      if (mode === "normal") {
         // =========================================================================
         // MODE 1: NORMAL (Every item marked Quality OK)
         // =========================================================================
@@ -180,7 +206,7 @@ export default function QualityPage() {
           playScanErrorSound();
           toast.error(data.message || "Barcode not found");
         }
-      } else if (scanMode === "defective") {
+      } else if (mode === "defective") {
         // =========================================================================
         // MODE 2: DEFECTIVE (Genuinely Damaged - No companion prompts)
         // =========================================================================
@@ -192,8 +218,8 @@ export default function QualityPage() {
             department: "Quality",
             markedBy: inspector,
             isCompanionDefect: false,
-            reason: defectReason || "Quality Defect",
-            notes: `Marked defective during quality inspection (${defectReason})`,
+            reason: currentDefectReason || "Quality Defect",
+            notes: `Marked defective during quality inspection (${currentDefectReason})`,
           }),
         });
 
@@ -215,7 +241,7 @@ export default function QualityPage() {
             time: new Date().toLocaleTimeString(),
             stitcherName: stitcher,
             inspector,
-            reason: defectReason,
+            reason: currentDefectReason,
           };
 
           setLastItem(inspected);
@@ -227,7 +253,7 @@ export default function QualityPage() {
           playScanErrorSound();
           toast.error(data.message || "Failed to mark defective");
         }
-      } else if (scanMode === "convert") {
+      } else if (mode === "convert") {
         // =========================================================================
         // MODE 3: CONVERT OK TO DEFECTIVE (Companion Scrap - Stitcher is PAID)
         // =========================================================================
@@ -283,11 +309,67 @@ export default function QualityPage() {
       playScanErrorSound();
       toast.error(err.message || "Error processing scan");
     } finally {
-      setLoading(false);
-      setScannerInput("");
-      scannerInputRef.current?.focus();
+      isProcessingRef.current = false;
+      setIsProcessing(false);
+      setQueueLength(scanQueueRef.current.length);
+
+      // Process next item in FIFO queue immediately
+      if (scanQueueRef.current.length > 0) {
+        setTimeout(processQueue, 20);
+      } else {
+        setTimeout(() => scannerInputRef.current?.focus(), 20);
+      }
     }
-  };
+  }, [user]);
+
+  // Enqueue barcode into FIFO queue
+  const enqueueBarcode = useCallback(
+    (raw: string, mode: QualityScanMode, reason: string) => {
+      const cleaned = raw.trim();
+      if (!cleaned) return;
+
+      scanQueueRef.current.push({ barcode: cleaned, mode, defectReason: reason });
+      setQueueLength(scanQueueRef.current.length);
+      processQueue();
+    },
+    [processQueue]
+  );
+
+  // Global hardware scanner listener
+  useEffect(() => {
+    if (activeTab !== "scan" || showOutpassModal) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) {
+        if (target !== scannerInputRef.current) return;
+      }
+
+      const now = Date.now();
+      if (now - lastKeyTimeRef.current > 400) {
+        globalBufferRef.current = "";
+      }
+      lastKeyTimeRef.current = now;
+
+      if (e.key === "Enter") {
+        const barcodeFromBuffer = globalBufferRef.current.trim();
+        const barcodeFromInput = scannerInput.trim();
+        const finalBarcode = barcodeFromInput || barcodeFromBuffer;
+
+        if (finalBarcode) {
+          e.preventDefault();
+          globalBufferRef.current = "";
+          setScannerInput("");
+          enqueueBarcode(finalBarcode, scanMode, defectReason);
+        }
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        globalBufferRef.current += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [activeTab, showOutpassModal, scanMode, defectReason, scannerInput, enqueueBarcode]);
 
   // Filter logs in tab 2
   const filteredLogs = defectiveLogs.filter((log) => {
@@ -539,11 +621,14 @@ export default function QualityPage() {
                     type="text"
                     value={scannerInput}
                     onChange={(e) => setScannerInput(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter" && scannerInput.trim()) {
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         const val = scannerInput.trim();
-                        await handleProcessBarcode(val);
+                        if (val) {
+                          setScannerInput("");
+                          enqueueBarcode(val, scanMode, defectReason);
+                        }
                       }
                     }}
                     placeholder={`Point barcode gun here to scan in ${scanMode === "normal" ? "NORMAL" : scanMode === "defective" ? "DEFECTIVE" : "CONVERT"
@@ -557,10 +642,10 @@ export default function QualityPage() {
                     autoComplete="off"
                     autoFocus
                   />
-                  {loading && (
+                  {isProcessing && (
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-xs text-gray-500 font-medium">
                       <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-                      Processing...
+                      {queueLength > 0 ? `Queued (${queueLength})...` : "Processing..."}
                     </div>
                   )}
                 </div>

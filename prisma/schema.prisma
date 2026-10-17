@@ -270,17 +270,20 @@ model AdminDefectReview {
 }
 
 model DefectDepartmentReview {
-  id             String            @id @default(uuid())
-  adminReviewId  String
-  department     String
-  workerName     String
-  rate           Float
-  previouslyPaid Boolean           @default(false)
-  decision       String            // approved, cancelled, adjusted
-  decidedAt      DateTime          @default(now())
-  decidedBy      String
-  notes          String?
-  adminReview    AdminDefectReview @relation(fields: [adminReviewId], references: [id], onDelete: Cascade)
+  id               String            @id @default(uuid())
+  adminReviewId    String
+  department       String
+  workerName       String
+  rate             Float
+  previouslyPaid   Boolean           @default(false)
+  decision         String            // approved, cancelled, adjusted
+  isSettled        Boolean           @default(false)
+  settledVoucherId String?
+  settledAt        DateTime?
+  decidedAt        DateTime          @default(now())
+  decidedBy        String
+  notes            String?
+  adminReview      AdminDefectReview @relation(fields: [adminReviewId], references: [id], onDelete: Cascade)
 }
 
 // ==========================================

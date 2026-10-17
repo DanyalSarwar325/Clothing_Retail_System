@@ -56,6 +56,25 @@ export async function POST(request: NextRequest) {
         (entry) => entry.department === department
       );
 
+      if (department === "Sewing") {
+        const isQualityMarked =
+          barcode.status === "quality_ok" ||
+          barcode.status === "defective" ||
+          barcode.status === "damaged" ||
+          barcode.departmentHistory.some((entry) => entry.department === "Quality");
+
+        if (isQualityMarked) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `This item is already marked as Quality (${barcode.status}) and cannot be scanned under Sewing.`,
+              alreadyPassedQuality: true,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       if (department !== "Quality" && alreadyScannedByDepartment) {
         return NextResponse.json(
           {

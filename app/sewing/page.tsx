@@ -36,6 +36,35 @@ interface ScannedItem {
   paidAt: string | null;
   paidBy: string | null;
   status: string;
+  defectDecision?: "approved" | "cancelled" | "adjusted" | null;
+  defectReason?: string | null;
+  defectNotes?: string | null;
+  isSettled?: boolean;
+  isWithheld?: boolean;
+}
+
+interface DefectAdjustment {
+  id: string;
+  design: string;
+  item: string;
+  size: string;
+  unitNumber: number;
+  rate: number;
+  reason: string;
+  notes: string;
+  decidedAt: string;
+}
+
+interface CancelledPiece {
+  id: string;
+  barcodeId: string;
+  design: string;
+  item: string;
+  size: string;
+  unitNumber: number;
+  rate: number;
+  reason: string;
+  notes: string;
 }
 
 interface DesignSummary {
@@ -51,6 +80,10 @@ interface WorkerSummary {
   totalDue: number;
   paid: number;
   pending: number;
+  totalAdjustments?: number;
+  netPending?: number;
+  totalCancelled?: number;
+  cancelledAmount?: number;
   totalScans: number;
   scannedToday: number;
 }
@@ -60,10 +93,16 @@ export default function SewingPage() {
 
   // State
   const [items, setItems] = useState<ScannedItem[]>([]);
+  const [adjustments, setAdjustments] = useState<DefectAdjustment[]>([]);
+  const [cancelledPieces, setCancelledPieces] = useState<CancelledPiece[]>([]);
   const [summary, setSummary] = useState<WorkerSummary>({
     totalDue: 0,
     paid: 0,
     pending: 0,
+    totalAdjustments: 0,
+    netPending: 0,
+    totalCancelled: 0,
+    cancelledAmount: 0,
     totalScans: 0,
     scannedToday: 0,
   });
@@ -122,11 +161,17 @@ export default function SewingPage() {
       const data = await res.json();
       if (data.success && data.data) {
         setItems(data.data.items || []);
+        setAdjustments(data.data.adjustments || []);
+        setCancelledPieces(data.data.cancelledPieces || []);
         setSummary(
           data.data.summary || {
             totalDue: 0,
             paid: 0,
             pending: 0,
+            totalAdjustments: 0,
+            netPending: 0,
+            totalCancelled: 0,
+            cancelledAmount: 0,
             totalScans: 0,
             scannedToday: 0,
           }
@@ -349,13 +394,85 @@ export default function SewingPage() {
                     My Scanned Items
                   </h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    Filter by design to see what you have scanned and earned.
+                    Filter by design to see what you have scanned, pending earnings, and approved deductions.
                   </p>
                 </div>
                 <span className="text-sm font-medium text-gray-400">
                   {selectedDesign === "all" ? "All designs" : selectedDesign}
                 </span>
               </div>
+
+              {/* Defect Adjustments & Notifications Banner */}
+              {(adjustments.length > 0 || cancelledPieces.length > 0) && (
+                <div className="space-y-3 mb-6">
+                  {adjustments.length > 0 && (
+                    <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-xs text-rose-950 shadow-2xs">
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg shrink-0 mt-0.5">
+                          <AlertCircle size={18} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-rose-900 text-sm">
+                              Wage Adjustment Notice:
+                            </span>
+                            <span className="px-2 py-0.5 bg-rose-200/70 text-rose-800 rounded font-bold text-[11px]">
+                              -Rs {summary.totalAdjustments || adjustments.reduce((s, a) => s + a.rate, 0)} to be deducted
+                            </span>
+                          </div>
+                          <p className="text-rose-800 mt-1">
+                            An adjustment has been made for defective piece(s) that were previously paid. This amount will be deducted from your next wage payout.
+                          </p>
+                          <div className="mt-2.5 flex flex-wrap gap-2">
+                            {adjustments.map((adj) => (
+                              <div
+                                key={adj.id}
+                                className="px-2.5 py-1.5 bg-white border border-rose-200 rounded-lg text-rose-900 shadow-2xs"
+                              >
+                                <span className="font-bold">{adj.design}</span> • {adj.item} #{adj.unitNumber}
+                                <span className="text-rose-600 font-extrabold ml-1.5">-Rs {adj.rate}</span>
+                                {adj.reason && (
+                                  <span className="text-gray-500 block text-[10px] mt-0.5">
+                                    Reason: {adj.reason}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {cancelledPieces.length > 0 && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-950 shadow-2xs">
+                      <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg shrink-0 mt-0.5">
+                        <AlertCircle size={18} />
+                      </div>
+                      <div>
+                        <span className="font-bold text-amber-900 text-sm">
+                          Payment Withheld Notice ({cancelledPieces.length} Defective Piece{cancelledPieces.length > 1 ? "s" : ""}):
+                        </span>
+                        <p className="text-amber-800 mt-0.5">
+                          Admin reviewed quality defect scans and rejected payment for the following piece(s). You will not be paid for these items:
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {cancelledPieces.map((c, i) => (
+                            <div
+                              key={i}
+                              className="px-2.5 py-1 bg-white border border-amber-200 rounded-lg text-amber-900 text-[11px] shadow-2xs"
+                            >
+                              <span className="font-bold">{c.design}</span> • {c.item} #{c.unitNumber}
+                              <span className="text-rose-600 font-bold ml-1">(Rs 0)</span>
+                              <span className="text-gray-500 block text-[10px]">Reason: {c.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Design Filter Pills */}
               <div className="flex flex-wrap items-center gap-2.5 pt-2 pb-5">
@@ -470,10 +587,27 @@ export default function SewingPage() {
                           </td>
                           <td className="py-4 px-4 text-right whitespace-nowrap">
                             <div className="font-bold text-gray-900 text-base">
-                              Rs {item.amount.toFixed(2)}
+                              {item.isWithheld ? (
+                                <>
+                                  <span className="text-gray-400 line-through text-xs mr-1.5 font-normal">
+                                    Rs {item.amount.toFixed(2)}
+                                  </span>
+                                  <span className="text-rose-600 font-extrabold">Rs 0.00</span>
+                                </>
+                              ) : (
+                                <span>Rs {item.amount.toFixed(2)}</span>
+                              )}
                             </div>
                             <div className="text-[11px] font-semibold mt-0.5">
-                              {item.isPaid ? (
+                              {item.isWithheld ? (
+                                <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded inline-flex items-center gap-1 font-bold">
+                                  <AlertCircle size={11} /> Defective (Unpaid)
+                                </span>
+                              ) : item.defectDecision === "adjusted" ? (
+                                <span className="text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded inline-flex items-center gap-1 font-bold">
+                                  ⚠️ Adjusted (-Rs {item.amount.toFixed(0)})
+                                </span>
+                              ) : item.isPaid ? (
                                 <span className="text-emerald-600 inline-flex items-center gap-1">
                                   <Check size={12} strokeWidth={3} /> Paid
                                 </span>
@@ -542,11 +676,16 @@ export default function SewingPage() {
                   <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <Clock size={16} />
                   </div>
-                  Pending
+                  Net Due Payout
                 </div>
                 <p className="text-2xl font-black text-[#c0481c] mt-3 tracking-tight">
-                  Rs {summary.pending.toFixed(2)}
+                  Rs {(summary.netPending ?? summary.pending).toFixed(2)}
                 </p>
+                {summary.totalAdjustments && summary.totalAdjustments > 0 ? (
+                  <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                    (After -Rs {summary.totalAdjustments.toFixed(0)} defect deduction)
+                  </p>
+                ) : null}
               </div>
 
               {/* My Scans */}

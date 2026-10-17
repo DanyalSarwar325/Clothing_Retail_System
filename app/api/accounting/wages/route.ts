@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     if (action === "pay_wages") {
       const wageAmount = Number(amount);
 
-      if (wageAmount <= 0) {
+      if (isNaN(wageAmount) || wageAmount < 0) {
         return NextResponse.json({ success: false, error: "Invalid wage calculation" }, { status: 400 });
       }
 
@@ -193,10 +193,25 @@ export async function POST(request: NextRequest) {
           },
           include: {
             departmentRates: { where: { department: "Cutting" } },
+            defectiveInfo: true,
+            adminDefectReview: {
+              include: {
+                departmentReviews: { where: { department: "Cutting" } },
+              },
+            },
           },
         });
 
-        cuttingPayments = cuttingBarcodes.map((cb) => ({
+        // Filter out barcodes where cutting was rejected/cancelled by admin (withheld for defect)
+        const eligibleCuttingBarcodes = cuttingBarcodes.filter((cb) => {
+          if (cb.status === "defective" || cb.status === "damaged") {
+            const cuttingReview = cb.adminDefectReview?.departmentReviews?.[0];
+            return cuttingReview?.decision === "approved";
+          }
+          return true;
+        });
+
+        cuttingPayments = eligibleCuttingBarcodes.map((cb) => ({
           barcodeId: cb.id,
           department: "Cutting",
           amount: cb.departmentRates[0]?.ratePerPiece || 0,
@@ -276,14 +291,14 @@ export async function POST(request: NextRequest) {
           const deptReviews = b.adminDefectReview?.departmentReviews || [];
           const currentDeptReview = deptReviews.find((dr) => dr.department === department);
           const decision = currentDeptReview?.decision;
-          return decision && ["approved", "cancelled", "adjusted"].includes(decision);
+          return decision === "approved";
         });
 
         if (eligibleBarcodes.length === 0) {
           return NextResponse.json(
             {
               success: false,
-              error: `All ${department} pieces for "${nameToMatch}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid.`,
+              error: `All ${department} pieces for "${nameToMatch}"${targetDesign ? ` [Design: ${targetDesign}]` : ""} have already been paid or withheld.`,
             },
             { status: 400 }
           );
@@ -305,6 +320,48 @@ export async function POST(request: NextRequest) {
             paidAt: new Date(),
           };
         });
+      }
+
+      // Calculate gross amount for eligible pieces
+      let grossAmount = 0;
+      if (department === "Cutting") {
+        grossAmount = cuttingPayments.reduce((sum, cp) => sum + (cp.amount || 0), 0);
+      } else if (["Packing", "Store"].includes(department || "")) {
+        grossAmount = stickerPayments.reduce((sum, sp) => sum + (sp.amount || 0), 0);
+      } else {
+        grossAmount = barcodePayments.reduce((sum, bp) => sum + (bp.amount || 0), 0);
+      }
+
+      // Fetch pending unsettled adjustments for this worker & department (across ANY design)
+      const unsettledAdjustments = await prisma.defectDepartmentReview.findMany({
+        where: {
+          department: department || "",
+          workerName: { equals: nameToMatch, mode: "insensitive" },
+          decision: "adjusted",
+          isSettled: false,
+        },
+        include: {
+          adminReview: {
+            include: {
+              barcode: true,
+            },
+          },
+        },
+        orderBy: { decidedAt: "asc" },
+      });
+
+      // Greedily match adjustments up to grossAmount
+      let remainingGross = grossAmount;
+      const adjustmentsToSettle: any[] = [];
+      let totalAdjustmentsDeducted = 0;
+
+      for (const adj of unsettledAdjustments) {
+        if (remainingGross <= 0) break;
+        if (adj.rate <= remainingGross) {
+          adjustmentsToSettle.push(adj);
+          totalAdjustmentsDeducted += adj.rate;
+          remainingGross -= adj.rate;
+        }
       }
 
       let laborExpenseAccount = await prisma.account.findFirst({
@@ -331,29 +388,83 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const voucherType: VoucherType = paymentMode === "cash" ? "CPV" : "BPV";
+      let defectRecoveryAccount = await prisma.account.findFirst({
+        where: {
+          rootType: "directExpense",
+          code: "DE-RECOV",
+        },
+      });
+      if (!defectRecoveryAccount) {
+        defectRecoveryAccount = await prisma.account.findFirst({
+          where: {
+            title: { contains: "Defect", mode: "insensitive" },
+          },
+        });
+      }
+      if (!defectRecoveryAccount) {
+        defectRecoveryAccount = await prisma.account.create({
+          data: {
+            code: "DE-RECOV",
+            title: "Defect Wage Adjustments & Recovery",
+            rootType: "directExpense",
+            accountRole: "general",
+            description: "Contra labor expense account for defect wage adjustments recovered from workers",
+            status: "active",
+          },
+        });
+      }
+
+      const voucherType: VoucherType = wageAmount === 0 ? "JV" : (paymentMode === "cash" ? "CPV" : "BPV");
       const voucherNumber = await generateSequenceNumber(voucherType);
 
       const voucher = await prisma.$transaction(
         async (tx) => {
           const designText = targetDesign ? ` [Design: ${targetDesign}]` : "";
           const refText = ref ? ` (Ref: ${ref})` : "";
-          const journalLinesData = [
-            {
+          const adjustmentNote =
+            totalAdjustmentsDeducted > 0
+              ? ` [Less Defect Adjustment: -₨${totalAdjustmentsDeducted} (${adjustmentsToSettle.length} defective piece(s))]`
+              : "";
+
+          const journalLinesData: any[] = [];
+
+          // 1. Debit Direct Labor Expense for the new pieces completed (Gross amount)
+          if (grossAmount > 0) {
+            journalLinesData.push({
               accountId: laborExpenseAccount!.id,
               partyId: workerParty.id,
-              debit: wageAmount,
+              debit: grossAmount,
               credit: 0,
               description: `${department || "Factory"} piece wages for ${workerParty.name}${designText}${refText}`,
-            },
-            {
+            });
+          }
+
+          // 2. Credit Defect Recovery Account for the adjustments deducted
+          if (totalAdjustmentsDeducted > 0) {
+            journalLinesData.push({
+              accountId: defectRecoveryAccount!.id,
+              partyId: workerParty.id,
+              debit: 0,
+              credit: totalAdjustmentsDeducted,
+              description: `Defect wage deduction recovered from ${workerParty.name} (${adjustmentsToSettle.length} piece(s) adjusted)`,
+            });
+          }
+
+          // 3. Credit Cash/Bank Account for net cash disbursed (if any)
+          if (wageAmount > 0) {
+            journalLinesData.push({
               accountId: paidFromAccount.id,
               partyId: workerParty.id,
               debit: 0,
               credit: wageAmount,
               description: `Wages paid from ${paidFromAccount.title} (${paymentMode || "cash"})${designText}${refText}`,
-            },
-          ];
+            });
+          }
+
+          const voucherDescription =
+            wageAmount === 0
+              ? `Defect wage adjustment settlement for ${workerParty.name} (${department || "Production"})${designText}${adjustmentNote}${refText}`
+              : `Wages payment to ${workerParty.name} (${department || "Production"})${designText}${adjustmentNote}${refText}`;
 
           const newVoucher = await tx.voucher.create({
             data: {
@@ -363,9 +474,9 @@ export async function POST(request: NextRequest) {
               financialYearId: fy.id,
               partyId: workerParty.id,
               sourceType: "wage",
-              description: `Wages payment to ${workerParty.name} (${department || "Production"})${designText}${refText}`,
-              totalAmount: wageAmount,
-              paymentMode: paymentMode || "cash",
+              description: voucherDescription,
+              totalAmount: wageAmount > 0 ? wageAmount : grossAmount,
+              paymentMode: wageAmount === 0 ? "cash" : (paymentMode || "cash"),
               referenceNumber: ref,
               status: "posted",
               createdById: validUserId,
@@ -374,20 +485,38 @@ export async function POST(request: NextRequest) {
             },
           });
 
-          await tx.journalEntry.create({
-            data: {
-              voucherId: newVoucher.id,
-              financialYearId: fy.id,
-              transactionDate: new Date(),
-              description: `Wages payout: Rs. ${wageAmount} to ${workerParty.name}${designText}${refText}`,
-              totalDebit: wageAmount,
-              totalCredit: wageAmount,
-              status: "posted",
-              lines: {
-                create: journalLinesData,
+          if (journalLinesData.length > 0) {
+            const totalDebit = journalLinesData.reduce((s, l) => s + (l.debit || 0), 0);
+            const totalCredit = journalLinesData.reduce((s, l) => s + (l.credit || 0), 0);
+
+            await tx.journalEntry.create({
+              data: {
+                voucherId: newVoucher.id,
+                financialYearId: fy.id,
+                transactionDate: new Date(),
+                description: `Wages payout/settlement: Rs. ${wageAmount} (Gross: Rs. ${grossAmount}) to ${workerParty.name}${designText}${adjustmentNote}${refText}`,
+                totalDebit,
+                totalCredit,
+                status: "posted",
+                lines: {
+                  create: journalLinesData,
+                },
               },
-            },
-          });
+            });
+          }
+
+          // Settle defect adjustments if any were deducted in this payout
+          if (adjustmentsToSettle.length > 0) {
+            const adjIds = adjustmentsToSettle.map((a) => a.id);
+            await tx.defectDepartmentReview.updateMany({
+              where: { id: { in: adjIds } },
+              data: {
+                isSettled: true,
+                settledVoucherId: newVoucher.voucherNumber,
+                settledAt: new Date(),
+              },
+            });
+          }
 
           // Synchronize operational piece status to Paid in bulk
           if (department === "Cutting") {

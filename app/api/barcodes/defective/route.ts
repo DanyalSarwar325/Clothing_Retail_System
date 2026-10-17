@@ -64,14 +64,30 @@ export async function POST(request: NextRequest) {
         : "Marked defective during quality inspection");
 
     // Find the barcode by ID or unique barcodeData
-    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: barcodeData.trim() };
-    const barcode = await prisma.barcode.findUnique({
+    const cleanData = barcodeData ? barcodeData.trim() : "";
+    const whereClause: any = barcodeId ? { id: barcodeId } : { barcodeData: cleanData };
+    let barcode = await prisma.barcode.findUnique({
       where: whereClause,
       include: {
         departmentHistory: true,
         paidDepartments: true,
       },
     });
+
+    if (!barcode && cleanData) {
+      barcode = await prisma.barcode.findFirst({
+        where: {
+          OR: [
+            { id: cleanData },
+            { barcodeData: { equals: cleanData, mode: "insensitive" } },
+          ],
+        },
+        include: {
+          departmentHistory: true,
+          paidDepartments: true,
+        },
+      });
+    }
 
     if (!barcode) {
       return NextResponse.json(
@@ -80,9 +96,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (barcode.status === "defective" || barcode.status === "damaged") {
+    if (!isCompanion && (barcode.status === "defective" || barcode.status === "damaged")) {
       return NextResponse.json(
-        { success: false, message: "This barcode is already marked as defective" },
+        {
+          success: false,
+          message: `This item (${barcode.design} - ${barcode.item}) is already marked as defective and cannot be scanned twice.`,
+          alreadyDefective: true,
+          barcode: {
+            id: barcode.id,
+            design: barcode.design,
+            item: barcode.item,
+            size: barcode.size,
+            unitNumber: barcode.unitNumber,
+            status: barcode.status,
+          },
+        },
         { status: 400 }
       );
     }
