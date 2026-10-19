@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       orderBy: { code: "asc" },
     });
 
-    const accounts = rawAccounts.map((a) => ({ ...a, _id: a.id }));
+    const accounts = rawAccounts.map((a: any) => ({ ...a, _id: a.id }));
 
     // 1. REPORT: PROFIT & LOSS STATEMENT
     if (reportType === "profit-loss") {

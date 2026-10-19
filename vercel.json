@@ -1,0 +1,21 @@
+{
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "services": {
+        "app": {
+            "root": ".",
+            "framework": "nextjs"
+        },
+        "invoice_pdf_service": {
+            "root": "services/invoice_pdf_service",
+            "framework": "fastapi"
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": {
+                "service": "app"
+            }
+        }
+    ]
+}

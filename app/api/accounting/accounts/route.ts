@@ -19,18 +19,18 @@ export async function GET() {
       orderBy: { code: "asc" },
     });
 
-    const accounts = rawAccounts.map((a) => ({
+    const accounts = rawAccounts.map((a: any) => ({
       ...a,
       _id: a.id,
     }));
 
     const grouped = {
-      directExpense: accounts.filter((a) => a.rootType === "directExpense"),
-      indirectExpense: accounts.filter((a) => a.rootType === "indirectExpense"),
-      asset: accounts.filter((a) => a.rootType === "asset"),
-      liability: accounts.filter((a) => a.rootType === "liability"),
-      revenue: accounts.filter((a) => a.rootType === "revenue"),
-      equity: accounts.filter((a) => a.rootType === "equity"),
+      directExpense: accounts.filter((a: any) => a.rootType === "directExpense"),
+      indirectExpense: accounts.filter((a: any) => a.rootType === "indirectExpense"),
+      asset: accounts.filter((a: any) => a.rootType === "asset"),
+      liability: accounts.filter((a: any) => a.rootType === "liability"),
+      revenue: accounts.filter((a: any) => a.rootType === "revenue"),
+      equity: accounts.filter((a: any) => a.rootType === "equity"),
     };
 
     return NextResponse.json({ success: true, data: { all: accounts, grouped } });

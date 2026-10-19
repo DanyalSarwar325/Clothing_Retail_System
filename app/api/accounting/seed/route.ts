@@ -9,7 +9,7 @@ export async function POST() {
     const rawFinancialYears = await prisma.financialYear.findMany({
       orderBy: { startDate: "desc" },
     });
-    const financialYears = rawFinancialYears.map((y) => ({ ...y, _id: y.id }));
+    const financialYears = rawFinancialYears.map((y: any) => ({ ...y, _id: y.id }));
 
     return NextResponse.json({
       success: true,
@@ -36,12 +36,12 @@ export async function GET() {
       where: { status: "active" },
       orderBy: { code: "asc" },
     });
-    const accounts = rawAccounts.map((a) => ({ ...a, _id: a.id }));
+    const accounts = rawAccounts.map((a: any) => ({ ...a, _id: a.id }));
 
     const rawFinancialYears = await prisma.financialYear.findMany({
       orderBy: { startDate: "desc" },
     });
-    const financialYears = rawFinancialYears.map((y) => ({ ...y, _id: y.id }));
+    const financialYears = rawFinancialYears.map((y: any) => ({ ...y, _id: y.id }));
 
     return NextResponse.json({
       success: true,
