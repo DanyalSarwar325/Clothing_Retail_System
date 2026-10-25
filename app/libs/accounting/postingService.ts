@@ -353,9 +353,82 @@ export async function postPayment(params: CreatePaymentParams) {
   return voucher;
 }
 
+async function getWorkerPendingWages(workerName: string): Promise<number> {
+  if (!workerName) return 0;
+  try {
+    const unpaidBarcodes = await prisma.barcode.findMany({
+      where: {
+        status: { notIn: ["defective", "damaged"] },
+        departmentHistory: {
+          some: { scannedBy: { equals: workerName, mode: "insensitive" } },
+        },
+      },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
+      take: 1000,
+    });
+
+    let pending = 0;
+    for (const b of unpaidBarcodes) {
+      const scans = b.departmentHistory.filter(
+        (h) => h.scannedBy && h.scannedBy.toLowerCase() === workerName.toLowerCase()
+      );
+      for (const scan of scans) {
+        const isPaid = b.paidDepartments.some((pd) => pd.department === scan.department);
+        if (!isPaid) {
+          const itemRate = b.departmentRates.find(
+            (r) => r.department === scan.department && r.item === b.item
+          );
+          const deptRate = b.departmentRates.find((r) => r.department === scan.department);
+          const rate = itemRate?.ratePerPiece ?? deptRate?.ratePerPiece ?? 0;
+          pending += rate;
+        }
+      }
+    }
+
+    const unpaidStickers = await prisma.finalSticker.findMany({
+      where: {
+        status: { notIn: ["defective", "damaged"] },
+        departmentHistory: {
+          some: { scannedBy: { equals: workerName, mode: "insensitive" } },
+        },
+      },
+      include: {
+        departmentHistory: true,
+        departmentRates: true,
+        paidDepartments: true,
+      },
+      take: 1000,
+    });
+
+    for (const st of unpaidStickers) {
+      const scans = st.departmentHistory.filter(
+        (h) => h.scannedBy && h.scannedBy.toLowerCase() === workerName.toLowerCase()
+      );
+      for (const scan of scans) {
+        const isPaid = st.paidDepartments.some((pd) => pd.department === scan.department);
+        if (!isPaid) {
+          const rate = st.departmentRates.find((r) => r.department === scan.department)?.ratePerPiece ?? 0;
+          pending += rate;
+        }
+      }
+    }
+
+    return pending;
+  } catch (err) {
+    console.error("Error calculating worker pending wages:", err);
+    return 0;
+  }
+}
+
 export async function getPartyStatement(partyId: string) {
   const party = await prisma.party.findUnique({ where: { id: partyId } });
   if (!party) throw new Error("Party not found.");
+
+  const isWorker = party.type === "worker";
 
   const bills = await prisma.bill.findMany({
     where: { partyId: party.id, status: "posted" },
@@ -391,12 +464,15 @@ export async function getPartyStatement(partyId: string) {
         date: party.createdAt,
         voucherNumber: "OP-BAL",
         type: "Opening Balance",
-        description: "Initial balance brought forward (We need to pay)",
+        description: isWorker
+          ? "Initial wage balance brought forward"
+          : "Initial balance brought forward (We need to pay)",
         debit: 0,
         credit: party.openingBalance,
         balance: runningBalance,
       });
-    } else if (party.openingBalanceType === "receivable") {
+    } else if (party.openingBalanceType === "receivable" && !isWorker) {
+      // Workers never have receivable advances by policy
       runningBalance -= party.openingBalance;
       rows.push({
         id: "opening-balance",
@@ -411,30 +487,74 @@ export async function getPartyStatement(partyId: string) {
     }
   }
 
-  const combined = [
-    ...bills.map((b) => ({
-      id: b.id,
-      date: b.billDate,
-      voucherNumber: b.billNumber,
-      type: "Bill",
-      description: b.lines.map((l) => l.description).join(", ") || "Purchase Bill",
-      debit: 0,
-      credit: b.totalAmount,
-      mode: "Credit",
-    })),
-    ...vouchers
-      .filter((v) => v.sourceType !== "bill")
-      .map((v) => ({
+  const combined: Array<{
+    id: string;
+    date: Date;
+    voucherNumber: string;
+    type: string;
+    description: string;
+    debit: number;
+    credit: number;
+    mode?: string;
+  }> = [];
+
+  if (isWorker) {
+    // Workers are paid ONLY after doing work (no advances).
+    // Each wage payment settles piece work that was completed and earned.
+    for (const v of vouchers) {
+      combined.push({
         id: v.id,
         date: v.transactionDate,
         voucherNumber: v.voucherNumber,
-        type: v.type,
+        type: v.sourceType === "wage" ? "Wages Payout" : v.type,
         description: v.description,
-        debit: v.totalAmount,
-        credit: 0,
+        debit: v.totalAmount, // Payment disbursed to worker
+        credit: v.totalAmount, // Work completed / earned by worker
         mode: v.paymentMode || "Cash",
+      });
+    }
+
+    // Check if worker has pending scanned pieces not yet paid
+    const pendingWages = await getWorkerPendingWages(party.name);
+    if (pendingWages > 0) {
+      combined.push({
+        id: "pending-piece-wages",
+        date: new Date(),
+        voucherNumber: "PENDING",
+        type: "Pending Work",
+        description: "Completed piece work awaiting wage disbursement",
+        debit: 0,
+        credit: pendingWages,
+        mode: "Piece Rate",
+      });
+    }
+  } else {
+    // Standard supplier / customer / contractor statement logic
+    combined.push(
+      ...bills.map((b) => ({
+        id: b.id,
+        date: b.billDate,
+        voucherNumber: b.billNumber,
+        type: "Bill",
+        description: b.lines.map((l) => l.description).join(", ") || "Purchase Bill",
+        debit: 0,
+        credit: b.totalAmount,
+        mode: "Credit",
       })),
-  ];
+      ...vouchers
+        .filter((v) => v.sourceType !== "bill")
+        .map((v) => ({
+          id: v.id,
+          date: v.transactionDate,
+          voucherNumber: v.voucherNumber,
+          type: v.type,
+          description: v.description,
+          debit: v.totalAmount,
+          credit: 0,
+          mode: v.paymentMode || "Cash",
+        }))
+    );
+  }
 
   combined.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -446,10 +566,17 @@ export async function getPartyStatement(partyId: string) {
     });
   }
 
-  const totalBills = bills.reduce((sum, b) => sum + b.totalAmount, 0);
   const totalPaid = vouchers
     .filter((v) => v.sourceType !== "bill")
     .reduce((sum, v) => sum + v.totalAmount, 0);
+
+  const totalBills = isWorker
+    ? runningBalance + totalPaid
+    : bills.reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const currentPayableBalance = isWorker
+    ? Math.max(0, runningBalance) // Workers never have negative / receivable balances
+    : runningBalance;
 
   return {
     party: { ...party, _id: party.id },
@@ -457,9 +584,11 @@ export async function getPartyStatement(partyId: string) {
     summary: {
       totalBills,
       totalPaid,
-      currentPayableBalance: runningBalance,
-      unpaidBillsCount: bills.filter((b) => b.paymentStatus !== "paid").length,
+      currentPayableBalance,
+      unpaidBillsCount: isWorker ? 0 : bills.filter((b) => b.paymentStatus !== "paid").length,
     },
-    unpaidBills: bills.filter((b) => b.paymentStatus !== "paid").map((b) => ({ ...b, _id: b.id })),
+    unpaidBills: isWorker
+      ? []
+      : bills.filter((b) => b.paymentStatus !== "paid").map((b) => ({ ...b, _id: b.id })),
   };
 }

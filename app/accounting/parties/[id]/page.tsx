@@ -110,9 +110,10 @@ export default function PartyKhataDetailPage({
     );
   }
 
+  const isWorker = party.type === "worker";
   const isPayable = (summary?.currentPayableBalance || 0) > 0;
-  const isReceivable = (summary?.currentPayableBalance || 0) < 0;
-  const isCleared = (summary?.currentPayableBalance || 0) === 0;
+  const isReceivable = !isWorker && (summary?.currentPayableBalance || 0) < 0;
+  const isCleared = isWorker ? !isPayable : (summary?.currentPayableBalance || 0) === 0;
 
   return (
     <div className="space-y-6">
@@ -133,7 +134,9 @@ export default function PartyKhataDetailPage({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Khata Statement of Account & Purchase History
+              {isWorker
+                ? "Worker Khata Statement of Piece-Rate Wages & Payouts"
+                : "Khata Statement of Account & Purchase History"}
             </p>
           </div>
         </div>
@@ -146,19 +149,29 @@ export default function PartyKhataDetailPage({
             <Printer size={15} />
             <span>Print Khata</span>
           </button>
+          {isWorker ? (
+            <Link
+              href="/accounting/wages"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+            >
+              <PlusCircle size={15} />
+              <span>+ Disburse Wages</span>
+            </Link>
+          ) : (
+            <Link
+              href={`/accounting/purchases?partyId=${party._id}`}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+            >
+              <PlusCircle size={15} />
+              <span>+ Record Bill</span>
+            </Link>
+          )}
           <Link
-            href={`/accounting/purchases?partyId=${party._id}`}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
-          >
-            <PlusCircle size={15} />
-            <span>+ Record Bill</span>
-          </Link>
-          <Link
-            href={`/accounting/payments?partyId=${party._id}`}
+            href={isWorker ? "/accounting/wages" : `/accounting/payments?partyId=${party._id}`}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
           >
             <CreditCard size={15} />
-            <span>+ Make Payment</span>
+            <span>{isWorker ? "Wages Payout" : "+ Make Payment"}</span>
           </Link>
         </div>
       </div>
@@ -166,33 +179,43 @@ export default function PartyKhataDetailPage({
       {/* Printable Letterhead (Only visible during print) */}
       <div className="hidden print:block text-center border-b pb-4 mb-4">
         <h2 className="text-xl font-bold">CLOTHING MANUFACTURING & RETAIL</h2>
-        <p className="text-xs text-gray-500">Party Ledger Statement — {party.name}</p>
+        <p className="text-xs text-gray-500">
+          {isWorker ? "Worker Wage Ledger Statement" : "Party Ledger Statement"} — {party.name}
+        </p>
         <p className="text-xs text-gray-400">Date: {new Date().toLocaleDateString("en-PK")}</p>
       </div>
 
       {/* Party Info Card */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Party Contact</span>
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            {isWorker ? "Worker Contact" : "Party Contact"}
+          </span>
           <p className="text-sm font-bold text-slate-900 mt-1 flex items-center gap-2">
             <Phone size={14} className="text-slate-400" />
             {party.phone || "No phone recorded"}
           </p>
-          {party.address && (
+          {party.address ? (
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
               <MapPin size={14} className="text-slate-400" />
               {party.address}
             </p>
-          )}
+          ) : party.notes ? (
+            <p className="text-xs text-slate-500 mt-1">{party.notes}</p>
+          ) : null}
         </div>
 
         <div>
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Khata Summary</span>
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            {isWorker ? "Worker Khata Summary" : "Khata Summary"}
+          </span>
           <p className="text-xs text-slate-600 mt-1">
-            Total Purchases: <strong className="text-slate-900">{formatPKR(summary?.totalBills)}</strong>
+            {isWorker ? "Total Work Earned: " : "Total Purchases: "}
+            <strong className="text-slate-900">{formatPKR(summary?.totalBills)}</strong>
           </p>
           <p className="text-xs text-slate-600 mt-0.5">
-            Total Paid: <strong className="text-slate-900">{formatPKR(summary?.totalPaid)}</strong>
+            {isWorker ? "Total Wages Paid: " : "Total Paid: "}
+            <strong className="text-slate-900">{formatPKR(summary?.totalPaid)}</strong>
           </p>
         </div>
 
@@ -204,19 +227,41 @@ export default function PartyKhataDetailPage({
             : "bg-emerald-50/60 border-emerald-200 text-emerald-900"
         }`}>
           <span className="text-xs font-semibold uppercase tracking-wider block">
-            {isPayable ? "We Need to Pay (Outstanding)" : isReceivable ? "We Need to Receive" : "Account Status"}
+            {isWorker
+              ? isPayable
+                ? "We Need to Pay (Pending Wages)"
+                : "Account Status (Settled)"
+              : isPayable
+              ? "We Need to Pay (Outstanding)"
+              : isReceivable
+              ? "We Need to Receive"
+              : "Account Status"}
           </span>
           <div className="text-2xl font-black mt-1">
-            {isCleared ? "Rs. 0 (CLEARED)" : formatPKR(summary?.currentPayableBalance)}
+            {isWorker
+              ? isPayable
+                ? formatPKR(summary?.currentPayableBalance)
+                : "Rs. 0 (CLEARED)"
+              : isCleared
+              ? "Rs. 0 (CLEARED)"
+              : formatPKR(summary?.currentPayableBalance)}
           </div>
           <span className="text-xs font-medium block mt-0.5 opacity-80">
-            {isPayable ? "Remaining payable to party" : isReceivable ? "Advance given / receivable" : "All bills and payments settled"}
+            {isWorker
+              ? isPayable
+                ? "Remaining wages payable to worker for completed work"
+                : "All completed work has been fully paid and settled. No advance given."
+              : isPayable
+              ? "Remaining payable to party"
+              : isReceivable
+              ? "Advance given / receivable"
+              : "All bills and payments settled"}
           </span>
         </div>
       </div>
 
       {/* Unpaid Bills Section (If any) */}
-      {unpaidBills.length > 0 && (
+      {!isWorker && unpaidBills.length > 0 && (
         <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-5 print:hidden">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -259,8 +304,14 @@ export default function PartyKhataDetailPage({
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-slate-900">Statement of Account (Khata History)</h3>
-            <p className="text-xs text-slate-500">Every bill received and payment made in sequence</p>
+            <h3 className="font-bold text-slate-900">
+              {isWorker ? "Statement of Wages & Work Completed" : "Statement of Account (Khata History)"}
+            </h3>
+            <p className="text-xs text-slate-500">
+              {isWorker
+                ? "Every piece-rate wage voucher and work performed recorded in sequence"
+                : "Every bill received and payment made in sequence"}
+            </p>
           </div>
         </div>
 
@@ -271,8 +322,12 @@ export default function PartyKhataDetailPage({
                 <th className="px-5 py-3.5">Date</th>
                 <th className="px-5 py-3.5">Voucher / Bill #</th>
                 <th className="px-5 py-3.5">Description / Narration</th>
-                <th className="px-5 py-3.5 text-right text-rose-700">Increase to Pay (Bill)</th>
-                <th className="px-5 py-3.5 text-right text-emerald-700">Payment Made</th>
+                <th className="px-5 py-3.5 text-right text-rose-700">
+                  {isWorker ? "Work Earned" : "Increase to Pay (Bill)"}
+                </th>
+                <th className="px-5 py-3.5 text-right text-emerald-700">
+                  {isWorker ? "Wages Paid" : "Payment Made"}
+                </th>
                 <th className="px-5 py-3.5 text-right">Remaining Balance</th>
                 <th className="px-5 py-3.5 text-center">Mode</th>
               </tr>
@@ -282,7 +337,9 @@ export default function PartyKhataDetailPage({
                 <tr>
                   <td colSpan={7} className="px-5 py-10 text-center text-slate-400">
                     <FileText size={24} className="mx-auto mb-2 opacity-50" />
-                    No transactions or bills recorded yet for this party.
+                    {isWorker
+                      ? "No wage vouchers or work records found for this worker."
+                      : "No transactions or bills recorded yet for this party."}
                   </td>
                 </tr>
               ) : (
@@ -304,7 +361,17 @@ export default function PartyKhataDetailPage({
                       {row.debit > 0 ? formatPKR(row.debit) : "—"}
                     </td>
                     <td className="px-5 py-3.5 text-right font-bold text-slate-900 text-xs">
-                      {formatPKR(row.balance)} {row.balance > 0 ? "Cr (We owe)" : row.balance < 0 ? "Dr (Advance)" : "Cleared"}
+                      {isWorker
+                        ? row.balance > 0
+                          ? `${formatPKR(row.balance)} (Pending)`
+                          : "Cleared"
+                        : `${formatPKR(row.balance)} ${
+                            row.balance > 0
+                              ? "Cr (We owe)"
+                              : row.balance < 0
+                              ? "Dr (Advance)"
+                              : "Cleared"
+                          }`}
                     </td>
                     <td className="px-5 py-3.5 text-center text-xs text-slate-500 capitalize">
                       {row.mode || "—"}
@@ -326,7 +393,11 @@ export default function PartyKhataDetailPage({
                     {formatPKR(summary?.totalPaid)}
                   </td>
                   <td className="px-5 py-3.5 text-right font-extrabold text-sm">
-                    {formatPKR(summary?.currentPayableBalance)}
+                    {isWorker
+                      ? summary?.currentPayableBalance > 0
+                        ? formatPKR(summary?.currentPayableBalance)
+                        : "Rs. 0 (Settled)"
+                      : formatPKR(summary?.currentPayableBalance)}
                   </td>
                   <td></td>
                 </tr>

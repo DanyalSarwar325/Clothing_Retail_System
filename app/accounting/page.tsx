@@ -159,7 +159,7 @@ export default function AccountingDashboardPage() {
           href="/accounting/wages"
           className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium transition-colors"
         >
-          <span>Worker Wages & Advances</span>
+          <span>Worker Wages (Piece Work)</span>
         </Link>
       </div>
 

@@ -229,9 +229,13 @@ export async function GET(request: NextRequest) {
 
           let initialBalance = 0;
           if (party.openingBalanceType === "payable") initialBalance = party.openingBalance;
-          if (party.openingBalanceType === "receivable") initialBalance = -party.openingBalance;
+          if (party.openingBalanceType === "receivable" && party.type !== "worker") initialBalance = -party.openingBalance;
 
-          const net = initialBalance + totalBills - totalPaid;
+          let net = initialBalance + totalBills - totalPaid;
+          if (party.type === "worker") {
+            // Workers are paid only after completing work, advances do not exist
+            net = Math.max(0, net);
+          }
           return {
             _id: party.id,
             id: party.id,
@@ -244,7 +248,7 @@ export async function GET(request: NextRequest) {
       );
 
       const payables = enriched.filter((p) => p.netPayable > 0);
-      const receivables = enriched.filter((p) => p.netPayable < 0);
+      const receivables = enriched.filter((p) => p.type !== "worker" && p.netPayable < 0);
 
       const totalToPay = payables.reduce((sum, p) => sum + p.netPayable, 0);
       const totalToReceive = receivables.reduce((sum, p) => sum + Math.abs(p.netPayable), 0);

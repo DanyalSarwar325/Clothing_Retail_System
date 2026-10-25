@@ -25,6 +25,7 @@ import {
   QrCode,
   ShieldCheck,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { playScanSuccessSound, playScanErrorSound } from "@/app/libs/audio";
@@ -88,8 +89,22 @@ export default function StorePage() {
   const [activeMode, setActiveMode] = useState<StoreMode>("check-in");
   const [activeTab, setActiveTab] = useState<"in_store" | "dispatched" | "returned" | "all">("in_store");
   const [barcodeInput, setBarcodeInput] = useState("");
+  const [queueLength, setQueueLength] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // FIFO Queue & hardware scanner wedge refs
+  interface StoreScanTask {
+    barcode: string;
+    mode: StoreMode;
+    checkoutType: "WholeSale" | "Retail" | "Cmd";
+    checkoutRemarks: string;
+    returnRemarks: string;
+  }
+  const scanQueueRef = useRef<StoreScanTask[]>([]);
+  const isProcessingRef = useRef<boolean>(false);
+  const globalBufferRef = useRef<string>("");
+  const lastKeyTimeRef = useRef<number>(0);
 
   // Camera QR Scanner states
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -125,6 +140,33 @@ export default function StorePage() {
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-focus barcode input continuously unless typing in another field or modal is open
+  useEffect(() => {
+    if (showReturnModal || isCameraActive) return;
+
+    const focusInput = () => {
+      if (barcodeInputRef.current && document.activeElement !== barcodeInputRef.current) {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+          return;
+        }
+        barcodeInputRef.current.focus();
+      }
+    };
+
+    focusInput();
+    const interval = setInterval(focusInput, 1500);
+    const handleDocClick = () => {
+      setTimeout(focusInput, 50);
+    };
+
+    document.addEventListener("click", handleDocClick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("click", handleDocClick);
+    };
+  }, [showReturnModal, isCameraActive]);
+
   const fetchInventory = useCallback(async () => {
     try {
       setLoading(true);
@@ -153,26 +195,36 @@ export default function StorePage() {
     fetchInventory();
   }, [fetchInventory]);
 
-  // Handle barcode submission based on current mode
-  const handleProcessBarcode = async (codeToProcess: string) => {
-    const rawBarcode = codeToProcess.trim();
-    if (!rawBarcode) {
-      toast.error("Please enter or scan a barcode");
-      return;
-    }
+  // FIFO Queue processor - handles rapid-fire barcode gun scans without dropping any scan
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    if (scanQueueRef.current.length === 0) return;
 
+    isProcessingRef.current = true;
     setProcessing(true);
-    setLastScannedResult(null);
+
+    const task = scanQueueRef.current.shift()!;
+    setQueueLength(scanQueueRef.current.length);
+
+    const {
+      barcode: rawBarcode,
+      mode,
+      checkoutType: taskCheckoutType,
+      checkoutRemarks: taskCheckoutRemarks,
+      returnRemarks: taskReturnRemarks,
+    } = task;
+
+    const staffName = user?.name || user?.username || "Store Staff";
 
     try {
-      if (activeMode === "check-in") {
+      if (mode === "check-in") {
         // CHECK-IN API CALL
         const res = await fetch("/api/store/check-in", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             barcodeData: rawBarcode,
-            scannedBy: user?.name || user?.username || "Store Staff",
+            scannedBy: staffName,
           }),
         });
         const data = await res.json();
@@ -184,8 +236,7 @@ export default function StorePage() {
             message: data.message,
             item: data.sticker,
           });
-          setBarcodeInput("");
-          fetchInventory();
+          await fetchInventory();
         } else {
           playScanErrorSound();
           toast.error(data.message || "Failed to check in item");
@@ -194,16 +245,16 @@ export default function StorePage() {
             message: data.message || "Failed to check in item",
           });
         }
-      } else if (activeMode === "check-out") {
+      } else if (mode === "check-out") {
         // CHECK-OUT API CALL
         const res = await fetch("/api/store/check-out", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             barcodeData: rawBarcode,
-            dispatchedBy: user?.name || user?.username || "Store Staff",
-            checkoutType,
-            remarks: checkoutRemarks,
+            dispatchedBy: staffName,
+            checkoutType: taskCheckoutType,
+            remarks: taskCheckoutRemarks,
           }),
         });
         const data = await res.json();
@@ -215,9 +266,7 @@ export default function StorePage() {
             message: data.message,
             item: data.sticker,
           });
-          setBarcodeInput("");
-          setCheckoutRemarks("");
-          fetchInventory();
+          await fetchInventory();
         } else {
           playScanErrorSound();
           toast.error(data.message || "Failed to checkout item");
@@ -226,15 +275,15 @@ export default function StorePage() {
             message: data.message || "Failed to checkout item",
           });
         }
-      } else if (activeMode === "return") {
+      } else if (mode === "return") {
         // RETURN API CALL
         const res = await fetch("/api/store/return", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             barcodeData: rawBarcode,
-            returnedBy: user?.name || user?.username || "Store Staff",
-            remarks: returnRemarks,
+            returnedBy: staffName,
+            remarks: taskReturnRemarks,
           }),
         });
         const data = await res.json();
@@ -246,9 +295,7 @@ export default function StorePage() {
             message: data.message,
             item: data.sticker,
           });
-          setBarcodeInput("");
-          setReturnRemarks("");
-          fetchInventory();
+          await fetchInventory();
         } else {
           playScanErrorSound();
           toast.error(data.message || "Failed to process return");
@@ -266,11 +313,87 @@ export default function StorePage() {
         message: err.message || "An unexpected error occurred",
       });
     } finally {
+      isProcessingRef.current = false;
       setProcessing(false);
-      if (barcodeInputRef.current) {
-        barcodeInputRef.current.focus();
+      setQueueLength(scanQueueRef.current.length);
+
+      if (scanQueueRef.current.length > 0) {
+        setTimeout(processQueue, 20);
+      } else {
+        setTimeout(() => barcodeInputRef.current?.focus(), 50);
       }
     }
+  }, [user, fetchInventory]);
+
+  // Enqueue barcode into FIFO queue
+  const enqueueBarcode = useCallback(
+    (codeToProcess: string) => {
+      const rawBarcode = codeToProcess.trim();
+      if (!rawBarcode) {
+        toast.error("Please enter or scan a barcode");
+        return;
+      }
+
+      scanQueueRef.current.push({
+        barcode: rawBarcode,
+        mode: activeMode,
+        checkoutType,
+        checkoutRemarks,
+        returnRemarks,
+      });
+      setQueueLength(scanQueueRef.current.length);
+      processQueue();
+    },
+    [activeMode, checkoutType, checkoutRemarks, returnRemarks, processQueue]
+  );
+
+  // Global keydown listener to capture fast barcode gun wedge input
+  useEffect(() => {
+    if (showReturnModal || isCameraActive) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // If typing in another input (such as search box, remarks textarea, dropdown), ignore
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) {
+        if (target !== barcodeInputRef.current) return;
+      }
+
+      const now = Date.now();
+      if (now - lastKeyTimeRef.current > 400) {
+        globalBufferRef.current = "";
+      }
+      lastKeyTimeRef.current = now;
+
+      if (e.key === "Enter") {
+        const barcodeFromBuffer = globalBufferRef.current.trim();
+        const barcodeFromInput = barcodeInput.trim();
+        const finalBarcode = barcodeFromInput || barcodeFromBuffer;
+
+        if (finalBarcode) {
+          e.preventDefault();
+          globalBufferRef.current = "";
+          setBarcodeInput("");
+          enqueueBarcode(finalBarcode);
+        }
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        globalBufferRef.current += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [showReturnModal, isCameraActive, barcodeInput, enqueueBarcode]);
+
+  // Handle barcode submission based on current mode
+  const handleProcessBarcode = (codeToProcess: string) => {
+    const rawBarcode = codeToProcess.trim();
+    if (!rawBarcode) {
+      toast.error("Please enter or scan a barcode");
+      return;
+    }
+    setBarcodeInput("");
+    globalBufferRef.current = "";
+    enqueueBarcode(rawBarcode);
   };
 
   // Start Camera QR Scanner
@@ -492,16 +615,24 @@ export default function StorePage() {
               </button>
             </div>
 
-            {/* Camera QR Scanner Toggle */}
-            <button
-              type="button"
-              onClick={isCameraActive ? stopCameraScanner : startCameraScanner}
-              className={`px-3 py-1.5 border rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                isCameraActive
-                  ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
-                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-              }`}
-            >
+            <div className="flex items-center gap-2">
+              {queueLength > 0 && (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-black animate-pulse shadow-xs">
+                  <Sparkles size={14} />
+                  Queue: {queueLength}
+                </span>
+              )}
+
+              {/* Camera QR Scanner Toggle */}
+              <button
+                type="button"
+                onClick={isCameraActive ? stopCameraScanner : startCameraScanner}
+                className={`px-3 py-1.5 border rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  isCameraActive
+                    ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
               {isCameraActive ? (
                 <>
                   <CameraOff size={14} />
@@ -515,6 +646,7 @@ export default function StorePage() {
               )}
             </button>
           </div>
+        </div>
 
           {/* Camera Viewfinder Box */}
           {isCameraActive && (
@@ -635,7 +767,7 @@ export default function StorePage() {
             <button
               type="button"
               onClick={() => handleProcessBarcode(barcodeInput)}
-              disabled={processing || !barcodeInput.trim()}
+              disabled={!barcodeInput.trim() && queueLength === 0}
               className={`w-full py-2.5 rounded-lg text-xs font-bold text-white transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
                 activeMode === "check-in"
                   ? "bg-emerald-600 hover:bg-emerald-700"
@@ -644,7 +776,12 @@ export default function StorePage() {
                   : "bg-rose-600 hover:bg-rose-700"
               }`}
             >
-              {processing ? (
+              {queueLength > 0 ? (
+                <>
+                  <Sparkles size={14} className="animate-spin" />
+                  Processing Queue ({queueLength} remaining)...
+                </>
+              ) : processing ? (
                 <>
                   <RefreshCw size={13} className="animate-spin" />
                   Processing QR Scan...

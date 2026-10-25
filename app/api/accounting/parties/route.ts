@@ -44,19 +44,26 @@ export async function GET(request: NextRequest) {
         let initialBalance = 0;
         if (party.openingBalanceType === "payable") {
           initialBalance = party.openingBalance;
-        } else if (party.openingBalanceType === "receivable") {
+        } else if (party.openingBalanceType === "receivable" && party.type !== "worker") {
           initialBalance = -party.openingBalance;
         }
 
-        const netPayable = initialBalance + totalBills - totalPaid;
+        let displayedTotalBills = totalBills;
+        let netPayable = initialBalance + totalBills - totalPaid;
+
+        if (party.type === "worker") {
+          // Workers are paid only after completing work. Advances do not exist.
+          displayedTotalBills = Math.max(totalBills, totalPaid);
+          netPayable = Math.max(0, initialBalance + displayedTotalBills - totalPaid);
+        }
 
         return {
           ...party,
           _id: party.id,
-          totalBills,
+          totalBills: displayedTotalBills,
           totalPaid,
           netPayable,
-          unpaidBillsCount: bills.filter((b) => b.paymentStatus !== "paid").length,
+          unpaidBillsCount: party.type === "worker" ? 0 : bills.filter((b) => b.paymentStatus !== "paid").length,
         };
       })
     );

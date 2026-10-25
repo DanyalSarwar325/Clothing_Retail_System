@@ -205,7 +205,7 @@ export default function PartiesPage() {
                 <th className="px-5 py-3.5">Party Name</th>
                 <th className="px-5 py-3.5">Type</th>
                 <th className="px-5 py-3.5">Contact</th>
-                <th className="px-5 py-3.5 text-right">Total Bills</th>
+                <th className="px-5 py-3.5 text-right">Total Bills / Earned</th>
                 <th className="px-5 py-3.5 text-right">Total Paid</th>
                 <th className="px-5 py-3.5 text-right">Current Status</th>
                 <th className="px-5 py-3.5 text-center">Action</th>
@@ -228,9 +228,10 @@ export default function PartiesPage() {
                 </tr>
               ) : (
                 parties.map((party) => {
+                  const isWorker = party.type === "worker";
                   const isPayable = party.netPayable > 0;
-                  const isReceivable = party.netPayable < 0;
-                  const isSettled = party.netPayable === 0;
+                  const isReceivable = !isWorker && party.netPayable < 0;
+                  const isSettled = isWorker ? party.netPayable <= 0 : party.netPayable === 0;
 
                   return (
                     <tr
@@ -269,27 +270,46 @@ export default function PartiesPage() {
                         {formatPKR(party.totalPaid)}
                       </td>
                       <td className="px-5 py-4 text-right">
-                        {isPayable && (
-                          <div>
-                            <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
-                              We need to pay {formatPKR(party.netPayable)}
-                            </span>
-                            {party.unpaidBillsCount > 0 && (
+                        {isWorker ? (
+                          isPayable ? (
+                            <div>
+                              <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
+                                We need to pay {formatPKR(party.netPayable)}
+                              </span>
                               <p className="text-[11px] text-slate-400 mt-0.5">
-                                {party.unpaidBillsCount} unpaid bill(s)
+                                Pending piece wages
                               </p>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                              All wages settled
+                            </span>
+                          )
+                        ) : (
+                          <>
+                            {isPayable && (
+                              <div>
+                                <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
+                                  We need to pay {formatPKR(party.netPayable)}
+                                </span>
+                                {party.unpaidBillsCount > 0 && (
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {party.unpaidBillsCount} unpaid bill(s)
+                                  </p>
+                                )}
+                              </div>
                             )}
-                          </div>
-                        )}
-                        {isReceivable && (
-                          <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                            We need to receive {formatPKR(party.netPayable)}
-                          </span>
-                        )}
-                        {isSettled && (
-                          <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                            No pending amount
-                          </span>
+                            {isReceivable && (
+                              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                                We need to receive {formatPKR(party.netPayable)}
+                              </span>
+                            )}
+                            {isSettled && (
+                              <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                No pending amount
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-5 py-4 text-center">

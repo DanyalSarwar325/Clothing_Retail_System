@@ -78,7 +78,7 @@ export default function AccountingSidebar() {
     { href: "/accounting/expenses", label: "Expenses", icon: <Receipt size={18} /> },
     { href: "/accounting/payments", label: "Payments Made", icon: <CreditCard size={18} /> },
     { href: "/accounting/receipts", label: "Money Received", icon: <ArrowDownLeft size={18} /> },
-    { href: "/accounting/wages", label: "Worker Wages & Advances", icon: <Banknote size={18} /> },
+    { href: "/accounting/wages", label: "Worker Wages Payouts", icon: <Banknote size={18} /> },
     { href: "/accounting/accounts", label: "Account Heads", icon: <FolderTree size={18} /> },
     { href: "/accounting/vouchers", label: "Vouchers", icon: <FileSpreadsheet size={18} /> },
     { href: "/accounting/reports", label: "Financial Reports", icon: <BarChart3 size={18} /> },

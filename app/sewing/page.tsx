@@ -15,6 +15,7 @@ import {
   Layers,
   Check,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import OutpassModal from "@/app/components/OutpassModal";
@@ -115,8 +116,9 @@ export default function SewingPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showOutpassModal, setShowOutpassModal] = useState(false);
 
-  // Scanner state
+  // Scanner state & FIFO Queue
   const [barcodeInput, setBarcodeInput] = useState("");
+  const [queueLength, setQueueLength] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastScanMessage, setLastScanMessage] = useState<{
     type: "success" | "error";
@@ -124,32 +126,46 @@ export default function SewingPage() {
   } | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanQueueRef = useRef<string[]>([]);
+  const isProcessingRef = useRef<boolean>(false);
+  const globalBufferRef = useRef<string>("");
+  const lastKeyTimeRef = useRef<number>(0);
 
   // Determine current active worker name
   const currentWorker = selectedWorker || user?.name || user?.username || "Sewing Staff";
 
-  // Auto-focus scanner input
+  // Auto-focus scanner input continuously unless modal is open
   useEffect(() => {
-    if (!showOutpassModal) {
-      inputRef.current?.focus();
-    }
-  }, [showOutpassModal, items]);
+    if (showOutpassModal) return;
 
-  // Keep scanner focused on window click unless clicking another interactive element
-  useEffect(() => {
+    const focusInput = () => {
+      if (inputRef.current && document.activeElement !== inputRef.current) {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+          return;
+        }
+        inputRef.current.focus();
+      }
+    };
+
+    focusInput();
+    const interval = setInterval(focusInput, 1500);
     const handleWindowClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (
-        !showOutpassModal &&
         target &&
         !["INPUT", "BUTTON", "SELECT", "A", "TEXTAREA"].includes(target.tagName)
       ) {
-        inputRef.current?.focus();
+        setTimeout(focusInput, 50);
       }
     };
+
     window.addEventListener("click", handleWindowClick);
-    return () => window.removeEventListener("click", handleWindowClick);
-  }, [showOutpassModal]);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("click", handleWindowClick);
+    };
+  }, [showOutpassModal, items]);
 
   // Fetch worker scanned items & earnings
   const fetchScannedData = useCallback(async (workerName: string) => {
@@ -248,14 +264,16 @@ export default function SewingPage() {
     return item.barcodeData;
   };
 
-  // Handle Scanning
-  const handleScan = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const rawBarcode = barcodeInput.trim();
-    if (!rawBarcode || isProcessing) return;
+  // FIFO Queue processor - handles rapid-fire barcode gun scans without dropping any scan
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    if (scanQueueRef.current.length === 0) return;
 
+    isProcessingRef.current = true;
     setIsProcessing(true);
-    setBarcodeInput("");
+
+    const rawBarcode = scanQueueRef.current.shift()!;
+    setQueueLength(scanQueueRef.current.length);
 
     try {
       const response = await fetch("/api/barcodes/scan", {
@@ -286,7 +304,9 @@ export default function SewingPage() {
         await fetchScannedData(currentWorker);
       } else {
         if (soundEnabled) playScanErrorSound();
-        const errMsg = result.message || "Failed to scan barcode";
+        const errMsg = result.alreadyScanned
+          ? `Already scanned in Sewing (${rawBarcode})`
+          : (result.message || "Failed to scan barcode");
         setLastScanMessage({ type: "error", text: errMsg });
         toast.error(errMsg, { id: "sewing-scan-error" });
       }
@@ -296,8 +316,73 @@ export default function SewingPage() {
       setLastScanMessage({ type: "error", text: errMsg });
       toast.error(errMsg);
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setQueueLength(scanQueueRef.current.length);
+
+      if (scanQueueRef.current.length > 0) {
+        setTimeout(processQueue, 20);
+      } else {
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
+    }
+  }, [currentWorker, soundEnabled, fetchScannedData]);
+
+  // Enqueue barcode into FIFO queue
+  const enqueueBarcode = useCallback((raw: string) => {
+    const cleaned = raw.trim();
+    if (!cleaned) return;
+
+    scanQueueRef.current.push(cleaned);
+    setQueueLength(scanQueueRef.current.length);
+    processQueue();
+  }, [processQueue]);
+
+  // Global keydown listener to capture fast barcode gun wedge input
+  useEffect(() => {
+    if (showOutpassModal) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // If typing in another input/textarea outside our scanner, ignore
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) {
+        if (target !== inputRef.current) return;
+      }
+
+      const now = Date.now();
+      // If interval > 400ms, reset buffer (likely human typed or idle)
+      if (now - lastKeyTimeRef.current > 400) {
+        globalBufferRef.current = "";
+      }
+      lastKeyTimeRef.current = now;
+
+      if (e.key === "Enter") {
+        const barcodeFromBuffer = globalBufferRef.current.trim();
+        const barcodeFromInput = barcodeInput.trim();
+        const finalBarcode = barcodeFromInput || barcodeFromBuffer;
+
+        if (finalBarcode) {
+          e.preventDefault();
+          globalBufferRef.current = "";
+          setBarcodeInput("");
+          enqueueBarcode(finalBarcode);
+        }
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        globalBufferRef.current += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [showOutpassModal, barcodeInput, enqueueBarcode]);
+
+  // Handle manual submit
+  const handleScan = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (barcodeInput.trim()) {
+      enqueueBarcode(barcodeInput.trim());
+      setBarcodeInput("");
+      globalBufferRef.current = "";
     }
   };
 
@@ -707,7 +792,7 @@ export default function SewingPage() {
 
             {/* 2. Barcode Scanner Active (Always-On Dark Card) */}
             <div className="bg-[#111827] text-white rounded-3xl p-6 shadow-md border border-gray-800">
-              {/* Header with Green Pulse */}
+              {/* Header with Green Pulse & Queue Badge */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <span className="relative flex h-3 w-3">
@@ -718,9 +803,17 @@ export default function SewingPage() {
                     Barcode Scanner Active
                   </span>
                 </div>
-                <span className="bg-[#052e16] text-[#4ade80] border border-[#166534] text-xs font-bold px-3 py-1 rounded-full">
-                  Always-On
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="bg-[#052e16] text-[#4ade80] border border-[#166534] text-xs font-bold px-3 py-1 rounded-full">
+                    Always-On
+                  </span>
+                  {queueLength > 0 && (
+                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-black animate-pulse">
+                      <Sparkles size={13} />
+                      Queue: {queueLength}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <p className="text-sm text-gray-300 mt-2.5 leading-relaxed font-normal">
@@ -756,16 +849,15 @@ export default function SewingPage() {
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
                     placeholder="Scan or type barcode"
-                    disabled={isProcessing}
                     autoComplete="off"
                     className="w-full text-base font-bold text-gray-900 placeholder-gray-400 bg-transparent outline-none px-1"
                   />
                   <button
                     type="submit"
-                    disabled={isProcessing || !barcodeInput.trim()}
+                    disabled={!barcodeInput.trim() && queueLength === 0}
                     className="bg-[#c0481c] hover:bg-[#a03812] text-white text-sm font-bold px-6 py-2.5 rounded-xl transition shrink-0 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer"
                   >
-                    {isProcessing ? "Scanning..." : "Enter"}
+                    {queueLength > 0 ? `Queue (${queueLength})` : isProcessing ? "Scanning..." : "Enter"}
                   </button>
                 </div>
               </form>
