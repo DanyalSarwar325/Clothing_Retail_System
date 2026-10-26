@@ -638,3 +638,72 @@ model ShopifyFulfillment {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
+
+// ==========================================
+// 12. SALARIED STAFF, ATTENDANCE & LEAVES
+// ==========================================
+model SalariedEmployee {
+  id               String             @id @default(uuid())
+  biometricPin     String?            @unique // Device User ID for future biometric fingerprint sync
+  name             String
+  phone            String?
+  department       String             @default("General") // Store, Cutting, Accounting, Admin, Quality, etc.
+  designation      String             // Cutting Master, Accountant, Store Manager, Guard, etc.
+  salaryType       String             @default("monthly") // monthly or daily
+  baseSalary       Float              // Base monthly salary (or daily wage)
+  annualLeaveQuota Int                @default(14) // Allowed paid leaves per calendar year
+  joiningDate      DateTime           @default(now())
+  isActive         Boolean            @default(true)
+  attendanceLogs   AttendanceRecord[]
+  salarySlips      SalarySlip[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([department, isActive])
+}
+
+model AttendanceRecord {
+  id           String           @id @default(uuid())
+  employeeId   String
+  employee     SalariedEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         String           // "YYYY-MM-DD" for fast date-range filtering
+  status       String           // "PRESENT", "HALF_DAY", "PAID_LEAVE", "UNPAID_LEAVE", "ABSENT"
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  workingHours Float?
+  source       String           @default("MANUAL") // "MANUAL" or "BIOMETRIC"
+  notes        String?          // e.g. "Sick leave", "Family event", "Approved by owner"
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date, status])
+}
+
+model SalarySlip {
+  id               String           @id @default(uuid())
+  employeeId       String
+  employee         SalariedEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month            Int              // 1 to 12
+  year             Int              // e.g. 2026
+  totalWorkingDays Int              @default(26) // configurable working days
+  daysPresent      Float            @default(0)
+  paidLeaves       Float            @default(0)
+  unpaidLeaves     Float            @default(0) // Extra leaves exceeding annual quota
+  absentDays       Float            @default(0) // Unapproved absences
+  baseSalary       Float
+  dailyRate        Float
+  deductionAmount  Float            @default(0) // (unpaidLeaves + absentDays) * dailyRate
+  netSalary        Float            // baseSalary - deductionAmount
+  status           String           @default("PENDING") // PENDING, PAID
+  paymentMethod    String?          // cash, bank, cheque
+  paymentVoucherId String?          // Link to Accounting Voucher
+  paidAt           DateTime?
+  paidBy           String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([employeeId, month, year])
+  @@index([month, year, status])
+}
+

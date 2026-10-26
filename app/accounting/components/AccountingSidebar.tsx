@@ -22,6 +22,7 @@ import {
   X,
   Building2,
   ArrowLeftRight,
+  UserCheck,
 } from "lucide-react";
 
 interface NavItemProps {
@@ -79,6 +80,7 @@ export default function AccountingSidebar() {
     { href: "/accounting/payments", label: "Payments Made", icon: <CreditCard size={18} /> },
     { href: "/accounting/receipts", label: "Money Received", icon: <ArrowDownLeft size={18} /> },
     { href: "/accounting/wages", label: "Worker Wages Payouts", icon: <Banknote size={18} /> },
+    { href: "/accounting/attendance", label: "Staff Attendance & Salaries", icon: <UserCheck size={18} /> },
     { href: "/accounting/accounts", label: "Account Heads", icon: <FolderTree size={18} /> },
     { href: "/accounting/vouchers", label: "Vouchers", icon: <FileSpreadsheet size={18} /> },
     { href: "/accounting/reports", label: "Financial Reports", icon: <BarChart3 size={18} /> },
